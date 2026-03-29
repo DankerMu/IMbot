@@ -88,4 +88,6 @@ jobs:
         run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
 
       - name: Lint GitHub Actions workflows
-        run: "$(go env GOPATH)/bin/actionlint"
+        run: |
+          actionlint_bin="$(go env GOPATH)/bin/actionlint"
+          "$actionlint_bin"
