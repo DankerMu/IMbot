@@ -161,7 +161,7 @@ Workflows should exist immediately, but deeper analysis gates should be activate
 Enabled now:
 
 - dependency review workflow on PRs, auto-activated once Node or Gradle dependency manifests exist
-- Dependabot for GitHub Actions
+- Dependabot for GitHub Actions with weekly Monday batching, at most two open PRs, and small grouped update streams instead of one PR per action
 
 Activate later:
 
