@@ -117,15 +117,6 @@ export class SessionOrchestrator {
         session.last_active_at
       );
 
-    this.insertAuditLog("session.create", {
-      session_id: session.id,
-      host_id: session.host_id,
-      detail: {
-        provider: session.provider,
-        cwd: session.workspace_cwd
-      }
-    });
-
     const command = {
       cmd: "create_session" as const,
       req_id: this.companionManager.createRequestId(),
@@ -170,6 +161,14 @@ export class SessionOrchestrator {
         provider_session_id: providerSessionId
       });
       await this.transition(session.id, "running");
+      this.insertAuditLog("session.create", {
+        session_id: session.id,
+        host_id: session.host_id,
+        detail: {
+          provider: session.provider,
+          cwd: session.workspace_cwd
+        }
+      });
 
       return session;
     } catch (error) {
@@ -257,7 +256,7 @@ export class SessionOrchestrator {
       )
       .run(newStatus, nextErrorCode, nextErrorMessage, now, now, sessionId);
 
-    this.insertEvent(sessionId, "session_status_changed", {
+    this.insertAndBroadcastEvent(sessionId, "session_status_changed", {
       status: newStatus,
       error_code: nextErrorCode,
       error_message: nextErrorMessage

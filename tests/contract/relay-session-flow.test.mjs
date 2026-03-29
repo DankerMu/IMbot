@@ -123,6 +123,12 @@ test("relay creates a session, persists events, and broadcasts companion traffic
   const port = typeof address === "object" && address ? address.port : 0;
   const baseUrl = `http://127.0.0.1:${port}`;
   const baseWsUrl = `ws://127.0.0.1:${port}`;
+  const broadcastCalls = [];
+  const originalBroadcastToSession = runtime.hub.broadcastToSession.bind(runtime.hub);
+  runtime.hub.broadcastToSession = (sessionId, message) => {
+    broadcastCalls.push({ sessionId, message });
+    return originalBroadcastToSession(sessionId, message);
+  };
 
   t.after(async () => {
     await runtime.close();
@@ -191,6 +197,17 @@ test("relay creates a session, persists events, and broadcasts companion traffic
   assert.equal(createPayload.session.host_id, "macbook-1");
 
   const sessionId = createPayload.session.id;
+  assert.equal(
+    broadcastCalls.some(
+      (entry) =>
+        entry.sessionId === sessionId &&
+        entry.message.type === "event" &&
+        entry.message.event_type === "session_status_changed" &&
+        entry.message.payload.status === "running"
+    ),
+    true
+  );
+
   android.send(
     JSON.stringify({
       action: "subscribe",
@@ -359,6 +376,11 @@ test("relay persists companion ack errors onto the failed session", async (t) =>
     ),
     true
   );
+
+  const auditLogCount = runtime.db
+    .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'session.create' AND session_id = ?")
+    .get(failedSession.id);
+  assert.deepEqual(auditLogCount, { count: 0 });
 
   companion.close();
 });
