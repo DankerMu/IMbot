@@ -1,5 +1,7 @@
 # API Specification
 
+> This document describes the target relay API surface across the full delivery plan. The currently implemented slice for any milestone is defined by the active OpenSpec change and its task list.
+
 ## Authentication
 
 所有请求必须携带 `Authorization: Bearer <RELAY_STATIC_TOKEN>`。

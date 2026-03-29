@@ -1,6 +1,6 @@
 {
   "node_static": true,
-  "node_integration": false,
+  "node_integration": true,
   "android_static": false,
   "android_instrumented": false,
   "nightly_system": false,
