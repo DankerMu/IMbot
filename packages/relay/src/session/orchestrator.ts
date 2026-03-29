@@ -214,10 +214,11 @@ export class SessionOrchestrator {
       const context =
         message.payload && typeof message.payload === "object"
           ? {
-              error_code:
+              error_code: this.normalizeErrorCode(
                 "error_code" in message.payload && typeof message.payload.error_code === "string"
                   ? message.payload.error_code
-                  : "provider_unreachable",
+                  : undefined
+              ),
               error_message:
                 "message" in message.payload && typeof message.payload.message === "string"
                   ? message.payload.message

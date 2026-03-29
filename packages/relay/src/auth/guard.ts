@@ -47,12 +47,11 @@ export function getWsQueryParam(url: string | undefined, name: string): string |
 }
 
 export function createAuthGuard(config: RelayConfig) {
-  return async function authGuard(request: FastifyRequest, reply: FastifyReply): Promise<void> {
+  return async function authGuard(request: FastifyRequest, reply: FastifyReply) {
     const token = extractBearerToken(request.headers.authorization);
 
     if (!isValidToken(token, config.staticToken)) {
-      reply.code(401).send({ error: "unauthenticated" });
+      return reply.code(401).send({ error: "unauthenticated" });
     }
   };
 }
-
