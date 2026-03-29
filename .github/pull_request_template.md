@@ -25,8 +25,20 @@
 - Record review evidence for the current PR head. If new commits are pushed, rerun reviewer agents and update this section.
 - Reviewer agents used: ``
 - Reviewed head SHA: ``
-- Review evidence: ``
+- Review evidence: `https://github.com/<owner>/<repo>/pull/<pr>#issuecomment-..., https://github.com/<owner>/<repo>/pull/<pr>#issuecomment-...`
 - Key findings addressed: ``
+
+### Reviewer Comment Format
+
+Post one PR conversation comment per reviewer agent using this shape:
+
+```text
+Reviewer agent: <agent name>
+Reviewed head SHA: <40-char commit SHA>
+Summary: <one-line conclusion>
+Findings:
+- <finding 1 or "None.">
+```
 
 ## Checklist
 
@@ -34,6 +46,6 @@
 - [ ] Engineering spec and UI spec stay aligned with the change
 - [ ] OpenSpec ownership is explicit or updated in the same PR
 - [ ] Added or updated the required tests for the affected requirement
-- [ ] At least two reviewer agents completed cross-review and the `Agent Review` section matches the current PR head
+- [ ] At least two reviewer agents completed cross-review, posted readable PR comments, and the `Agent Review` section matches the current PR head
 - [ ] The PR has no unresolved conversations before merge
 - [ ] CI gate activation was reviewed if this PR introduces a new package, test layer, or release path

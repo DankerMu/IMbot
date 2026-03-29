@@ -39,7 +39,7 @@ These jobs should run from day 1 inside the protected workflow suites:
    - `actionlint` for GitHub Actions workflows
 
 5. `PR Review Evidence`
-   - on pull requests, validate that the PR body `Agent Review` section records at least two reviewer agents, the current PR head SHA, a durable evidence note, and the findings summary
+   - on pull requests, validate that the PR body `Agent Review` section records at least two reviewer agents, the current PR head SHA, links to at least two PR conversation comments for the current head, and the findings summary
    - keep this inside `Repo Governance` so the protected workflow contexts stay stable while the single-developer cross-review protocol is still enforced
 
 6. `Dependency Review`
@@ -202,8 +202,8 @@ Recommended protection for `master` in the current single-developer workflow:
 - do not require CODEOWNERS reviews
 - enforce rules for admins too, so direct pushes to `master` are blocked and the PR path stays mandatory
 - block force-push and deletion
-- require conversation resolution before merge
-- use issue branch → PR → reviewer-agent cross-review on the current head → record evidence in PR body → CI → self-merge as the default execution path
+- require conversation resolution before merge for any review threads or follow-up discussions created during PR review
+- use issue branch → PR → reviewer-agent cross-review on the current head → post readable PR comment evidence → record links in PR body → CI → self-merge as the default execution path
 - keep GitHub merge queue optional until active development concurrency justifies it
 
 ### Release Gate Expectations
