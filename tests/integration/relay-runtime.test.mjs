@@ -105,7 +105,7 @@ test("relay converts companion ack timeout into a failed session", async (t) => 
     RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
     RELAY_HOST: "127.0.0.1",
     RELAY_LOG_LEVEL: "error",
-    RELAY_COMPANION_TIMEOUT_MS: "200"
+    RELAY_COMPANION_TIMEOUT_MS: "500"
   });
 
   const runtime = await relay.createRelayApp({

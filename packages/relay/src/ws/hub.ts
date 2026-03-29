@@ -147,7 +147,7 @@ export class WsHub {
 
           const cleanup = () => {
             clearTimeout(timeout);
-            ws.removeEventListener("close", onClose);
+            ws.off("close", onClose);
           };
 
           const onClose = () => {
@@ -155,7 +155,7 @@ export class WsHub {
             resolve();
           };
 
-          ws.addEventListener("close", onClose, { once: true });
+          ws.once("close", onClose);
 
           if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
             ws.close(code, reason);

@@ -116,7 +116,18 @@ export class CompanionManager {
       });
     });
 
-    ws.send(JSON.stringify(command));
+    try {
+      ws.send(JSON.stringify(command), (error) => {
+        if (!error) {
+          return;
+        }
+
+        this.rejectPendingCommand(hostId, command.req_id, this.createSendError(error));
+      });
+    } catch (error) {
+      this.rejectPendingCommand(hostId, command.req_id, this.createSendError(error));
+    }
+
     return ackPromise;
   }
 
@@ -143,6 +154,23 @@ export class CompanionManager {
     }
 
     pendingForHost.clear();
+  }
+
+  private rejectPendingCommand(hostId: string, requestId: string, error: unknown): void {
+    const pendingForHost = this.pendingByHost.get(hostId);
+    const pending = pendingForHost?.get(requestId);
+    if (!pending) {
+      return;
+    }
+
+    clearTimeout(pending.timeout);
+    pendingForHost?.delete(requestId);
+    pending.reject(error);
+  }
+
+  private createSendError(error: unknown): RelayError {
+    const detail = error instanceof Error && error.message ? `: ${error.message}` : "";
+    return new RelayError("provider_unreachable", `Failed to send companion command${detail}`);
   }
 
   private upsertHost(hostId: string, status: "online" | "offline"): void {

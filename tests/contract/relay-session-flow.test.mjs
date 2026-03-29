@@ -435,3 +435,78 @@ test("relay keeps the host online when a same-host companion replaces an older s
 
   secondCompanion.close();
 });
+
+test("relay clears pending ack state when sending a companion command fails", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-send-fail-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_HOST: "127.0.0.1",
+    RELAY_LOG_LEVEL: "error",
+    RELAY_COMPANION_TIMEOUT_MS: "2000"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  await runtime.app.listen({
+    host: "127.0.0.1",
+    port: 0
+  });
+
+  const address = runtime.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const companion = new WebSocket(
+    `ws://127.0.0.1:${port}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const serverCompanion = runtime.hub.getCompanionClient("macbook-1");
+  assert.ok(serverCompanion);
+
+  serverCompanion.send = (_payload, callback) => {
+    callback?.(new Error("socket write failed"));
+    return undefined;
+  };
+
+  const createResponse = await fetch(`${baseUrl}/v1/sessions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      provider: "claude",
+      host_id: "macbook-1",
+      cwd: "/tmp/project",
+      prompt: "help me refactor",
+      permission_mode: "bypassPermissions"
+    })
+  });
+
+  assert.equal(createResponse.status, 502);
+  assert.deepEqual(await createResponse.json(), {
+    error: "provider_unreachable"
+  });
+
+  const failedSession = runtime.db
+    .prepare("SELECT id, status, error_code, error_message FROM sessions ORDER BY created_at DESC LIMIT 1")
+    .get();
+
+  assert.equal(failedSession.status, "failed");
+  assert.equal(failedSession.error_code, "provider_unreachable");
+  assert.match(failedSession.error_message, /socket write failed/);
+
+  const pendingForHost = runtime.companionManager.pendingByHost.get("macbook-1");
+  assert.equal(pendingForHost?.size ?? 0, 0);
+
+  companion.close();
+});
