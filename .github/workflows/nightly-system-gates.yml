@@ -1,0 +1,79 @@
+name: Nightly System Gates
+
+on:
+  schedule:
+    - cron: "0 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: nightly-system-gates
+  cancel-in-progress: true
+
+jobs:
+  gate-config:
+    name: Gate Config
+    runs-on: ubuntu-latest
+    outputs:
+      nightly_system: ${{ steps.read.outputs.nightly_system }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read CI gate activation config
+        id: read
+        run: |
+          node <<'EOF' >> "$GITHUB_OUTPUT"
+          const fs = require("fs");
+          const path = ".github/ci-gates.json";
+          const defaults = { nightly_system: false };
+          const raw = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path, "utf8")) : {};
+          const merged = { ...defaults, ...raw };
+          console.log(`nightly_system=${merged.nightly_system ? "true" : "false"}`);
+          EOF
+
+  node-e2e-and-perf:
+    name: Node E2E And Perf
+    runs-on: ubuntu-latest
+    needs: gate-config
+    if: ${{ needs.gate-config.outputs.nightly_system == 'true' && hashFiles('package.json') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Run nightly Node system gate
+        run: bash scripts/ci/run_nightly_node_system_gate.sh
+
+  android-full-regression:
+    name: Android Full Regression
+    runs-on: ubuntu-latest
+    needs: gate-config
+    if: ${{ needs.gate-config.outputs.nightly_system == 'true' && hashFiles('packages/android/gradlew', 'packages/android/settings.gradle*', 'packages/android/**/build.gradle*', 'packages/android/**/build.gradle.kts') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Run Android full regression
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_7
+          script: bash scripts/ci/run_android_instrumented_gate.sh

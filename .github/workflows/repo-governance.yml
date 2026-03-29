@@ -1,0 +1,83 @@
+name: Repo Governance
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repo-governance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  spec-governance:
+    name: Spec Governance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate spec-first repo structure
+        run: bash scripts/ci/validate_spec_repo.sh
+
+  markdown-quality:
+    name: Markdown Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install markdown tooling
+        run: npm install --global markdownlint-cli2 prettier
+
+      - name: Lint markdown
+        run: markdownlint-cli2 "AGENTS.md" ".github/**/*.md" "docs/plans/**/*.md" "openspec/README.md"
+
+      - name: Check formatting
+        run: |
+          files="$(
+            {
+              printf '%s\n' AGENTS.md openspec/README.md .markdownlint.json
+              find .github docs/plans -type f \( -name '*.md' -o -name '*.yml' -o -name '*.yaml' -o -name '*.json' \) | sort
+            } | sed '/^$/d'
+          )"
+          if [[ -n "$files" ]]; then
+            printf '%s\n' "$files" | xargs prettier --check
+          fi
+
+  shell-quality:
+    name: Shell Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck
+        run: sudo apt-get update && sudo apt-get install --yes shellcheck
+
+      - name: Lint shell scripts
+        run: |
+          files="$(git ls-files '*.sh')"
+          if [[ -n "$files" ]]; then
+            printf '%s\n' "$files" | xargs shellcheck
+          fi
+
+  workflow-quality:
+    name: Workflow Quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint GitHub Actions workflows
+        uses: rhysd/actionlint@v1

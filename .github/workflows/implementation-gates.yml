@@ -1,0 +1,164 @@
+name: Implementation Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+concurrency:
+  group: implementation-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate-config:
+    name: Gate Config
+    runs-on: ubuntu-latest
+    outputs:
+      node_static: ${{ steps.read.outputs.node_static }}
+      node_integration: ${{ steps.read.outputs.node_integration }}
+      android_static: ${{ steps.read.outputs.android_static }}
+      android_instrumented: ${{ steps.read.outputs.android_instrumented }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read CI gate activation config
+        id: read
+        run: |
+          node <<'EOF' >> "$GITHUB_OUTPUT"
+          const fs = require("fs");
+          const path = ".github/ci-gates.json";
+          const defaults = {
+            node_static: false,
+            node_integration: false,
+            android_static: false,
+            android_instrumented: false
+          };
+          const raw = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path, "utf8")) : {};
+          const merged = { ...defaults, ...raw };
+          for (const [key, value] of Object.entries(merged)) {
+            console.log(`${key}=${value ? "true" : "false"}`);
+          }
+          EOF
+
+  node-static-quality:
+    name: Node Static Quality
+    runs-on: ubuntu-latest
+    needs: gate-config
+    if: ${{ needs.gate-config.outputs.node_static == 'true' && hashFiles('package.json') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Run Node static gate
+        run: bash scripts/ci/run_node_static_gate.sh
+
+      - name: Upload Node coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-coverage
+          path: |
+            coverage
+            packages/*/coverage
+          if-no-files-found: ignore
+
+  node-integration:
+    name: Node Integration
+    runs-on: ubuntu-latest
+    needs: gate-config
+    if: ${{ needs.gate-config.outputs.node_integration == 'true' && hashFiles('package.json', 'packages/relay/package.json', 'packages/companion/package.json', 'packages/wire/package.json') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Run Node integration gate
+        run: bash scripts/ci/run_node_integration_gate.sh
+
+  android-static-quality:
+    name: Android Static Quality
+    runs-on: ubuntu-latest
+    needs: gate-config
+    if: ${{ needs.gate-config.outputs.android_static == 'true' && hashFiles('packages/android/gradlew', 'packages/android/settings.gradle*', 'packages/android/**/build.gradle*', 'packages/android/**/build.gradle.kts') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+        with:
+          min-wrapper-count: 1
+
+      - name: Run Android static gate
+        run: bash scripts/ci/run_android_static_gate.sh
+
+      - name: Upload Android unit test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-unit-test-reports
+          path: |
+            packages/android/**/build/reports
+            packages/android/**/build/test-results
+          if-no-files-found: ignore
+
+  android-instrumented-smoke:
+    name: Android Instrumented Smoke
+    runs-on: ubuntu-latest
+    needs: gate-config
+    if: ${{ needs.gate-config.outputs.android_instrumented == 'true' && hashFiles('packages/android/gradlew', 'packages/android/settings.gradle*', 'packages/android/**/build.gradle*', 'packages/android/**/build.gradle.kts') != '' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Run Android instrumented smoke gate
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_7
+          script: bash scripts/ci/run_android_instrumented_gate.sh
+
+      - name: Upload Android instrumentation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-instrumented-artifacts
+          path: |
+            packages/android/**/build/reports/androidTests
+            packages/android/**/build/outputs/androidTest-results
+          if-no-files-found: ignore

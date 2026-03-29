@@ -1,0 +1,98 @@
+name: Security And Supply Chain
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+  schedule:
+    - cron: "30 7 * * 1"
+
+permissions:
+  contents: read
+  pull-requests: read
+  security-events: write
+
+concurrency:
+  group: security-supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate-config:
+    name: Gate Config
+    runs-on: ubuntu-latest
+    outputs:
+      codeql_javascript_typescript: ${{ steps.read.outputs.codeql_javascript_typescript }}
+      codeql_kotlin: ${{ steps.read.outputs.codeql_kotlin }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Read CI gate activation config
+        id: read
+        run: |
+          node <<'EOF' >> "$GITHUB_OUTPUT"
+          const fs = require("fs");
+          const path = ".github/ci-gates.json";
+          const defaults = {
+            codeql_javascript_typescript: false,
+            codeql_kotlin: false
+          };
+          const raw = fs.existsSync(path) ? JSON.parse(fs.readFileSync(path, "utf8")) : {};
+          const merged = { ...defaults, ...raw };
+          for (const [key, value] of Object.entries(merged)) {
+            console.log(`${key}=${value ? "true" : "false"}`);
+          }
+          EOF
+
+  dependency-review:
+    name: Dependency Review
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Dependency review
+        uses: actions/dependency-review-action@v4
+
+  codeql-javascript-typescript:
+    name: CodeQL JavaScript/TypeScript
+    needs: gate-config
+    if: ${{ needs.gate-config.outputs.codeql_javascript_typescript == 'true' && hashFiles('packages/relay/**/*.ts', 'packages/companion/**/*.ts', 'packages/wire/**/*.ts', 'packages/**/*.js') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
+
+  codeql-kotlin:
+    name: CodeQL Kotlin
+    needs: gate-config
+    if: ${{ needs.gate-config.outputs.codeql_kotlin == 'true' && hashFiles('packages/android/**/*.kt', 'packages/android/**/*.kts', 'packages/android/**/build.gradle*', 'packages/android/settings.gradle*') != '' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: kotlin
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+
+      - name: Analyze
+        uses: github/codeql-action/analyze@v3
