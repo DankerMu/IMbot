@@ -17,7 +17,7 @@ This plan is intentionally split into:
 
 ### Required Immediately
 
-These checks should be branch-protection blockers from day 1:
+These jobs should run from day 1 inside the protected workflow suites:
 
 1. `Spec Governance`
    - validates required root docs exist
@@ -38,9 +38,13 @@ These checks should be branch-protection blockers from day 1:
 4. `Workflow Quality`
    - `actionlint` for GitHub Actions workflows
 
-5. `Dependency Review`
-   - GitHub dependency review for pull requests
-   - should stay required even before executable code exists, because Actions and future package manifests still change supply-chain risk
+5. `PR Review Evidence`
+   - on pull requests, validate that the PR body `Agent Review` section records at least two reviewer agents, the current PR head SHA, a durable evidence note, and the findings summary
+   - keep this inside `Repo Governance` so the protected workflow contexts stay stable while the single-developer cross-review protocol is still enforced
+
+6. `Dependency Review`
+   - GitHub dependency review for pull requests once real dependency manifests exist
+   - keep the workflow present from day 1, but skip the job until Node or Gradle manifests land and GitHub can build a meaningful dependency graph
 
 ### Activation Model
 
@@ -154,7 +158,7 @@ Workflows should exist immediately, but deeper analysis gates should be activate
 
 Enabled now:
 
-- dependency review on PRs
+- dependency review workflow on PRs, auto-activated once Node or Gradle dependency manifests exist
 - Dependabot for GitHub Actions
 
 Activate later:
@@ -192,14 +196,14 @@ Recommended protection for `master` in the current single-developer workflow:
 
 - require PR before merge
 - require up-to-date branch before merge
-- require `Spec Governance`, `Markdown Quality`, `Shell Quality`, `Workflow Quality`, `Dependency Review`
-- add `Node Static Quality`, `Node Integration`, `Android Static Quality`, `Android Instrumented Smoke` as required checks from day 1 because skipped jobs will keep check names stable until gates are enabled
+- require workflow-level checks `Repo Governance`, `Implementation Gates`, and `Security And Supply Chain`
+- keep job-level checks such as `PR Review Evidence`, `Spec Governance`, `Dependency Review`, and the phase-activated Node/Android jobs inside those workflows so the protected-branch contexts stay stable
 - do not require approvals
 - do not require CODEOWNERS reviews
 - enforce rules for admins too, so direct pushes to `master` are blocked and the PR path stays mandatory
 - block force-push and deletion
 - require conversation resolution before merge
-- use issue branch → PR → reviewer-agent cross-review → CI → self-merge as the default execution path
+- use issue branch → PR → reviewer-agent cross-review on the current head → record evidence in PR body → CI → self-merge as the default execution path
 - keep GitHub merge queue optional until active development concurrency justifies it
 
 ### Release Gate Expectations
@@ -208,7 +212,7 @@ Before the first external testing or distribution build:
 
 - nightly system gates enabled
 - relevant CodeQL gates enabled
-- branch protection updated to include all active implementation jobs
+- branch protection still targets the three workflow suites while all active implementation jobs remain nested inside them
 - Android debug and release-like builds reproducible from CI
 - dependency update automation proven on at least one merged Dependabot PR
 

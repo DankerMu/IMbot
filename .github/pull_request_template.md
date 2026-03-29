@@ -1,5 +1,18 @@
 # Summary
 
+## Change Summary
+
+- What changed:
+- Why now:
+- Impacted areas:
+- Out of scope:
+
+## Verification
+
+- Local checks:
+- CI expectations:
+- Risks or follow-ups:
+
 ## Linked Work
 
 - Issue: #
@@ -9,8 +22,11 @@
 
 ## Agent Review
 
-- Reviewer agents used:
-- Key findings addressed:
+- Record review evidence for the current PR head. If new commits are pushed, rerun reviewer agents and update this section.
+- Reviewer agents used: ``
+- Reviewed head SHA: ``
+- Review evidence: ``
+- Key findings addressed: ``
 
 ## Checklist
 
@@ -18,5 +34,6 @@
 - [ ] Engineering spec and UI spec stay aligned with the change
 - [ ] OpenSpec ownership is explicit or updated in the same PR
 - [ ] Added or updated the required tests for the affected requirement
-- [ ] Multiple reviewer agents completed cross-review before merge
+- [ ] At least two reviewer agents completed cross-review and the `Agent Review` section matches the current PR head
+- [ ] The PR has no unresolved conversations before merge
 - [ ] CI gate activation was reviewed if this PR introduces a new package, test layer, or release path
