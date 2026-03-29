@@ -188,15 +188,18 @@ Rules:
 
 ### Branch Protection
 
-Recommended protection for `main`:
+Recommended protection for `master` in the current single-developer workflow:
 
 - require PR before merge
 - require up-to-date branch before merge
 - require `Spec Governance`, `Markdown Quality`, `Shell Quality`, `Workflow Quality`, `Dependency Review`
 - add `Node Static Quality`, `Node Integration`, `Android Static Quality`, `Android Instrumented Smoke` as required checks from day 1 because skipped jobs will keep check names stable until gates are enabled
-- dismiss stale approvals on new commits
+- do not require approvals
+- do not require CODEOWNERS reviews
+- enforce rules for admins too, so direct pushes to `master` are blocked and the PR path stays mandatory
 - block force-push and deletion
 - require conversation resolution before merge
+- use issue branch → PR → reviewer-agent cross-review → CI → self-merge as the default execution path
 - keep GitHub merge queue optional until active development concurrency justifies it
 
 ### Release Gate Expectations

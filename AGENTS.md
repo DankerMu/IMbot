@@ -37,12 +37,22 @@ Before changing code or writing new implementation docs, align with the existing
 - For Android/UI changes, also update `docs/specs/ui-ux-rd-spec/00_SourceInventory/COVERAGE.md` when coverage meaning changes.
 - For API/data/lifecycle changes, update tests and traceability docs in the same pass.
 
+## GitHub Flow
+
+- Work one GitHub issue at a time unless the dependency graph explicitly allows parallel work.
+- Create a dedicated branch from `master` for each issue.
+- Open a pull request for every change. Do not merge directly to `master`.
+- Before merge, run multiple reviewer agents for cross-review with a bug/risk focus.
+- Merge only after the required GitHub checks pass.
+- After merge, move to the next unblocked issue in the DAG.
+
 ## Before Merging A Change
 
 - Confirm behavior still matches the PRD.
 - Confirm the affected engineering spec sections are still accurate.
 - Confirm OpenSpec ownership is explicit.
 - Confirm tests or test-plan references still match the requirement.
+- Confirm reviewer-agent cross-review has been completed for the PR.
 - Avoid silent scope creep.
 
 ## Practical Bias
