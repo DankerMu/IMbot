@@ -155,9 +155,12 @@ Workflows should exist immediately, but deeper analysis gates should be activate
 Enabled now:
 
 - dependency review on PRs
-- Dependabot for GitHub Actions, npm, and Gradle
+- Dependabot for GitHub Actions
 
 Activate later:
+
+- Dependabot for npm once the root Node workspace exists
+- Dependabot for Gradle once `packages/android` contains the real Gradle project
 
 - CodeQL
 - secret scanning / push protection on GitHub

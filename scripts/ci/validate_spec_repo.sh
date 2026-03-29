@@ -10,6 +10,21 @@ fail() {
   exit 1
 }
 
+has_rg() {
+  command -v rg >/dev/null 2>&1
+}
+
+search_text() {
+  local pattern="$1"
+  local file="$2"
+
+  if has_rg; then
+    rg -q "$pattern" "$file"
+  else
+    grep -q -- "$pattern" "$file"
+  fi
+}
+
 check_file() {
   local path="$1"
   [[ -f "$path" ]] || fail "Missing required file: $path"
@@ -30,7 +45,7 @@ check_change_dir() {
     fail "OpenSpec change '$change_name' has no capability spec under specs/**/spec.md"
   fi
 
-  rg -q "$change_name" openspec/README.md || fail "OpenSpec README is missing change '$change_name'"
+  search_text "$change_name" openspec/README.md || fail "OpenSpec README is missing change '$change_name'"
 }
 
 check_markdown_links() {
@@ -97,15 +112,15 @@ main() {
   for i in $(seq 1 10); do
     local fr_id
     printf -v fr_id 'FR-%02d' "$i"
-    rg -q "$fr_id" docs/engineering-spec/01_Requirements/REQUIREMENTS_MATRIX.md || fail "Requirements matrix missing $fr_id"
-    rg -q "$fr_id" docs/specs/ui-ux-rd-spec/00_SourceInventory/COVERAGE.md || fail "UI coverage missing $fr_id"
+    search_text "$fr_id" docs/engineering-spec/01_Requirements/REQUIREMENTS_MATRIX.md || fail "Requirements matrix missing $fr_id"
+    search_text "$fr_id" docs/specs/ui-ux-rd-spec/00_SourceInventory/COVERAGE.md || fail "UI coverage missing $fr_id"
   done
 
   for i in $(seq 1 4); do
     local nfr_id
     printf -v nfr_id 'NFR-%02d' "$i"
-    rg -q "$nfr_id" docs/PRD.md || fail "PRD missing $nfr_id"
-    rg -q "$nfr_id" docs/engineering-spec/01_Requirements/REQUIREMENTS_MATRIX.md || fail "Requirements matrix missing $nfr_id"
+    search_text "$nfr_id" docs/PRD.md || fail "PRD missing $nfr_id"
+    search_text "$nfr_id" docs/engineering-spec/01_Requirements/REQUIREMENTS_MATRIX.md || fail "Requirements matrix missing $nfr_id"
   done
 
   while IFS= read -r -d '' markdown_file; do

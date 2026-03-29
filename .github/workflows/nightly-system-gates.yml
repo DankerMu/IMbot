@@ -18,6 +18,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       nightly_system: ${{ steps.read.outputs.nightly_system }}
+      has_node_root: ${{ steps.detect.outputs.has_node_root }}
+      has_android: ${{ steps.detect.outputs.has_android }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -34,11 +36,26 @@ jobs:
           console.log(`nightly_system=${merged.nightly_system ? "true" : "false"}`);
           EOF
 
+      - name: Detect implementation targets
+        id: detect
+        run: |
+          if [[ -f package.json ]]; then
+            echo "has_node_root=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_node_root=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if find packages/android -type f \( -name 'gradlew' -o -name 'settings.gradle' -o -name 'settings.gradle.kts' -o -name 'build.gradle' -o -name 'build.gradle.kts' \) -print -quit 2>/dev/null | grep -q .; then
+            echo "has_android=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_android=false" >> "$GITHUB_OUTPUT"
+          fi
+
   node-e2e-and-perf:
     name: Node E2E And Perf
     runs-on: ubuntu-latest
     needs: gate-config
-    if: ${{ needs.gate-config.outputs.nightly_system == 'true' && hashFiles('package.json') != '' }}
+    if: ${{ needs.gate-config.outputs.nightly_system == 'true' && needs.gate-config.outputs.has_node_root == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -57,7 +74,7 @@ jobs:
     name: Android Full Regression
     runs-on: ubuntu-latest
     needs: gate-config
-    if: ${{ needs.gate-config.outputs.nightly_system == 'true' && hashFiles('packages/android/gradlew', 'packages/android/settings.gradle*', 'packages/android/**/build.gradle*', 'packages/android/**/build.gradle.kts') != '' }}
+    if: ${{ needs.gate-config.outputs.nightly_system == 'true' && needs.gate-config.outputs.has_android == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4

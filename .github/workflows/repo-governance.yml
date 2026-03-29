@@ -79,5 +79,13 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+
+      - name: Install actionlint
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@latest
+
       - name: Lint GitHub Actions workflows
-        uses: rhysd/actionlint@v1
+        run: "$(go env GOPATH)/bin/actionlint"

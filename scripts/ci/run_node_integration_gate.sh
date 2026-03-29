@@ -13,6 +13,7 @@ fail() {
 assert_root_script() {
   local script_name="$1"
 
+  # shellcheck disable=SC2016
   node -e '
     const fs = require("fs");
     const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));

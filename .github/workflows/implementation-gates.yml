@@ -23,6 +23,9 @@ jobs:
       node_integration: ${{ steps.read.outputs.node_integration }}
       android_static: ${{ steps.read.outputs.android_static }}
       android_instrumented: ${{ steps.read.outputs.android_instrumented }}
+      has_node_root: ${{ steps.detect.outputs.has_node_root }}
+      has_node_packages: ${{ steps.detect.outputs.has_node_packages }}
+      has_android: ${{ steps.detect.outputs.has_android }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -46,11 +49,32 @@ jobs:
           }
           EOF
 
+      - name: Detect implementation targets
+        id: detect
+        run: |
+          if [[ -f package.json ]]; then
+            echo "has_node_root=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_node_root=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if find packages -maxdepth 2 -type f \( -path 'packages/relay/package.json' -o -path 'packages/companion/package.json' -o -path 'packages/wire/package.json' \) -print -quit | grep -q .; then
+            echo "has_node_packages=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_node_packages=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          if find packages/android -type f \( -name 'gradlew' -o -name 'settings.gradle' -o -name 'settings.gradle.kts' -o -name 'build.gradle' -o -name 'build.gradle.kts' \) -print -quit 2>/dev/null | grep -q .; then
+            echo "has_android=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_android=false" >> "$GITHUB_OUTPUT"
+          fi
+
   node-static-quality:
     name: Node Static Quality
     runs-on: ubuntu-latest
     needs: gate-config
-    if: ${{ needs.gate-config.outputs.node_static == 'true' && hashFiles('package.json') != '' }}
+    if: ${{ needs.gate-config.outputs.node_static == 'true' && needs.gate-config.outputs.has_node_root == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -79,7 +103,7 @@ jobs:
     name: Node Integration
     runs-on: ubuntu-latest
     needs: gate-config
-    if: ${{ needs.gate-config.outputs.node_integration == 'true' && hashFiles('package.json', 'packages/relay/package.json', 'packages/companion/package.json', 'packages/wire/package.json') != '' }}
+    if: ${{ needs.gate-config.outputs.node_integration == 'true' && needs.gate-config.outputs.has_node_packages == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -98,7 +122,7 @@ jobs:
     name: Android Static Quality
     runs-on: ubuntu-latest
     needs: gate-config
-    if: ${{ needs.gate-config.outputs.android_static == 'true' && hashFiles('packages/android/gradlew', 'packages/android/settings.gradle*', 'packages/android/**/build.gradle*', 'packages/android/**/build.gradle.kts') != '' }}
+    if: ${{ needs.gate-config.outputs.android_static == 'true' && needs.gate-config.outputs.has_android == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -132,7 +156,7 @@ jobs:
     name: Android Instrumented Smoke
     runs-on: ubuntu-latest
     needs: gate-config
-    if: ${{ needs.gate-config.outputs.android_instrumented == 'true' && hashFiles('packages/android/gradlew', 'packages/android/settings.gradle*', 'packages/android/**/build.gradle*', 'packages/android/**/build.gradle.kts') != '' }}
+    if: ${{ needs.gate-config.outputs.android_instrumented == 'true' && needs.gate-config.outputs.has_android == 'true' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
