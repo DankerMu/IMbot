@@ -25,6 +25,13 @@
 - OpenClaw gateway 协议稳定，bridge 适配层足够隔离变更
 - 单用户场景无需考虑并发写冲突
 
+## Alignment Resources
+
+1. [01_Requirements/REQUIREMENTS_MATRIX.md](01_Requirements/REQUIREMENTS_MATRIX.md) — PRD ↔ engineering spec ↔ OpenSpec ↔ test coverage 总矩阵
+2. [../../openspec/README.md](../../openspec/README.md) — OpenSpec 变更索引、`p0-p3` 语义、按 FR 的实现映射
+3. [../specs/ui-ux-rd-spec/00_SourceInventory/COVERAGE.md](../specs/ui-ux-rd-spec/00_SourceInventory/COVERAGE.md) — Android/UI 侧覆盖与未覆盖项
+4. [06_Implementation/TASK_BREAKDOWN.md](06_Implementation/TASK_BREAKDOWN.md) — PRD phase 与 OpenSpec workstream 的落地节奏
+
 ## Reading Order
 
 1. [00_Overview/SUMMARY.md](00_Overview/SUMMARY.md) — 全局概览 + 决策日志

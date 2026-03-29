@@ -1,5 +1,7 @@
 # Task Breakdown & Milestones
 
+> Note: PRD `Phase 0-3` are roadmap milestones. OpenSpec `p0-p3` prefixes are delivery bands for implementation workstreams, so a change like `p2-android-session-detail` can still contribute to PRD Phase 1. Use [../../../openspec/README.md](../../../openspec/README.md) and [../01_Requirements/REQUIREMENTS_MATRIX.md](../01_Requirements/REQUIREMENTS_MATRIX.md) for the exact mapping.
+
 ## Phase 0: Feasibility Spike
 
 ### M0-1: Monorepo 脚手架
@@ -66,13 +68,13 @@
 - Seq 分配 + gap 检测
 
 ### M1-3: Companion 完善
-**Estimate**: 6h | **Implements**: FR-02, FR-04, FR-10 | **Deps**: M0-4
+**Estimate**: 6h | **Implements**: FR-02, FR-04 | **Enables**: FR-10 reserved plumbing | **Deps**: M0-4
 - `list_sessions` 命令 → 读取本地 Claude session 历史
 - `resume_session` 命令 → CLI `--resume --session-id`
 - `send_message` + `cancel_session`
 - Workspace root 动态增删（relay 同步）
 - book provider 适配（不同二进制路径）
-- Permission mode 配置传递
+- Permission mode 配置传递（默认仍为 `bypassPermissions`，为 Phase 3 保留路径铺底）
 
 ### M1-4: OpenClaw Bridge 完善
 **Estimate**: 4h | **Implements**: FR-01, FR-04 | **Deps**: M0-6
@@ -115,7 +117,7 @@
 - State machine tests
 - Seq allocation tests
 - Path validation tests
-- Purge job tests
+- Permission-mode plumbing / approval passthrough tests
 
 ### M1-10: Integration Tests
 **Estimate**: 4h | **Deps**: M1-3, M1-4
@@ -167,10 +169,37 @@
 **Estimate**: 2h
 - node-cron job 实现
 - Android 端同步清理本地缓存
+- Purge job tests
 
 **Phase 2 总估时**: ~20h (~2 周 part-time)
 
-**验收**: 日常使用品质——美观、流畅、错误可理解。
+**Phase 2 验收**: 日常使用品质——美观、流畅、错误可理解。
+
+---
+
+## Phase 3: Hardening & Reserved Capability
+
+### M3-1: Connection Hardening
+**Estimate**: ongoing | **Implements**: FR-07, NFR-02
+- Ping/pong / idle-timeout 调优
+- 网络切换与后台存活验证
+- 电池优化 / ROM 行为回归
+
+### M3-2: Approval Reserved Path
+**Estimate**: 3h | **Implements**: FR-10
+- `permission_mode != bypassPermissions` 端到端透传
+- `approval_required` / `approval_resolved` 事件存储与广播
+- 默认关闭，无 Inbox UI / 决策面板
+
+### M3-3: Security Follow-ups
+**Estimate**: ongoing | **Implements**: NFR-03
+- E2E 加密评估
+- certificate pinning 评估
+- secret handling 回顾
+
+**Phase 3 总估时**: ongoing (reserved path ~3h + 持续 hardening)
+
+**Phase 3 验收**: 保留能力和 hardening 项可独立推进，不改变默认 `bypassPermissions` 用户路径。
 
 ---
 
@@ -215,6 +244,8 @@ M0-1 ──► M0-2 ──┬──► M0-3 ──┬──► M0-5
                   │  Phase 2 Done   │
                   └────────────────┘
 ```
+
+Phase 3 is ongoing hardening / future work and is intentionally omitted from the static dependency graph above.
 
 ## Risk Register
 

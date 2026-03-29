@@ -2,20 +2,22 @@
 
 ## Traceability Matrix
 
-| Requirement | Unit | Integration | E2E |
-|-------------|------|-------------|-----|
-| FR-01 Provider 管理 | UT-01 | IT-01 | E2E-01 |
-| FR-02 Workspace 管理 | UT-02 | IT-02 | E2E-02 |
-| FR-03 会话创建 | UT-03 | IT-03 | E2E-03 |
-| FR-04 会话恢复 | UT-04 | IT-04 | E2E-04 |
-| FR-05 多会话并发 | UT-05 | IT-05 | E2E-05 |
-| FR-06 流式渲染 | UT-06 | — | E2E-06 |
-| FR-07 断线恢复 | UT-07 | IT-07 | E2E-07 |
-| FR-08 FCM 推送 | UT-08 | IT-08 | — |
-| FR-09 主题 | UT-09 | — | — |
-| FR-10 审批保留 | UT-10 | IT-10 | — |
-| NFR-01 延迟 < 1s | — | — | PERF-01 |
-| NFR-02 WSS 稳定性 | — | — | PERF-02 |
+| Requirement | Key Test Coverage |
+|-------------|-------------------|
+| FR-01 Provider 管理 | UT-01, IT-01, E2E-01, E2E-05 |
+| FR-02 Workspace 管理 | UT-02, IT-02, E2E-01, E2E-02 |
+| FR-03 会话创建 | UT-03, IT-03, E2E-01 |
+| FR-04 会话恢复 | UT-04, IT-04, E2E-02 |
+| FR-05 多会话并发 | UT-05, IT-05, E2E-05 |
+| FR-06 流式渲染 | UT-06, E2E-07, PERF-04 |
+| FR-07 断线恢复 | UT-07, IT-07, E2E-03, PERF-02 |
+| FR-08 FCM 推送 | UT-08, IT-08 |
+| FR-09 主题 | UT-09 |
+| FR-10 审批保留 | UT-10, IT-10 |
+| NFR-01 Performance | PERF-01, PERF-02, PERF-03, PERF-04 |
+| NFR-02 Reliability | IT-07, E2E-03, E2E-04, PERF-02 |
+| NFR-03 Security | UT-02, manual security checklist |
+| NFR-04 Compatibility | build validation, Android device smoke |
 
 ## Unit Tests
 
@@ -33,8 +35,10 @@
 | UT-07b | Seq allocation | 并发安全（SQLite 单写者） |
 | UT-08a | FCM push | completed → 发送通知 |
 | UT-08b | FCM push | 无 subscription → 不报错 |
-| UT-10a | Purge job | 30 天前 session 被删 |
-| UT-10b | Purge job | 活跃 session 不删 |
+| UT-10a | Permission mode plumbing | `permission_mode=default` 创建会话时，relay DB 与 companion command 保持同值 |
+| UT-10b | Approval event passthrough | `approval_required` / `approval_resolved` 事件可被存储并广播，不破坏现有 session 流 |
+| UT-14a | Purge job | 30 天前 session 被删 |
+| UT-14b | Purge job | 活跃 session 不删 |
 | UT-02a | Path validation | 正常路径通过 |
 | UT-02b | Path validation | `..` 路径遍历拒绝 |
 | UT-02c | Path validation | 不在 root 下的路径拒绝 |

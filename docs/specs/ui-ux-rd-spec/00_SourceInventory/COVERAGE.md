@@ -1,5 +1,7 @@
 # PRD → UI/UX 覆盖映射
 
+> Note: 本文档只覆盖 Android/UI 责任面。跨层要求仍以 `docs/PRD.md`、`docs/engineering-spec/` 与 `openspec/README.md` 为准。
+
 ## Functional Requirements Coverage
 
 | PRD Req | UI Spec Location | Status |
@@ -10,18 +12,19 @@
 | FR-04 会话恢复 | P-04 WorkspaceScreen (session list per dir), P-02 SessionDetail | ✅ |
 | FR-05 多会话并发 | P-01 SessionListScreen (multi-card, real-time status) | ✅ |
 | FR-06 流式渲染 | C-02 MessageBubble, C-04 MarkdownRenderer, C-03 ToolCallCard, P-02 Detail | ✅ |
-| FR-07 断线恢复 | C-10 ConnectionBanner, P-04 Auto-scroll pattern, catch-up logic | ✅ |
+| FR-07 断线恢复 | C-10 ConnectionBanner, P-02 SessionDetailScreen (`isCatchingUp`), P-05 Error Handling Pattern | ✅ |
 | FR-08 FCM 推送 | P-08 Deep Link pattern | ✅ |
 | FR-09 主题 | Foundation §Color/Theme, P-05 SettingsScreen theme toggle | ✅ |
-| FR-10 审批保留 | 未做 UI（代码保留，默认关闭） | ⏭ 按设计跳过 |
+| FR-10 审批保留 | 无 Approval Inbox UI；仅保留后续 Phase 3 能力占位 | ⏭ 按设计跳过 |
 
 ## Non-Functional Requirements Coverage
 
 | PRD Req | UI Spec Location | Status |
 |---------|-----------------|--------|
-| NFR-01 延迟 < 1s | P-02 streaming UX, P-06 Loading pattern | ✅ |
-| NFR-03 Security | P-00 OnboardingScreen (token 输入), Foundation (no cleartext) | ✅ |
-| NFR-04 Android API 26+ | Foundation (Material 3 compat) | ✅ |
+| NFR-01 Performance | P-01 SessionListScreen（冷启动/加载态）, P-02 SessionDetailScreen（流式与 catch-up）, P-06 Loading Pattern | ◐ UI 侧覆盖 |
+| NFR-02 Reliability | C-10 ConnectionBanner, P-02 SessionDetailScreen, P-05 Error Handling Pattern | ◐ UI 侧覆盖 |
+| NFR-03 Security | P-00 OnboardingScreen（token 密码输入、首次配置）, Settings connection management | ◐ UI 侧覆盖 |
+| NFR-04 Compatibility | OVERVIEW（Android API 26+）, Foundation（Material 3 / Compose 基线） | ✅ |
 
 ## Component → Page Usage Matrix
 
