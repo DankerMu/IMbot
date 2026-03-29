@@ -1,4 +1,4 @@
-import type { ErrorCode, EventType, Provider, SessionStatus } from "./enums";
+import type { EventType, Provider, SessionStatus } from "./enums";
 
 export type HostType = "macbook" | "relay_local";
 export type HostAvailability = "online" | "offline";
@@ -15,7 +15,7 @@ export interface Session {
   permission_mode: string;
   status: SessionStatus;
   error_message: string | null;
-  error_code: ErrorCode | null;
+  error_code: string | null;
   created_at: string;
   updated_at: string;
   last_active_at: string;
@@ -27,7 +27,6 @@ export interface Host {
   type: HostType;
   status: HostAvailability;
   last_heartbeat_at: string | null;
-  providers: Provider[];
   created_at: string;
   updated_at: string;
 }
