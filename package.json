@@ -1,0 +1,28 @@
+{
+  "name": "imbot",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/relay",
+    "packages/companion",
+    "packages/wire"
+  ],
+  "scripts": {
+    "build:wire": "npm run build --workspace @imbot/wire",
+    "build:relay": "npm run build --workspace @imbot/relay",
+    "build:companion": "npm run build --workspace @imbot/companion",
+    "build": "npm run build:wire && npm run build:relay && npm run build:companion",
+    "clean": "node -e \"const fs=require('node:fs'); ['packages/wire/dist','packages/relay/dist','packages/companion/dist'].forEach((path)=>fs.rmSync(path,{recursive:true,force:true}));\"",
+    "lint": "npm run typecheck",
+    "typecheck": "npm run build:wire && npm run typecheck --workspace @imbot/relay && npm run typecheck --workspace @imbot/companion",
+    "test:unit": "npm run build && node --test tests/unit/wire.test.mjs",
+    "test:contract": "npm run build && node --test tests/contract/workspace-imports.test.mjs"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=22",
+    "npm": ">=10"
+  }
+}
