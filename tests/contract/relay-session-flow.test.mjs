@@ -277,6 +277,13 @@ test("relay persists companion ack errors onto the failed session", async (t) =>
   );
   await waitForOpen(companion, "companion");
 
+  const broadcastCalls = [];
+  const originalBroadcastToSession = runtime.hub.broadcastToSession.bind(runtime.hub);
+  runtime.hub.broadcastToSession = (sessionId, message) => {
+    broadcastCalls.push({ sessionId, message });
+    return originalBroadcastToSession(sessionId, message);
+  };
+
   t.after(async () => {
     await runtime.close();
     rmSync(tempDir, { recursive: true, force: true });
@@ -341,6 +348,17 @@ test("relay persists companion ack errors onto the failed session", async (t) =>
     error_code: "directory_not_found",
     message: "Directory missing"
   });
+
+  assert.equal(
+    broadcastCalls.some(
+      (entry) =>
+        entry.sessionId === failedSession.id &&
+        entry.message.type === "event" &&
+        entry.message.event_type === "session_error" &&
+        entry.message.payload.error_code === "directory_not_found"
+    ),
+    true
+  );
 
   companion.close();
 });

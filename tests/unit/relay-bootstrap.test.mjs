@@ -108,6 +108,46 @@ test("relay loads defaults, initializes schema, and protects REST routes", async
   });
 });
 
+test("relay does not insert a session when the target host is offline", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-host-offline-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const response = await runtime.app.inject({
+    method: "POST",
+    url: "/v1/sessions",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`,
+      "content-type": "application/json"
+    },
+    payload: {
+      provider: "claude",
+      host_id: "macbook-1",
+      cwd: "/tmp/project",
+      prompt: "help me refactor"
+    }
+  });
+
+  assert.equal(response.statusCode, 502);
+  assert.deepEqual(response.json(), { error: "host_offline" });
+
+  const sessionCount = runtime.db.prepare("SELECT COUNT(*) AS count FROM sessions").get();
+  assert.deepEqual(sessionCount, { count: 0 });
+});
+
 test("relay requires RELAY_STATIC_TOKEN", () => {
   assert.throws(() => {
     relay.loadConfig({});

@@ -166,7 +166,7 @@ export class SessionOrchestrator {
         )
         .run(providerSessionId, now, now, session.id);
 
-      this.insertEvent(session.id, "session_started", {
+      this.insertAndBroadcastEvent(session.id, "session_started", {
         provider_session_id: providerSessionId
       });
       await this.transition(session.id, "running");
@@ -176,7 +176,7 @@ export class SessionOrchestrator {
       const relayError =
         error instanceof RelayError ? error : new RelayError("provider_unreachable", "Companion command failed");
 
-      this.insertEvent(session.id, "session_error", {
+      this.insertAndBroadcastEvent(session.id, "session_error", {
         error_code: relayError.code,
         message: relayError.message
       });
@@ -195,15 +195,7 @@ export class SessionOrchestrator {
       return;
     }
 
-    const storedEvent = this.insertEvent(session.id, message.event_type, message.payload);
-    this.hub.broadcastToSession(session.id, {
-      type: "event",
-      session_id: session.id,
-      seq: storedEvent.seq,
-      event_type: storedEvent.type,
-      payload: storedEvent.payload,
-      timestamp: storedEvent.created_at
-    });
+    this.insertAndBroadcastEvent(session.id, message.event_type, message.payload);
 
     if (message.event_type === "session_result") {
       await this.transition(session.id, "completed");
@@ -310,6 +302,19 @@ export class SessionOrchestrator {
       .run(createdAt, sessionId);
 
     return event;
+  }
+
+  private insertAndBroadcastEvent(sessionId: string, eventType: EventType, payload: unknown) {
+    const storedEvent = this.insertEvent(sessionId, eventType, payload);
+    this.hub.broadcastToSession(sessionId, {
+      type: "event",
+      session_id: sessionId,
+      seq: storedEvent.seq,
+      event_type: storedEvent.type,
+      payload: storedEvent.payload,
+      timestamp: storedEvent.created_at
+    });
+    return storedEvent;
   }
 
   private insertAuditLog(
