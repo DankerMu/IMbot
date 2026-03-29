@@ -138,6 +138,8 @@ else:
             comment_body = comment.get("body") or ""
             comment_html_url = comment.get("html_url") or ""
             comment_issue_url = comment.get("issue_url") or ""
+            comment_created_at = comment.get("created_at") or ""
+            comment_updated_at = comment.get("updated_at") or ""
             comment_reviewer = extract_comment_field(comment_body, "Reviewer agent")
             comment_sha = extract_comment_field(comment_body, "Reviewed head SHA")
             comment_summary = extract_comment_field(comment_body, "Summary")
@@ -147,6 +149,9 @@ else:
                 continue
             if comment_issue_url != expected_issue_url:
                 errors.append(f"review evidence comment `{comment_id}` does not belong to the current pull request")
+                continue
+            if comment_updated_at != comment_created_at:
+                errors.append(f"review evidence comment `{comment_id}` was edited after creation; post a new comment and update the PR body links instead of editing linked evidence")
                 continue
             if comment_reviewer is None or is_placeholder(comment_reviewer):
                 errors.append(f"review evidence comment `{comment_id}` is missing a `Reviewer agent` line")

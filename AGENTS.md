@@ -53,7 +53,7 @@ Before changing code or writing new implementation docs, align with the existing
 - Confirm the affected engineering spec sections are still accurate.
 - Confirm OpenSpec ownership is explicit.
 - Confirm tests or test-plan references still match the requirement.
-- Confirm reviewer-agent cross-review has been completed and the PR body records the reviewer names, reviewed head SHA, linked PR comment evidence, and findings summary.
+- Confirm reviewer-agent cross-review has been completed and the PR body records the reviewer names, reviewed head SHA, linked PR comment evidence, and a concise PR-level findings summary.
 - Confirm the PR has no unresolved conversations before merge.
 - Avoid silent scope creep.
 
@@ -63,7 +63,9 @@ Before changing code or writing new implementation docs, align with the existing
 - Every PR description should clearly cover: change summary, why the change exists, verification, and remaining risks or follow-ups.
 - When reviewer agents are running, wait patiently for them to complete before redirecting, interrupting, or closing them unless the work is clearly stuck.
 - Reviewer-agent results must be posted as separate PR conversation comments, one comment per agent, and each comment must use this readable structure: `Reviewer agent`, `Reviewed head SHA`, `Summary`, `Findings`.
+- Treat linked reviewer comments as immutable evidence. If a reviewer result needs correction, post a new PR comment and update the PR body links instead of editing an already linked comment.
 - If a linked reviewer comment is edited, also rerun `Repo Governance` by editing the PR body or rerunning the workflow so `PR Review Evidence` reevaluates the new comment content.
+- The linked reviewer comments are the source of truth for review evidence; `Key findings addressed` in the PR body is the concise roll-up for merge readers.
 - Reviewer-agent evidence is enforced through `PR Review Evidence`; GitHub conversation resolution is a separate merge rule for any threaded review discussions or follow-up conversations.
 - Review comments for concrete issues must be one finding per comment and use a readable structure with `Severity`, `Problem`, `Impact`, and `Requested fix`.
 - If reviewer agents find no issues, record that in short bullets instead of a prose block.

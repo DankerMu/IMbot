@@ -41,6 +41,7 @@ These jobs should run from day 1 inside the protected workflow suites:
 5. `PR Review Evidence`
    - on pull requests, validate that the PR body `Agent Review` section records at least two reviewer agents, the current PR head SHA, links to at least two PR conversation comments for the current head, and the findings summary
    - verify each linked comment actually belongs to the current PR and contains the readable reviewer-agent comment structure
+   - treat linked reviewer comments as immutable evidence; fixes should use new comments plus updated PR-body links instead of editing previously linked comments
    - keep this inside `Repo Governance` so the protected workflow contexts stay stable while the single-developer cross-review protocol is still enforced
 
 6. `Dependency Review`
