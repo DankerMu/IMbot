@@ -114,24 +114,17 @@ WHEN a session with `status='running'` receives a `session_error` event
 THEN the status transitions to `'failed'`
 AND `error_message` and `error_code` are populated from the event payload
 
-#### Scenario: valid transition running to cancelled
-
-WHEN `POST /v1/sessions/:id/cancel` is called for a running session
-THEN a `cancel_session` command is sent to the companion
-AND the status transitions to `'cancelled'`
-
-#### Scenario: invalid transition cancelled to running is rejected
-
-WHEN a session has `status='cancelled'`
-AND code attempts to transition it to `'running'`
-THEN the transition is rejected with a `state_conflict` error
-AND the status remains `'cancelled'`
-
 #### Scenario: invalid transition completed to failed is rejected
 
 WHEN a session has `status='completed'`
 AND code attempts to transition it to `'failed'`
 THEN the transition is rejected with a `state_conflict` error
+
+#### Scenario: cancellation remains out of scope for p0
+
+WHEN reviewing the p0 relay-minimal slice
+THEN session cancellation is deferred to a later lifecycle change
+AND no `POST /v1/sessions/:id/cancel` behavior is required in this slice
 
 #### Scenario: status change broadcasts to subscribers
 

@@ -208,6 +208,11 @@ test("relay creates a session, persists events, and broadcasts companion traffic
     true
   );
 
+  const createAuditLogCount = runtime.db
+    .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'session.create' AND session_id = ?")
+    .get(sessionId);
+  assert.deepEqual(createAuditLogCount, { count: 1 });
+
   android.send(
     JSON.stringify({
       action: "subscribe",

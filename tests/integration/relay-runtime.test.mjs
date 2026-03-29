@@ -121,6 +121,12 @@ test("relay converts companion ack timeout into a failed session", async (t) => 
   const address = runtime.app.server.address();
   const port = typeof address === "object" && address ? address.port : 0;
   const baseUrl = `http://127.0.0.1:${port}`;
+  const broadcastCalls = [];
+  const originalBroadcastToSession = runtime.hub.broadcastToSession.bind(runtime.hub);
+  runtime.hub.broadcastToSession = (sessionId, message) => {
+    broadcastCalls.push({ sessionId, message });
+    return originalBroadcastToSession(sessionId, message);
+  };
   const companion = new WebSocket(
     `ws://127.0.0.1:${port}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
   );
@@ -155,12 +161,32 @@ test("relay converts companion ack timeout into a failed session", async (t) => 
   });
 
   const failedSession = runtime.db
-    .prepare("SELECT status, error_code FROM sessions ORDER BY created_at DESC LIMIT 1")
+    .prepare("SELECT id, status, error_code FROM sessions ORDER BY created_at DESC LIMIT 1")
     .get();
   assert.deepEqual(failedSession, {
+    id: failedSession.id,
     status: "failed",
     error_code: "command_timeout"
   });
+
+  const sessionErrorEvent = runtime.db
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? AND type = 'session_error' LIMIT 1")
+    .get(failedSession.id);
+  const sessionErrorPayload = JSON.parse(sessionErrorEvent.payload);
+  assert.equal(sessionErrorEvent.type, "session_error");
+  assert.equal(sessionErrorPayload.error_code, "command_timeout");
+  assert.match(sessionErrorPayload.message, /timed out/);
+
+  assert.equal(
+    broadcastCalls.some(
+      (entry) =>
+        entry.sessionId === failedSession.id &&
+        entry.message.type === "event" &&
+        entry.message.event_type === "session_error" &&
+        entry.message.payload.error_code === "command_timeout"
+    ),
+    true
+  );
 
   companion.close();
 });
