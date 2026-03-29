@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   gate-config:
-    name: Gate Config
+    name: Implementation Gate Config
     runs-on: ubuntu-latest
     outputs:
       node_static: ${{ steps.read.outputs.node_static }}

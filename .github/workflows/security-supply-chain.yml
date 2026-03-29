@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   gate-config:
-    name: Gate Config
+    name: Security Gate Config
     runs-on: ubuntu-latest
     outputs:
       has_dependency_manifests: ${{ steps.detect.outputs.has_dependency_manifests }}

@@ -198,8 +198,8 @@ Recommended protection for `master` in the current single-developer workflow:
 
 - require PR before merge
 - require up-to-date branch before merge
-- require workflow-level checks `Repo Governance`, `Implementation Gates`, and `Security And Supply Chain`
-- keep job-level checks such as `PR Review Evidence`, `Spec Governance`, `Dependency Review`, and the phase-activated Node/Android jobs inside those workflows so the protected-branch contexts stay stable
+- require job-level checks `PR Review Evidence`, `Spec Governance`, `Markdown Quality`, `Shell Quality`, `Workflow Quality`, `Implementation Gate Config`, `Node Static Quality`, `Node Integration`, `Android Static Quality`, `Android Instrumented Smoke`, `Security Gate Config`, `Dependency Review`, `CodeQL JavaScript/TypeScript`, and `CodeQL Kotlin`
+- keep these check names stable from day 1 and let inactive implementation/security jobs report `skipped` until their gates are turned on
 - do not require approvals
 - do not require CODEOWNERS reviews
 - enforce rules for admins too, so direct pushes to `master` are blocked and the PR path stays mandatory
@@ -214,7 +214,7 @@ Before the first external testing or distribution build:
 
 - nightly system gates enabled
 - relevant CodeQL gates enabled
-- branch protection still targets the three workflow suites while all active implementation jobs remain nested inside them
+- branch protection still targets the stable job-level gate names listed above, including the currently skipped implementation/security jobs
 - Android debug and release-like builds reproducible from CI
 - dependency update automation proven on at least one merged Dependabot PR
 
