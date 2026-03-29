@@ -45,6 +45,18 @@ export async function createRelayApp(options?: {
   const hub = new WsHub(config.wsPingIntervalMs);
   const companionManager = new CompanionManager(config, db, hub, app.log);
   const orchestrator = new SessionOrchestrator(config, db, hub, companionManager, app.log);
+  let shutdownComplete = false;
+
+  const performShutdown = async (): Promise<void> => {
+    if (shutdownComplete) {
+      return;
+    }
+
+    shutdownComplete = true;
+    companionManager.shutdown();
+    await hub.closeAll(1001, "Going Away");
+    db.close();
+  };
 
   app.setErrorHandler((error, _request, reply) => {
     if (isRelayError(error)) {
@@ -96,9 +108,7 @@ export async function createRelayApp(options?: {
   );
 
   app.addHook("onClose", async () => {
-    companionManager.shutdown();
-    hub.closeAll(1001, "Going Away");
-    db.close();
+    await performShutdown();
   });
 
   return {
@@ -109,8 +119,8 @@ export async function createRelayApp(options?: {
     companionManager,
     orchestrator,
     close: async () => {
+      await performShutdown();
       await app.close();
     }
   };
 }
-

@@ -91,3 +91,48 @@ test("relay requires RELAY_STATIC_TOKEN", () => {
   }, /RELAY_STATIC_TOKEN/);
 });
 
+test("relay rejects non-positive timeout and heartbeat values", () => {
+  assert.throws(() => {
+    relay.loadConfig({
+      RELAY_STATIC_TOKEN: "t".repeat(64),
+      RELAY_COMPANION_TIMEOUT_MS: "0"
+    });
+  }, /RELAY_COMPANION_TIMEOUT_MS/);
+
+  assert.throws(() => {
+    relay.loadConfig({
+      RELAY_STATIC_TOKEN: "t".repeat(64),
+      RELAY_WS_PING_INTERVAL_MS: "-1"
+    });
+  }, /RELAY_WS_PING_INTERVAL_MS/);
+});
+
+test("relay rejects malformed events limit values", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-events-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const response = await runtime.app.inject({
+    method: "GET",
+    url: "/v1/sessions/does-not-matter/events?since_seq=0&limit=abc",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  assert.equal(response.statusCode, 400);
+  assert.deepEqual(response.json(), { error: "invalid_request" });
+});

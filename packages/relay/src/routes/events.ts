@@ -27,7 +27,14 @@ export function registerEventRoutes(
     const limit =
       limitRaw == null || limitRaw === ""
         ? 500
-        : Math.min(Math.max(Number.parseInt(limitRaw, 10), 1), 500);
+        : (() => {
+            const parsedLimit = Number.parseInt(limitRaw, 10);
+            if (!Number.isFinite(parsedLimit) || parsedLimit < 1) {
+              throw new RelayError("invalid_request", "limit must be a positive integer");
+            }
+
+            return Math.min(parsedLimit, 500);
+          })();
 
     const rows = deps.db
       .prepare(
@@ -64,4 +71,3 @@ export function registerEventRoutes(
     };
   });
 }
-

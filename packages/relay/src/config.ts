@@ -32,7 +32,8 @@ function loadDotenvFiles(): void {
 function parseInteger(
   key: string,
   rawValue: string | undefined,
-  fallback: number
+  fallback: number,
+  minimum = Number.NEGATIVE_INFINITY
 ): number {
   if (rawValue == null || rawValue.trim() === "") {
     return fallback;
@@ -41,6 +42,10 @@ function parseInteger(
   const parsed = Number.parseInt(rawValue, 10);
   if (!Number.isFinite(parsed)) {
     throw new RelayError("invalid_request", `${key} must be a valid integer`);
+  }
+
+  if (parsed < minimum) {
+    throw new RelayError("invalid_request", `${key} must be at least ${minimum}`);
   }
 
   return parsed;
@@ -74,23 +79,27 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): RelayConfig {
   const companionTimeoutMs = parseInteger(
     "RELAY_COMPANION_TIMEOUT_MS",
     env.RELAY_COMPANION_TIMEOUT_MS,
-    30000
+    30000,
+    1
   );
   const heartbeatIntervalMs = parseInteger(
     "RELAY_HEARTBEAT_INTERVAL_MS",
     env.RELAY_HEARTBEAT_INTERVAL_MS,
-    60000
+    60000,
+    1
   );
   const heartbeatStaleMs = parseInteger(
     "RELAY_HEARTBEAT_STALE_MS",
     env.RELAY_HEARTBEAT_STALE_MS,
-    90000
+    90000,
+    1
   );
-  const purgeDays = parseInteger("RELAY_PURGE_DAYS", env.RELAY_PURGE_DAYS, 30);
+  const purgeDays = parseInteger("RELAY_PURGE_DAYS", env.RELAY_PURGE_DAYS, 30, 1);
   const wsPingIntervalMs = parseInteger(
     "RELAY_WS_PING_INTERVAL_MS",
     env.RELAY_WS_PING_INTERVAL_MS,
-    30000
+    30000,
+    1
   );
 
   return {

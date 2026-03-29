@@ -15,6 +15,7 @@
     "clean": "node -e \"const fs=require('node:fs'); ['packages/wire/dist','packages/relay/dist','packages/companion/dist'].forEach((path)=>fs.rmSync(path,{recursive:true,force:true}));\"",
     "lint": "npm run typecheck",
     "typecheck": "npm run build:wire && npm run typecheck --workspace @imbot/relay && npm run typecheck --workspace @imbot/companion",
+    "test:integration": "npm run build && node --test tests/integration/*.test.mjs",
     "test": "npm run test:unit && npm run test:contract",
     "test:unit": "npm run build && node --test tests/unit/*.test.mjs",
     "test:contract": "npm run build && node --test tests/contract/*.test.mjs"

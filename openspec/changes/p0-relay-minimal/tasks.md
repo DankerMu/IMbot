@@ -5,7 +5,7 @@
 - [x] 1.1 Create `packages/relay/src/config.ts`: load config from env/dotenv with defaults per CONFIGURATION.md; validate `RELAY_STATIC_TOKEN` is present (throw and exit if missing); validate `RELAY_PORT` is a valid number
 - [x] 1.2 Create `packages/relay/src/index.ts`: initialize Fastify with logger, register `@fastify/cors` and `@fastify/websocket` plugins, call DB init, register all routes, listen on configured host:port, setup SIGTERM/SIGINT graceful shutdown (close server, close WS connections with 1001, close DB)
 - [x] 1.3 Create `packages/relay/src/routes/health.ts`: `GET /healthz` (no auth) returning `{ status, uptime, db, companion }` with appropriate online/offline values
-- [x] 1.4 Add `packages/relay/package.json` dependencies: `fastify`, `@fastify/cors`, `@fastify/websocket`, `better-sqlite3`, `dotenv`, `uuid`; devDependencies: `@types/better-sqlite3`, `@types/ws`
+- [x] 1.4 Add `packages/relay/package.json` dependencies: `fastify`, `@fastify/cors`, `@fastify/websocket`, `better-sqlite3`, `dotenv`; devDependencies: `@types/better-sqlite3`, `@types/ws`
 
 ## SQLite Schema
 

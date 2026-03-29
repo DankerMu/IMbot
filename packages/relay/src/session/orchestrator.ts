@@ -1,8 +1,10 @@
 import {
+  ERROR_CODES,
   VALID_TRANSITIONS,
   type CompanionEventMessage,
   type EventType,
   type Session,
+  type ErrorCode,
   type SessionStatus
 } from "@imbot/wire";
 import { randomUUID } from "node:crypto";
@@ -137,8 +139,13 @@ export class SessionOrchestrator {
     try {
       const ack = await this.companionManager.sendCommand(session.host_id, command);
 
-      if (ack.type !== "ack" || ack.status !== "ok") {
+      if (ack.type !== "ack") {
         throw new RelayError("state_conflict", "Unexpected companion acknowledgement");
+      }
+
+      if (ack.status === "error") {
+        const errorCode = this.normalizeErrorCode(ack.error_code);
+        throw new RelayError(errorCode, ack.message);
       }
 
       const providerSessionId =
@@ -327,5 +334,13 @@ export class SessionOrchestrator {
         payload.detail ? JSON.stringify(payload.detail) : null,
         new Date().toISOString()
       );
+  }
+
+  private normalizeErrorCode(errorCode: string | undefined): ErrorCode {
+    if (errorCode && ERROR_CODES.includes(errorCode as ErrorCode)) {
+      return errorCode as ErrorCode;
+    }
+
+    return "provider_unreachable";
   }
 }

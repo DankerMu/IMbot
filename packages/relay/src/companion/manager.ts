@@ -47,7 +47,10 @@ export class CompanionManager {
   }
 
   unregisterConnection(hostId: string, ws: WebSocket): void {
-    this.hub.removeCompanionClient(hostId, ws);
+    const removedActiveConnection = this.hub.removeCompanionClient(hostId, ws);
+    if (!removedActiveConnection) {
+      return;
+    }
 
     if (this.isShuttingDown) {
       this.rejectPendingForHost(hostId, new RelayError("host_offline", "Relay shutting down"));

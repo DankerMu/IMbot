@@ -63,14 +63,15 @@ export class WsHub {
     return this.companionClients.get(hostId);
   }
 
-  removeCompanionClient(hostId: string, ws: WebSocket): void {
+  removeCompanionClient(hostId: string, ws: WebSocket): boolean {
     const current = this.companionClients.get(hostId);
     if (current !== ws) {
-      return;
+      return false;
     }
 
     this.companionClients.delete(hostId);
     this.untrackConnection(ws);
+    return true;
   }
 
   hasOnlineCompanion(): boolean {
@@ -125,14 +126,47 @@ export class WsHub {
     }
   }
 
-  closeAll(code: number, reason: string): void {
+  async closeAll(code: number, reason: string): Promise<void> {
     clearInterval(this.keepaliveTimer);
 
-    for (const ws of this.trackedConnections.keys()) {
-      if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
-        ws.close(code, reason);
-      }
-    }
+    const sockets = Array.from(this.trackedConnections.keys());
+    const closeWaiters = sockets.map(
+      (ws) =>
+        new Promise<void>((resolve) => {
+          if (ws.readyState === WebSocket.CLOSED) {
+            resolve();
+            return;
+          }
+
+          const timeout = setTimeout(() => {
+            cleanup();
+            resolve();
+          }, 250);
+
+          timeout.unref?.();
+
+          const cleanup = () => {
+            clearTimeout(timeout);
+            ws.removeEventListener("close", onClose);
+          };
+
+          const onClose = () => {
+            cleanup();
+            resolve();
+          };
+
+          ws.addEventListener("close", onClose, { once: true });
+
+          if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+            ws.close(code, reason);
+          } else {
+            cleanup();
+            resolve();
+          }
+        })
+    );
+
+    await Promise.all(closeWaiters);
 
     this.trackedConnections.clear();
     this.androidClients.clear();
