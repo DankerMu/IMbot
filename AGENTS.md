@@ -40,8 +40,11 @@ Before changing code or writing new implementation docs, align with the existing
 ## GitHub Flow
 
 - Work one GitHub issue at a time unless the dependency graph explicitly allows parallel work.
+- Issue implementation must stay serial along the DAG, but within a single active issue the primary agent may use subagents for bounded parallel implementation or review work to improve throughput.
 - Create a dedicated branch from `master` for each issue.
 - Open a pull request for every change. Do not merge directly to `master`.
+- Reviewer agents and other subagents are review-only for GitHub workflow. They must not merge, close, reopen, or otherwise change the state of pull requests or issues.
+- Only the primary agent may perform GitHub write actions that change PR or issue state. Pull request merge is never implicit: do it only after checks pass, review evidence is complete, and the user has clearly approved the merge step.
 - Before merge, run at least two reviewer agents for cross-review with a bug/risk focus and record the result in the PR body `Agent Review` section plus linked PR conversation comments.
 - If the PR head changes after agent review, rerun reviewer agents and update the recorded head SHA before merge.
 - Merge only after the required GitHub checks pass and the PR has no unresolved conversations.
