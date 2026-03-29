@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.gradle/
+build/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.*
+.DS_Store

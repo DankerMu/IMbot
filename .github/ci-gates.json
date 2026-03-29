@@ -1,5 +1,5 @@
 {
-  "node_static": false,
+  "node_static": true,
   "node_integration": false,
   "android_static": false,
   "android_instrumented": false,
