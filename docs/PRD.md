@@ -710,11 +710,11 @@ Companion 通过出站 WSS 连接 relay。
 **Relay → Companion (commands)**:
 
 ```jsonc
-{ "cmd": "create_session", "req_id": "uuid", "provider": "claude", "cwd": "/path", "prompt": "...", "model": "opus", "permission_mode": "bypassPermissions" }
-{ "cmd": "resume_session", "req_id": "uuid", "provider_session_id": "..." }
+{ "cmd": "create_session", "req_id": "uuid", "session_id": "uuid", "provider": "claude", "cwd": "/path", "prompt": "...", "model": "opus", "permission_mode": "bypassPermissions" }
+{ "cmd": "resume_session", "req_id": "uuid", "session_id": "uuid", "provider_session_id": "...", "cwd": "/path" }
 { "cmd": "send_message", "req_id": "uuid", "session_id": "uuid", "text": "..." }
 { "cmd": "cancel_session", "req_id": "uuid", "session_id": "uuid" }
-{ "cmd": "list_sessions", "req_id": "uuid", "cwd": "/path" }
+{ "cmd": "list_sessions", "req_id": "uuid", "cwd": "/path", "provider": "claude" }
 { "cmd": "browse_directory", "req_id": "uuid", "path": "/path" }
 ```
 

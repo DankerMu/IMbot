@@ -89,7 +89,7 @@ The wire package SHALL export a `CompanionCommand` discriminated union type cove
 #### Scenario: create_session command shape
 
 WHEN a `CompanionCommand` with `cmd: 'create_session'` is constructed
-THEN it MUST have fields: `req_id: string`, `provider: 'claude' | 'book'`, `cwd: string`, `prompt: string`, `permission_mode: string`
+THEN it MUST have fields: `req_id: string`, `session_id: string`, `provider: 'claude' | 'book'`, `cwd: string`, `prompt: string`, `permission_mode: string`
 AND it MAY have optional field: `model?: string`
 
 #### Scenario: resume_session command shape

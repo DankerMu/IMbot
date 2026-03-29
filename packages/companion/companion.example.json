@@ -1,0 +1,13 @@
+{
+  "relay_url": "wss://relay.example.com",
+  "token": "replace-with-static-token",
+  "host_id": "macbook-1",
+  "providers": {
+    "claude": {
+      "binary": "claude"
+    },
+    "book": {
+      "binary": "book"
+    }
+  }
+}
