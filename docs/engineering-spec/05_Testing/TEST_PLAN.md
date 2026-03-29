@@ -1,0 +1,97 @@
+# Test Plan
+
+## Traceability Matrix
+
+| Requirement | Unit | Integration | E2E |
+|-------------|------|-------------|-----|
+| FR-01 Provider 管理 | UT-01 | IT-01 | E2E-01 |
+| FR-02 Workspace 管理 | UT-02 | IT-02 | E2E-02 |
+| FR-03 会话创建 | UT-03 | IT-03 | E2E-03 |
+| FR-04 会话恢复 | UT-04 | IT-04 | E2E-04 |
+| FR-05 多会话并发 | UT-05 | IT-05 | E2E-05 |
+| FR-06 流式渲染 | UT-06 | — | E2E-06 |
+| FR-07 断线恢复 | UT-07 | IT-07 | E2E-07 |
+| FR-08 FCM 推送 | UT-08 | IT-08 | — |
+| FR-09 主题 | UT-09 | — | — |
+| FR-10 审批保留 | UT-10 | IT-10 | — |
+| NFR-01 延迟 < 1s | — | — | PERF-01 |
+| NFR-02 WSS 稳定性 | — | — | PERF-02 |
+
+## Unit Tests
+
+### Relay
+
+| ID | Test | Scenario |
+|----|------|----------|
+| UT-01a | SessionOrchestrator.create | 正常创建 → status=queued |
+| UT-01b | SessionOrchestrator.create | provider invalid → error |
+| UT-03a | Session state machine | queued → running (valid) |
+| UT-03b | Session state machine | completed → running (invalid) → error |
+| UT-03c | Session state machine | all valid transitions pass |
+| UT-03d | Session state machine | all invalid transitions reject |
+| UT-07a | Seq allocation | 连续分配递增 |
+| UT-07b | Seq allocation | 并发安全（SQLite 单写者） |
+| UT-08a | FCM push | completed → 发送通知 |
+| UT-08b | FCM push | 无 subscription → 不报错 |
+| UT-10a | Purge job | 30 天前 session 被删 |
+| UT-10b | Purge job | 活跃 session 不删 |
+| UT-02a | Path validation | 正常路径通过 |
+| UT-02b | Path validation | `..` 路径遍历拒绝 |
+| UT-02c | Path validation | 不在 root 下的路径拒绝 |
+
+### Companion
+
+| ID | Test | Scenario |
+|----|------|----------|
+| UT-11a | Command dispatcher | create_session → 调用 SDK |
+| UT-11b | Command dispatcher | unknown command → error ack |
+| UT-12a | Workspace catalog | browse 返回目录列表 |
+| UT-12b | Workspace catalog | browse 不返回文件 |
+| UT-12c | Workspace catalog | 不存在路径 → error |
+| UT-13a | ClaudeRuntimeAdapter | mock SDK → 事件流正常 |
+| UT-13b | ClaudeRuntimeAdapter | SDK error → error event |
+
+### Android
+
+| ID | Test | Scenario |
+|----|------|----------|
+| UT-20a | SessionRepository | 合并远程 + 本地 session 列表 |
+| UT-20b | SessionRepository | 按 provider 过滤 |
+| UT-21a | DetailViewModel | events 流 → uiState 更新 |
+| UT-21b | DetailViewModel | 断线 → reconnecting 状态 |
+| UT-22a | Event catch-up | since_seq 补拉合并无重复 |
+| UT-09a | ThemeManager | system/light/dark 切换 |
+
+## Integration Tests
+
+| ID | Test | Components | Scenario |
+|----|------|-----------|----------|
+| IT-01 | Provider 路由 | relay + companion | Claude session 走 companion，OpenClaw session 走 bridge |
+| IT-02 | Workspace CRUD | relay + companion | 添加 root → browse → 删除 root |
+| IT-03 | Session create E2E | relay + companion + mock SDK | 创建 → queued → running → events → completed |
+| IT-04 | Session resume | relay + companion | 恢复旧 session → running → events |
+| IT-05 | Multi-session | relay + companion | 3 个 session 并发 running |
+| IT-07 | Catch-up | relay | 插入 N 个 events → GET since_seq → 全量返回 |
+| IT-08 | FCM | relay + mock FCM | session 完成 → 调用 FCM API |
+| IT-10 | Approval path | relay + companion | 切换 permission_mode=default → approval_required event |
+
+## E2E Tests
+
+| ID | Test | Description |
+|----|------|-------------|
+| E2E-01 | 完整创建流程 | Android → 选 provider → 选目录 → 输 prompt → 创建 → 看到流式输出 → 完成 |
+| E2E-02 | 恢复旧 session | Android → 浏览目录 → 选旧 session → 恢复 → 继续对话 |
+| E2E-03 | 断线恢复 | 断开网络 60s → 恢复 → events 自动补拉 → UI 一致 |
+| E2E-04 | Host offline | 断开 companion → Android 看到 "MacBook offline" → 重连后恢复 |
+| E2E-05 | 多 provider | 同时创建 Claude + OpenClaw session → 各自独立运行 |
+| E2E-06 | 取消 session | 创建 running session → 取消 → status=cancelled |
+| E2E-07 | Markdown 渲染 | 收到含代码块的 assistant_message → 语法高亮正确 |
+
+## Performance Tests
+
+| ID | Test | Target |
+|----|------|--------|
+| PERF-01 | 端到端延迟 | POST /sessions → 首个 WS event < 1s |
+| PERF-02 | Catch-up 1000 events | < 3s |
+| PERF-03 | 目录浏览 (100 子目录) | < 500ms |
+| PERF-04 | 长消息渲染 (10K chars) | 无卡顿 (< 16ms frame) |
