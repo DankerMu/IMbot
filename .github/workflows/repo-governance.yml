@@ -2,6 +2,12 @@ name: Repo Governance
 
 on:
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
+      - ready_for_review
   push:
     branches:
       - main
@@ -9,12 +15,26 @@ on:
 
 permissions:
   contents: read
+  issues: read
 
 concurrency:
   group: repo-governance-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
+  pr-review-evidence:
+    name: PR Review Evidence
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate PR review evidence
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: bash scripts/ci/validate_pr_review_evidence.sh
+
   spec-governance:
     name: Spec Governance
     runs-on: ubuntu-latest

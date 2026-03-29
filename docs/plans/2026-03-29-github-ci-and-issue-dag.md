@@ -17,7 +17,7 @@ This plan is intentionally split into:
 
 ### Required Immediately
 
-These checks should be branch-protection blockers from day 1:
+These jobs should run from day 1 inside the protected workflow suites:
 
 1. `Spec Governance`
    - validates required root docs exist
@@ -38,9 +38,15 @@ These checks should be branch-protection blockers from day 1:
 4. `Workflow Quality`
    - `actionlint` for GitHub Actions workflows
 
-5. `Dependency Review`
-   - GitHub dependency review for pull requests
-   - should stay required even before executable code exists, because Actions and future package manifests still change supply-chain risk
+5. `PR Review Evidence`
+   - on pull requests, validate that the PR body `Agent Review` section records at least two reviewer agents, the current PR head SHA, links to at least two PR conversation comments for the current head, and the findings summary
+   - verify each linked comment actually belongs to the current PR and contains the readable reviewer-agent comment structure
+   - treat linked reviewer comments as immutable evidence; fixes should use new comments plus updated PR-body links instead of editing previously linked comments
+   - keep this inside `Repo Governance` so the protected workflow contexts stay stable while the single-developer cross-review protocol is still enforced
+
+6. `Dependency Review`
+   - GitHub dependency review for pull requests once real dependency manifests exist
+   - keep the workflow present from day 1, but skip the job until Node or Gradle manifests land and GitHub can build a meaningful dependency graph
 
 ### Activation Model
 
@@ -154,8 +160,8 @@ Workflows should exist immediately, but deeper analysis gates should be activate
 
 Enabled now:
 
-- dependency review on PRs
-- Dependabot for GitHub Actions
+- dependency review workflow on PRs, auto-activated once Node or Gradle dependency manifests exist
+- Dependabot for GitHub Actions with weekly Monday batching, at most two open PRs, and small grouped update streams instead of one PR per action
 
 Activate later:
 
@@ -188,15 +194,18 @@ Rules:
 
 ### Branch Protection
 
-Recommended protection for `main`:
+Recommended protection for `master` in the current single-developer workflow:
 
 - require PR before merge
 - require up-to-date branch before merge
-- require `Spec Governance`, `Markdown Quality`, `Shell Quality`, `Workflow Quality`, `Dependency Review`
-- add `Node Static Quality`, `Node Integration`, `Android Static Quality`, `Android Instrumented Smoke` as required checks from day 1 because skipped jobs will keep check names stable until gates are enabled
-- dismiss stale approvals on new commits
+- require job-level checks `PR Review Evidence`, `Spec Governance`, `Markdown Quality`, `Shell Quality`, `Workflow Quality`, `Implementation Gate Config`, `Node Static Quality`, `Node Integration`, `Android Static Quality`, `Android Instrumented Smoke`, `Security Gate Config`, `Dependency Review`, `CodeQL JavaScript/TypeScript`, and `CodeQL Kotlin`
+- keep these check names stable from day 1 and let inactive implementation/security jobs report `skipped` until their gates are turned on
+- do not require approvals
+- do not require CODEOWNERS reviews
+- enforce rules for admins too, so direct pushes to `master` are blocked and the PR path stays mandatory
 - block force-push and deletion
-- require conversation resolution before merge
+- require conversation resolution before merge for any threaded review discussions or follow-up conversations created during PR review
+- use issue branch → PR → reviewer-agent cross-review on the current head → post readable PR comment evidence → record links in PR body → CI → self-merge as the default execution path
 - keep GitHub merge queue optional until active development concurrency justifies it
 
 ### Release Gate Expectations
@@ -205,7 +214,7 @@ Before the first external testing or distribution build:
 
 - nightly system gates enabled
 - relevant CodeQL gates enabled
-- branch protection updated to include all active implementation jobs
+- branch protection still targets the stable job-level gate names listed above, including the currently skipped implementation/security jobs
 - Android debug and release-like builds reproducible from CI
 - dependency update automation proven on at least one merged Dependabot PR
 

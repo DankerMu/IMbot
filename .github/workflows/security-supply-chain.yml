@@ -20,9 +20,10 @@ concurrency:
 
 jobs:
   gate-config:
-    name: Gate Config
+    name: Security Gate Config
     runs-on: ubuntu-latest
     outputs:
+      has_dependency_manifests: ${{ steps.detect.outputs.has_dependency_manifests }}
       codeql_javascript_typescript: ${{ steps.read.outputs.codeql_javascript_typescript }}
       codeql_kotlin: ${{ steps.read.outputs.codeql_kotlin }}
       has_js_ts: ${{ steps.detect.outputs.has_js_ts }}
@@ -51,6 +52,12 @@ jobs:
       - name: Detect code targets
         id: detect
         run: |
+          if find . -type f \( -name 'package.json' -o -name 'package-lock.json' -o -name 'pnpm-lock.yaml' -o -name 'yarn.lock' -o -name 'build.gradle' -o -name 'build.gradle.kts' -o -name 'settings.gradle' -o -name 'settings.gradle.kts' -o -name 'libs.versions.toml' \) -not -path './.git/*' -print -quit 2>/dev/null | grep -q .; then
+            echo "has_dependency_manifests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_dependency_manifests=false" >> "$GITHUB_OUTPUT"
+          fi
+
           if find packages -type f \( -name '*.ts' -o -name '*.js' \) -print -quit 2>/dev/null | grep -q .; then
             echo "has_js_ts=true" >> "$GITHUB_OUTPUT"
           else
@@ -65,7 +72,8 @@ jobs:
 
   dependency-review:
     name: Dependency Review
-    if: ${{ github.event_name == 'pull_request' }}
+    if: ${{ github.event_name == 'pull_request' && needs.gate-config.outputs.has_dependency_manifests == 'true' }}
+    needs: gate-config
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
