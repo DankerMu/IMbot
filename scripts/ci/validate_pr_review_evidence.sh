@@ -113,6 +113,7 @@ elif not repository_full_name or pr_number is None:
     errors.append("repository and pull request metadata are required to validate review evidence links")
 else:
     expected_prefix = f"https://github.com/{repository_full_name}/pull/{pr_number}#issuecomment-"
+    expected_issue_url = f"https://api.github.com/repos/{repository_full_name}/issues/{pr_number}"
     comment_urls = re.findall(r"https://github\.com/\S+#issuecomment-\d+", review_evidence)
     comment_urls = [url.rstrip("`,.") for url in comment_urls if url.startswith(expected_prefix)]
     unique_comment_urls = list(dict.fromkeys(comment_urls))
@@ -135,10 +136,18 @@ else:
                 continue
 
             comment_body = comment.get("body") or ""
+            comment_html_url = comment.get("html_url") or ""
+            comment_issue_url = comment.get("issue_url") or ""
             comment_reviewer = extract_comment_field(comment_body, "Reviewer agent")
             comment_sha = extract_comment_field(comment_body, "Reviewed head SHA")
             comment_summary = extract_comment_field(comment_body, "Summary")
 
+            if comment_html_url not in unique_comment_urls:
+                errors.append(f"review evidence comment `{comment_id}` does not belong to the linked comment URL for this pull request")
+                continue
+            if comment_issue_url != expected_issue_url:
+                errors.append(f"review evidence comment `{comment_id}` does not belong to the current pull request")
+                continue
             if comment_reviewer is None or is_placeholder(comment_reviewer):
                 errors.append(f"review evidence comment `{comment_id}` is missing a `Reviewer agent` line")
                 continue
@@ -150,6 +159,9 @@ else:
                 continue
             if not re.search(r"^Findings:\s*$", comment_body, re.MULTILINE):
                 errors.append(f"review evidence comment `{comment_id}` must include a `Findings:` section")
+                continue
+            if not re.search(r"^Findings:\s*$\n(?:- .+\n?)+", comment_body, re.MULTILINE):
+                errors.append(f"review evidence comment `{comment_id}` must include at least one findings bullet under `Findings:`")
                 continue
 
             linked_reviewers[normalize_agent_key(comment_reviewer)] = comment_reviewer

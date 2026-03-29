@@ -23,6 +23,7 @@
 ## Agent Review
 
 - Record review evidence for the current PR head. If new commits are pushed, rerun reviewer agents and update this section.
+- If you edit a linked reviewer comment, also edit the PR body or rerun `Repo Governance` so the evidence check reevaluates the comment.
 - Reviewer agents used: ``
 - Reviewed head SHA: ``
 - Review evidence: `https://github.com/<owner>/<repo>/pull/<pr>#issuecomment-..., https://github.com/<owner>/<repo>/pull/<pr>#issuecomment-...`
@@ -39,6 +40,8 @@ Summary: <one-line conclusion>
 Findings:
 - <finding 1 or "None.">
 ```
+
+`PR Review Evidence` validates these linked PR conversation comments. Conversation resolution remains a separate GitHub merge rule for any threaded review discussions.
 
 ## Checklist
 

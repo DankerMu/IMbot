@@ -63,6 +63,8 @@ Before changing code or writing new implementation docs, align with the existing
 - Every PR description should clearly cover: change summary, why the change exists, verification, and remaining risks or follow-ups.
 - When reviewer agents are running, wait patiently for them to complete before redirecting, interrupting, or closing them unless the work is clearly stuck.
 - Reviewer-agent results must be posted as separate PR conversation comments, one comment per agent, and each comment must use this readable structure: `Reviewer agent`, `Reviewed head SHA`, `Summary`, `Findings`.
+- If a linked reviewer comment is edited, also rerun `Repo Governance` by editing the PR body or rerunning the workflow so `PR Review Evidence` reevaluates the new comment content.
+- Reviewer-agent evidence is enforced through `PR Review Evidence`; GitHub conversation resolution is a separate merge rule for any threaded review discussions or follow-up conversations.
 - Review comments for concrete issues must be one finding per comment and use a readable structure with `Severity`, `Problem`, `Impact`, and `Requested fix`.
 - If reviewer agents find no issues, record that in short bullets instead of a prose block.
 
