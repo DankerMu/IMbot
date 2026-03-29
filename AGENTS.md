@@ -41,6 +41,7 @@ Before changing code or writing new implementation docs, align with the existing
 
 - Work one GitHub issue at a time unless the dependency graph explicitly allows parallel work.
 - Issue implementation must stay serial along the DAG, but within a single active issue the primary agent may use subagents for bounded parallel implementation or review work to improve throughput.
+- All subagents should use `gpt-5.4` with `xhigh` reasoning; if a role already hardcodes that combination, keep the role default rather than downgrading it.
 - Create a dedicated branch from `master` for each issue.
 - Open a pull request for every change. Do not merge directly to `master`.
 - Reviewer agents and other subagents are review-only for GitHub workflow. They must not merge, close, reopen, or otherwise change the state of pull requests or issues.
