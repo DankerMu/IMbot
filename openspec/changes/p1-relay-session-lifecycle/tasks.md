@@ -11,7 +11,7 @@
 - [ ] 1.7 Implement `running → completed` transition: on `session_result` event, trigger FCM
 - [ ] 1.8 Implement `running → failed` on `session_error` event: populate error fields, trigger FCM
 - [ ] 1.9 Implement `running → failed` on companion disconnect: iterate running sessions for that host, transition each to failed with `host_disconnected`
-- [ ] 1.10 Implement `running → cancelled` on `POST /cancel`: send cancel command, emit `session_status_changed`
+- [ ] 1.10 Implement `POST /cancel` for running sessions: send cancel command, normally transition to `cancelled`, but preserve provider terminal state if it wins the race
 - [ ] 1.11 Implement `completed → running` on `POST /resume`: send resume command, on ack ok emit `session_started`
 - [ ] 1.12 Implement `failed → running` on `POST /resume`: send resume command, clear error fields on ack ok
 - [ ] 1.13 Enforce `cancelled` as terminal: reject all operations with `409 state_conflict`
@@ -52,7 +52,7 @@
 - [ ] 4.3 Wrap INSERT in try/catch: log error to stderr on failure, never throw
 - [ ] 4.4 Add audit calls to `POST /v1/sessions` handler → `session.create`
 - [ ] 4.5 Add audit calls to `POST /v1/sessions/:id/resume` handler → `session.resume`
-- [ ] 4.6 Add audit calls to `POST /v1/sessions/:id/cancel` handler → `session.cancel`
+- [ ] 4.6 Add audit calls to `POST /v1/sessions/:id/cancel` handler → `session.cancel` only when the relay actually lands on `cancelled`
 - [ ] 4.7 Add audit calls to `DELETE /v1/sessions/:id` handler → `session.delete`
 - [ ] 4.8 Add audit calls to host status changes → `host.online`, `host.offline`
 - [ ] 4.9 Add audit calls to root CRUD → `root.add`, `root.remove`

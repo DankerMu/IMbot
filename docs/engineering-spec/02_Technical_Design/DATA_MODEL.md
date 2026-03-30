@@ -169,7 +169,9 @@ queued ──────► running ──────► completed
 | `queued` | `failed` | companion ack 失败 / timeout 30s | emit `session_error` event, FCM push |
 | `running` | `completed` | runtime 正常结束 | emit `session_result` event, FCM push |
 | `running` | `failed` | runtime error / upstream error | emit `session_error` event, FCM push |
-| `running` | `cancelled` | 用户取消 | emit `session_status_changed` event |
+| `running` | `cancelled` / provider terminal (`completed` or `failed`) | 用户取消；若 provider 在 cancel 完成前先结束，则保留 provider 终态 | send cancel command；仅在 `cancelled` 路径 emit `session_status_changed` event |
+
+当 `POST /cancel` 与 provider `session_result` / `session_error` 竞态时，provider 终态胜出，session 不会被本地覆盖成 `cancelled`。
 
 ## Seq Allocation
 
