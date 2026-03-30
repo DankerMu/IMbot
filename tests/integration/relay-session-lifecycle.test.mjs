@@ -112,6 +112,14 @@ test("relay marks running sessions as failed when the companion disconnects unex
     `ws://127.0.0.1:${port}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
   );
   await waitForOpen(companion, "companion");
+  companion.send(
+    JSON.stringify({
+      type: "heartbeat",
+      host_id: "macbook-1",
+      providers: ["claude"],
+      uptime: 1
+    })
+  );
 
   t.after(async () => {
     companion.close();
@@ -186,13 +194,24 @@ test("relay marks running sessions as failed when the companion disconnects unex
     message: "Host companion disconnected unexpectedly"
   });
 
+  await waitForCondition(() => {
+    const audit = runtime.db
+      .prepare("SELECT detail FROM audit_logs WHERE action = 'host.online' AND host_id = 'macbook-1'")
+      .get();
+    return audit != null;
+  }, "host online audit");
+
   const hostOnlineAudit = runtime.db
-    .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'host.online' AND host_id = 'macbook-1'")
+    .prepare("SELECT detail FROM audit_logs WHERE action = 'host.online' AND host_id = 'macbook-1'")
     .get();
   const hostOfflineAudit = runtime.db
-    .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'host.offline' AND host_id = 'macbook-1'")
+    .prepare("SELECT detail FROM audit_logs WHERE action = 'host.offline' AND host_id = 'macbook-1'")
     .get();
 
-  assert.deepEqual(hostOnlineAudit, { count: 1 });
-  assert.deepEqual(hostOfflineAudit, { count: 1 });
+  assert.deepEqual(JSON.parse(hostOnlineAudit.detail), {
+    providers: ["claude"]
+  });
+  assert.deepEqual(JSON.parse(hostOfflineAudit.detail), {
+    reason: "disconnect"
+  });
 });

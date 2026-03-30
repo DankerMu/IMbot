@@ -174,7 +174,10 @@ test("relay supports resume, message, cancel, delete, catch-up, and lifecycle au
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  const { sessionId, providerSessionId } = await createRunningSession({ baseUrl, config }, companion);
+  const auditPrompt = "lifecycle prompt ".repeat(10);
+  const { sessionId, providerSessionId } = await createRunningSession({ baseUrl, config }, companion, {
+    prompt: auditPrompt
+  });
 
   companion.send(
     JSON.stringify({
@@ -322,18 +325,27 @@ test("relay supports resume, message, cancel, delete, catch-up, and lifecycle au
   assert.deepEqual(await cancelledResumeResponse.json(), { error: "state_conflict" });
 
   const createAudit = runtime.db
-    .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'session.create' AND session_id = ?")
+    .prepare("SELECT detail FROM audit_logs WHERE action = 'session.create' AND session_id = ?")
     .get(sessionId);
   const resumeAudit = runtime.db
-    .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'session.resume' AND session_id = ?")
+    .prepare("SELECT detail FROM audit_logs WHERE action = 'session.resume' AND session_id = ?")
     .get(sessionId);
   const cancelAudit = runtime.db
-    .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'session.cancel' AND session_id = ?")
+    .prepare("SELECT detail FROM audit_logs WHERE action = 'session.cancel' AND session_id = ?")
     .get(sessionId);
 
-  assert.deepEqual(createAudit, { count: 1 });
-  assert.deepEqual(resumeAudit, { count: 1 });
-  assert.deepEqual(cancelAudit, { count: 1 });
+  assert.deepEqual(JSON.parse(createAudit.detail), {
+    provider: "claude",
+    host_id: "macbook-1",
+    cwd: "/tmp/project",
+    prompt: auditPrompt.slice(0, 100)
+  });
+  assert.deepEqual(JSON.parse(resumeAudit.detail), {
+    previous_status: "completed"
+  });
+  assert.deepEqual(JSON.parse(cancelAudit.detail), {
+    previous_status: "running"
+  });
 
   const deleteResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}`, {
     method: "DELETE",
@@ -348,12 +360,15 @@ test("relay supports resume, message, cancel, delete, catch-up, and lifecycle au
     .prepare("SELECT COUNT(*) AS count FROM session_events WHERE session_id = ?")
     .get(sessionId);
   const deleteAudit = runtime.db
-    .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'session.delete' AND session_id = ?")
+    .prepare("SELECT detail FROM audit_logs WHERE action = 'session.delete' AND session_id = ?")
     .get(sessionId);
 
   assert.equal(deletedSession, undefined);
   assert.deepEqual(deletedEvents, { count: 0 });
-  assert.deepEqual(deleteAudit, { count: 1 });
+  assert.deepEqual(JSON.parse(deleteAudit.detail), {
+    provider: "claude",
+    status: "cancelled"
+  });
 
   const missingEventsResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}/events?since_seq=0`, {
     headers: {
@@ -429,6 +444,13 @@ test("relay resumes failed sessions and clears stored error fields", async (t) =
   assert.equal(resumedSession.status, "running");
   assert.equal(resumedSession.error_code, null);
   assert.equal(resumedSession.error_message, null);
+
+  const resumeAudit = runtime.db
+    .prepare("SELECT detail FROM audit_logs WHERE action = 'session.resume' AND session_id = ?")
+    .get(sessionId);
+  assert.deepEqual(JSON.parse(resumeAudit.detail), {
+    previous_status: "failed"
+  });
 });
 
 test("relay returns host_offline when resuming a completed session after the companion disconnects", async (t) => {

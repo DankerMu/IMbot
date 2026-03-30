@@ -27,6 +27,7 @@ type LoggerLike = {
 
 export class CompanionManager {
   private readonly pendingByHost = new Map<string, Map<string, PendingAck>>();
+  private readonly awaitingOnlineAudit = new Set<string>();
   private isShuttingDown = false;
 
   constructor(
@@ -47,10 +48,13 @@ export class CompanionManager {
     }
 
     this.pendingByHost.set(hostId, this.pendingByHost.get(hostId) ?? new Map());
+    const previousStatus = this.getStoredHostStatus(hostId);
     this.upsertHost(hostId, "online");
-    this.options?.auditLogger?.write("host.online", {
-      host_id: hostId
-    });
+    if (previousStatus !== "online") {
+      this.awaitingOnlineAudit.add(hostId);
+    } else {
+      this.awaitingOnlineAudit.delete(hostId);
+    }
     this.hub.broadcastHostStatus(hostId, "online");
   }
 
@@ -67,8 +71,12 @@ export class CompanionManager {
 
     this.upsertHost(hostId, "offline");
     this.rejectPendingForHost(hostId, new RelayError("host_offline", "Companion disconnected"));
+    this.awaitingOnlineAudit.delete(hostId);
     this.options?.auditLogger?.write("host.offline", {
-      host_id: hostId
+      host_id: hostId,
+      detail: {
+        reason: "disconnect"
+      }
     });
     this.hub.broadcastHostStatus(hostId, "offline");
     const disconnectResult = this.options?.onHostDisconnected?.(hostId);
@@ -79,8 +87,19 @@ export class CompanionManager {
     }
   }
 
-  handleHeartbeat(hostId: string, _message: CompanionHeartbeatMessage): void {
+  handleHeartbeat(hostId: string, message: CompanionHeartbeatMessage): void {
     this.upsertHost(hostId, "online");
+    if (!this.awaitingOnlineAudit.has(hostId)) {
+      return;
+    }
+
+    this.awaitingOnlineAudit.delete(hostId);
+    this.options?.auditLogger?.write("host.online", {
+      host_id: hostId,
+      detail: {
+        providers: [...message.providers]
+      }
+    });
   }
 
   handleAck(hostId: string, message: CompanionMessage): void {
@@ -218,5 +237,13 @@ export class CompanionManager {
         `
       )
       .run(status, now, now, hostId);
+  }
+
+  private getStoredHostStatus(hostId: string): "online" | "offline" | null {
+    const row = this.db.prepare("SELECT status FROM hosts WHERE id = ?").get(hostId) as
+      | { status: "online" | "offline" }
+      | undefined;
+
+    return row?.status ?? null;
   }
 }

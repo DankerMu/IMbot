@@ -132,10 +132,7 @@ export class SessionOrchestrator {
       this.auditLogger.write("session.create", {
         session_id: session.id,
         host_id: session.host_id,
-        detail: {
-          provider: session.provider,
-          cwd: session.workspace_cwd
-        }
+        detail: this.buildCreateAuditDetail(session)
       });
 
       return this.getSession(session.id) ?? session;
@@ -167,14 +164,14 @@ export class SessionOrchestrator {
 
     this.assertProviderAvailable(session);
 
+    const previousStatus = session.status;
     const providerSessionId = await this.dispatchResume(session);
     await this.markSessionStarted(session.id, providerSessionId);
     this.auditLogger.write("session.resume", {
       session_id: session.id,
       host_id: session.host_id,
       detail: {
-        provider: session.provider,
-        provider_session_id: providerSessionId
+        previous_status: previousStatus
       }
     });
     return this.requireSession(session.id);
@@ -200,13 +197,14 @@ export class SessionOrchestrator {
       this.assertProviderAvailable(session);
     }
 
+    const previousStatus = session.status;
     await this.dispatchCancel(session);
     await this.transition(session.id, "cancelled");
     this.auditLogger.write("session.cancel", {
       session_id: session.id,
       host_id: session.host_id,
       detail: {
-        provider: session.provider
+        previous_status: previousStatus
       }
     });
     return this.requireSession(session.id);
@@ -554,6 +552,20 @@ export class SessionOrchestrator {
 
     const { seq: _ignoredSeq, ...rest } = payload as Record<string, unknown>;
     return rest;
+  }
+
+  private buildCreateAuditDetail(session: Session): {
+    provider: Session["provider"];
+    host_id: string;
+    cwd: string;
+    prompt: string;
+  } {
+    return {
+      provider: session.provider,
+      host_id: session.host_id,
+      cwd: session.workspace_cwd,
+      prompt: (session.initial_prompt ?? "").slice(0, 100)
+    };
   }
 
   private isLatestEventType(sessionId: string, eventType: EventType): boolean {
