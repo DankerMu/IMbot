@@ -233,6 +233,140 @@ test("handleEvent accepts provider events during create and resume lifecycle win
   assert.deepEqual(resumeWindowEvents, { count: 1 });
 });
 
+test("handleEvent defers terminal provider events during create and resume lifecycle windows until running", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-active-mutation-terminals-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const now = new Date().toISOString();
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+
+  insertSession(runtime.db, "sess-create-result", "queued");
+  insertSession(runtime.db, "sess-create-error", "queued");
+  insertSession(runtime.db, "sess-resume-result", "completed");
+  insertSession(runtime.db, "sess-resume-error", "failed");
+
+  runtime.orchestrator.activeLifecycleMutations.set("sess-create-result", "create");
+  runtime.orchestrator.activeLifecycleMutations.set("sess-create-error", "create");
+  runtime.orchestrator.activeLifecycleMutations.set("sess-resume-result", "resume");
+  runtime.orchestrator.activeLifecycleMutations.set("sess-resume-error", "resume");
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-create-result",
+    event_type: "session_result",
+    payload: {
+      result: "done"
+    }
+  });
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-create-error",
+    event_type: "session_error",
+    payload: {
+      error_code: "directory_not_found",
+      message: "Missing project"
+    }
+  });
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-resume-result",
+    event_type: "session_result",
+    payload: {
+      result: "done again"
+    }
+  });
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-resume-error",
+    event_type: "session_error",
+    payload: {
+      error_code: "provider_unreachable",
+      message: "Gateway lost"
+    }
+  });
+
+  assert.deepEqual(
+    runtime.db
+      .prepare("SELECT id, status FROM sessions WHERE id IN (?, ?, ?, ?) ORDER BY id ASC")
+      .all("sess-create-error", "sess-create-result", "sess-resume-error", "sess-resume-result"),
+    [
+      { id: "sess-create-error", status: "queued" },
+      { id: "sess-create-result", status: "queued" },
+      { id: "sess-resume-error", status: "failed" },
+      { id: "sess-resume-result", status: "completed" }
+    ]
+  );
+
+  await runtime.orchestrator.markSessionStarted("sess-create-result", "provider-session-1", "queued");
+  await runtime.orchestrator.markSessionStarted("sess-create-error", "provider-session-1", "queued");
+  await runtime.orchestrator.markSessionStarted("sess-resume-result", "provider-session-1", "completed");
+  await runtime.orchestrator.markSessionStarted("sess-resume-error", "provider-session-1", "failed");
+
+  await runtime.orchestrator.applyPendingTerminalTransition("sess-create-result");
+  await runtime.orchestrator.applyPendingTerminalTransition("sess-create-error");
+  await runtime.orchestrator.applyPendingTerminalTransition("sess-resume-result");
+  await runtime.orchestrator.applyPendingTerminalTransition("sess-resume-error");
+
+  assert.deepEqual(
+    runtime.db
+      .prepare(
+        "SELECT id, status, error_code, error_message FROM sessions WHERE id IN (?, ?, ?, ?) ORDER BY id ASC"
+      )
+      .all("sess-create-error", "sess-create-result", "sess-resume-error", "sess-resume-result"),
+    [
+      {
+        id: "sess-create-error",
+        status: "failed",
+        error_code: "directory_not_found",
+        error_message: "Missing project"
+      },
+      {
+        id: "sess-create-result",
+        status: "completed",
+        error_code: null,
+        error_message: null
+      },
+      {
+        id: "sess-resume-error",
+        status: "failed",
+        error_code: "provider_unreachable",
+        error_message: "Gateway lost"
+      },
+      {
+        id: "sess-resume-result",
+        status: "completed",
+        error_code: null,
+        error_message: null
+      }
+    ]
+  );
+});
+
 test("transition rejects a raced same-target update without emitting a duplicate status event", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-transition-race-"));
   const config = relay.loadConfig({

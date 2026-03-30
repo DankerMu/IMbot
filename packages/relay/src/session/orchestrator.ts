@@ -37,8 +37,16 @@ type SessionErrorContext = {
   error_message?: string;
 };
 
+type LifecycleMutation = "create" | "resume" | "cancel" | "delete";
+
+type PendingTerminalTransition = {
+  readonly status: "completed" | "failed";
+  readonly context?: SessionErrorContext;
+};
+
 export class SessionOrchestrator {
-  private readonly activeLifecycleMutations = new Map<string, "create" | "resume" | "cancel" | "delete">();
+  private readonly activeLifecycleMutations = new Map<string, LifecycleMutation>();
+  private readonly pendingTerminalTransitions = new Map<string, PendingTerminalTransition>();
 
   constructor(
     private readonly _config: RelayConfig,
@@ -132,15 +140,17 @@ export class SessionOrchestrator {
         session.last_active_at
       );
 
+    this.auditLogger.write("session.create", {
+      session_id: session.id,
+      host_id: session.host_id,
+      detail: this.buildCreateAuditDetail(session)
+    });
+
     this.activeLifecycleMutations.set(session.id, "create");
     try {
       const providerSessionId = await this.dispatchCreate(session);
       await this.markSessionStarted(session.id, providerSessionId, "queued");
-      this.auditLogger.write("session.create", {
-        session_id: session.id,
-        host_id: session.host_id,
-        detail: this.buildCreateAuditDetail(session)
-      });
+      await this.applyPendingTerminalTransition(session.id);
       return this.getSession(session.id) ?? session;
     } catch (error) {
       const relayError =
@@ -157,6 +167,7 @@ export class SessionOrchestrator {
       throw relayError;
     } finally {
       this.activeLifecycleMutations.delete(session.id);
+      this.pendingTerminalTransitions.delete(session.id);
     }
   }
 
@@ -183,6 +194,7 @@ export class SessionOrchestrator {
           previous_status: previousStatus
         }
       });
+      await this.applyPendingTerminalTransition(session.id);
       return this.requireSession(session.id);
     });
   }
@@ -284,31 +296,19 @@ export class SessionOrchestrator {
 
     this.insertAndBroadcastEvent(session.id, message.event_type, payload);
 
+    const pendingTerminalTransition = this.buildPendingTerminalTransition(activeMutation, message.event_type, payload);
+    if (pendingTerminalTransition) {
+      this.pendingTerminalTransitions.set(session.id, pendingTerminalTransition);
+      return;
+    }
+
     if (message.event_type === "session_result") {
       await this.transitionWithConflictTolerance(session.id, "completed");
       return;
     }
 
     if (message.event_type === "session_error") {
-      const context =
-        payload && typeof payload === "object"
-          ? {
-              error_code: this.normalizeErrorCode(
-                "error_code" in payload && typeof payload.error_code === "string"
-                  ? payload.error_code
-                  : undefined
-              ),
-              error_message:
-                "message" in payload && typeof payload.message === "string"
-                  ? payload.message
-                  : "Session failed"
-            }
-          : {
-              error_code: "provider_unreachable",
-              error_message: "Session failed"
-            };
-
-      await this.transitionWithConflictTolerance(session.id, "failed", context);
+      await this.transitionWithConflictTolerance(session.id, "failed", this.buildSessionErrorContext(payload));
     }
   }
 
@@ -455,6 +455,46 @@ export class SessionOrchestrator {
     }
 
     return "provider_unreachable";
+  }
+
+  private buildSessionErrorContext(payload: unknown): Required<SessionErrorContext> {
+    return payload && typeof payload === "object"
+      ? {
+          error_code: this.normalizeErrorCode(
+            "error_code" in payload && typeof payload.error_code === "string" ? payload.error_code : undefined
+          ),
+          error_message:
+            "message" in payload && typeof payload.message === "string" ? payload.message : "Session failed"
+        }
+      : {
+          error_code: "provider_unreachable",
+          error_message: "Session failed"
+        };
+  }
+
+  private buildPendingTerminalTransition(
+    activeMutation: LifecycleMutation | undefined,
+    eventType: EventType,
+    payload: unknown
+  ): PendingTerminalTransition | null {
+    if (activeMutation !== "create" && activeMutation !== "resume") {
+      return null;
+    }
+
+    if (eventType === "session_result") {
+      return {
+        status: "completed"
+      };
+    }
+
+    if (eventType === "session_error") {
+      return {
+        status: "failed",
+        context: this.buildSessionErrorContext(payload)
+      };
+    }
+
+    return null;
   }
 
   private async dispatchCreate(session: Session): Promise<string | null> {
@@ -670,7 +710,18 @@ export class SessionOrchestrator {
       return await action();
     } finally {
       this.activeLifecycleMutations.delete(sessionId);
+      this.pendingTerminalTransitions.delete(sessionId);
     }
+  }
+
+  private async applyPendingTerminalTransition(sessionId: string): Promise<void> {
+    const pending = this.pendingTerminalTransitions.get(sessionId);
+    if (!pending) {
+      return;
+    }
+
+    this.pendingTerminalTransitions.delete(sessionId);
+    await this.transitionWithConflictTolerance(sessionId, pending.status, pending.context);
   }
 
   private async transitionWithConflictTolerance(

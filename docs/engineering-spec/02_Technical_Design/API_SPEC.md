@@ -191,13 +191,13 @@
     "workspace_cwd": "/Users/danker/Desktop/AI-vault/IMbot",
     "initial_prompt": "帮我看一下这个项目的架构",
     "model": "opus",
-    "status": "queued",
+    "status": "running",
     "created_at": "2026-03-28T13:10:00Z"
   }
 }
 ```
 
-**Side effects**: 立即向 companion（或 OpenClaw bridge）发送 `create_session` 命令。
+**Side effects**: 先以 `queued` 插入 session 记录，再立即向 companion（或 OpenClaw bridge）发送 `create_session` 命令；成功 ack 后会话转为 `running`，响应返回更新后的 session。
 
 **Errors**:
 - `400 invalid_request`: 缺少必填字段。
@@ -216,6 +216,7 @@
 - `404 not_found`。
 - `409 state_conflict`: session 已在 running 状态。
 - `502 host_offline`。
+- `502 provider_unreachable`: OpenClaw gateway 不可用或拒绝恢复。
 
 ### POST /v1/sessions/:id/message
 

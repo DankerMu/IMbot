@@ -73,7 +73,7 @@ THEN the response is `404` with `{ "error": "not_found" }`
 
 ### Requirement: Create Session
 
-`POST /v1/sessions` SHALL create a new session, insert it into the database with status `queued`, and dispatch the create command to the appropriate companion or bridge.
+`POST /v1/sessions` SHALL create a new session, insert it into the database with status `queued`, dispatch the create command to the appropriate companion or bridge, and return the updated session after a successful startup ack.
 
 #### Scenario: POST /sessions success
 
@@ -82,7 +82,8 @@ AND the target host is online
 AND the provider is available on that host
 THEN a new session record is inserted with `status: "queued"`
 AND a `create_session` command is dispatched to the companion (or bridge for openclaw)
-AND the response is `201` with the session object
+AND on ack ok, the session status changes to `running`
+AND the response is `201` with the updated session object
 
 #### Scenario: POST /sessions host offline
 
@@ -142,6 +143,13 @@ THEN the response is `409` with `{ "error": "state_conflict" }`
 WHEN `POST /v1/sessions/:id/resume` is called
 AND the session's host is offline
 THEN the response is `502` with `{ "error": "host_offline" }`
+AND the session status is unchanged
+
+#### Scenario: POST /sessions/:id/resume provider unavailable
+
+WHEN `POST /v1/sessions/:id/resume` is called for an OpenClaw session
+AND the OpenClaw gateway is offline or rejects the resume request
+THEN the response is `502` with `{ "error": "provider_unreachable" }`
 AND the session status is unchanged
 
 ---
