@@ -453,6 +453,91 @@ test("relay resumes failed sessions and clears stored error fields", async (t) =
   });
 });
 
+test("relay rejects concurrent lifecycle mutations while a resume is in flight", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-resume-lock-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId, providerSessionId } = await createRunningSession({ baseUrl, config }, companion, {
+    prompt: "resume lock"
+  });
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_result",
+      payload: {
+        result: "done"
+      }
+    })
+  );
+
+  await waitForCondition(() => {
+    const session = runtime.db.prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId);
+    return session?.status === "completed";
+  }, "completed session");
+
+  const firstResumePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  const resumeCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "resume_session" && message.session_id === sessionId,
+    "resume_session command"
+  );
+  assert.equal(resumeCommand.provider_session_id, providerSessionId);
+
+  const secondResumeResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+  assert.equal(secondResumeResponse.status, 409);
+  assert.deepEqual(await secondResumeResponse.json(), { error: "state_conflict" });
+
+  const deleteDuringResumeResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+  assert.equal(deleteDuringResumeResponse.status, 409);
+  assert.deepEqual(await deleteDuringResumeResponse.json(), { error: "state_conflict" });
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: resumeCommand.req_id,
+      status: "ok",
+      data: {
+        provider_session_id: providerSessionId
+      }
+    })
+  );
+
+  const firstResumeResponse = await firstResumePromise;
+  assert.equal(firstResumeResponse.status, 200);
+
+  const sessionStartedCount = runtime.db
+    .prepare("SELECT COUNT(*) AS count FROM session_events WHERE session_id = ? AND type = 'session_started'")
+    .get(sessionId);
+  assert.deepEqual(sessionStartedCount, { count: 2 });
+});
+
 test("relay rejects deleting a running session", async (t) => {
   const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-delete-running-");
   const companion = new WebSocket(

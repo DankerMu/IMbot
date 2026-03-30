@@ -38,6 +38,8 @@ type SessionErrorContext = {
 };
 
 export class SessionOrchestrator {
+  private readonly activeLifecycleMutations = new Set<string>();
+
   constructor(
     private readonly _config: RelayConfig,
     private readonly db: RelayDatabase,
@@ -153,28 +155,30 @@ export class SessionOrchestrator {
   }
 
   async resume(sessionId: string): Promise<Session> {
-    const session = this.requireSession(sessionId);
-    if (session.status !== "completed" && session.status !== "failed") {
-      throw new RelayError("state_conflict", `Session ${sessionId} is not resumable from ${session.status}`);
-    }
-
-    if (!session.provider_session_id) {
-      throw new RelayError("session_not_resumable", `Session ${sessionId} has no provider session id`);
-    }
-
-    this.assertProviderAvailable(session);
-
-    const previousStatus = session.status;
-    const providerSessionId = await this.dispatchResume(session);
-    await this.markSessionStarted(session.id, providerSessionId);
-    this.auditLogger.write("session.resume", {
-      session_id: session.id,
-      host_id: session.host_id,
-      detail: {
-        previous_status: previousStatus
+    return await this.runWithLifecycleLock(sessionId, async () => {
+      const session = this.requireSession(sessionId);
+      if (session.status !== "completed" && session.status !== "failed") {
+        throw new RelayError("state_conflict", `Session ${sessionId} is not resumable from ${session.status}`);
       }
+
+      if (!session.provider_session_id) {
+        throw new RelayError("session_not_resumable", `Session ${sessionId} has no provider session id`);
+      }
+
+      this.assertProviderAvailable(session);
+
+      const previousStatus = session.status;
+      const providerSessionId = await this.dispatchResume(session);
+      await this.markSessionStarted(session.id, providerSessionId);
+      this.auditLogger.write("session.resume", {
+        session_id: session.id,
+        host_id: session.host_id,
+        detail: {
+          previous_status: previousStatus
+        }
+      });
+      return this.requireSession(session.id);
     });
-    return this.requireSession(session.id);
   }
 
   async sendMessage(sessionId: string, text: string): Promise<void> {
@@ -188,46 +192,50 @@ export class SessionOrchestrator {
   }
 
   async cancel(sessionId: string): Promise<Session> {
-    const session = this.requireSession(sessionId);
-    if (session.status !== "running") {
-      throw new RelayError("state_conflict", `Session ${sessionId} cannot be cancelled from ${session.status}`);
-    }
-
-    if (session.provider !== "openclaw") {
-      this.assertProviderAvailable(session);
-    }
-
-    const previousStatus = session.status;
-    await this.dispatchCancel(session);
-    await this.transition(session.id, "cancelled");
-    this.auditLogger.write("session.cancel", {
-      session_id: session.id,
-      host_id: session.host_id,
-      detail: {
-        previous_status: previousStatus
+    return await this.runWithLifecycleLock(sessionId, async () => {
+      const session = this.requireSession(sessionId);
+      if (session.status !== "running") {
+        throw new RelayError("state_conflict", `Session ${sessionId} cannot be cancelled from ${session.status}`);
       }
+
+      if (session.provider !== "openclaw") {
+        this.assertProviderAvailable(session);
+      }
+
+      const previousStatus = session.status;
+      await this.dispatchCancel(session);
+      await this.transition(session.id, "cancelled");
+      this.auditLogger.write("session.cancel", {
+        session_id: session.id,
+        host_id: session.host_id,
+        detail: {
+          previous_status: previousStatus
+        }
+      });
+      return this.requireSession(session.id);
     });
-    return this.requireSession(session.id);
   }
 
   async delete(sessionId: string): Promise<void> {
-    const session = this.requireSession(sessionId);
-    if (session.status === "queued" || session.status === "running") {
-      throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
-    }
-
-    const result = this.db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
-    if (result.changes === 0) {
-      throw new RelayError("not_found", `Session ${sessionId} not found`);
-    }
-
-    this.auditLogger.write("session.delete", {
-      session_id: sessionId,
-      host_id: session.host_id,
-      detail: {
-        provider: session.provider,
-        status: session.status
+    await this.runWithLifecycleLock(sessionId, async () => {
+      const session = this.requireSession(sessionId);
+      if (session.status === "queued" || session.status === "running") {
+        throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
       }
+
+      const result = this.db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+      if (result.changes === 0) {
+        throw new RelayError("not_found", `Session ${sessionId} not found`);
+      }
+
+      this.auditLogger.write("session.delete", {
+        session_id: sessionId,
+        host_id: session.host_id,
+        detail: {
+          provider: session.provider,
+          status: session.status
+        }
+      });
     });
   }
 
@@ -532,7 +540,7 @@ export class SessionOrchestrator {
 
   private async markSessionStarted(sessionId: string, providerSessionId: string | null): Promise<void> {
     const now = new Date().toISOString();
-    this.db
+    const result = this.db
       .prepare(
         `
         UPDATE sessions
@@ -541,6 +549,10 @@ export class SessionOrchestrator {
         `
       )
       .run(providerSessionId, now, now, sessionId);
+
+    if (result.changes !== 1) {
+      throw new RelayError("state_conflict", `Session ${sessionId} changed before it could enter running`);
+    }
 
     if (!this.isLatestEventType(sessionId, "session_started")) {
       this.insertAndBroadcastEvent(sessionId, "session_started", {
@@ -600,6 +612,19 @@ export class SessionOrchestrator {
       .get(sessionId) as { type: EventType } | undefined;
 
     return row?.type === eventType;
+  }
+
+  private async runWithLifecycleLock<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
+    if (this.activeLifecycleMutations.has(sessionId)) {
+      throw new RelayError("state_conflict", `Session ${sessionId} already has a lifecycle mutation in flight`);
+    }
+
+    this.activeLifecycleMutations.add(sessionId);
+    try {
+      return await action();
+    } finally {
+      this.activeLifecycleMutations.delete(sessionId);
+    }
   }
 
   private async transitionWithConflictTolerance(
