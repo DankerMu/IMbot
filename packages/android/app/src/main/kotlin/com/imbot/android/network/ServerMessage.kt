@@ -2,6 +2,8 @@ package com.imbot.android.network
 
 import org.json.JSONException
 import org.json.JSONObject
+import java.util.logging.Level
+import java.util.logging.Logger
 
 sealed interface ServerMessage {
     data class Event(
@@ -29,6 +31,8 @@ sealed interface ServerMessage {
 
     data object Pong : ServerMessage
 }
+
+private val logger: Logger = Logger.getLogger("com.imbot.android.network.ServerMessage")
 
 fun parseServerMessage(json: String): ServerMessage? =
     try {
@@ -64,6 +68,7 @@ fun parseServerMessage(json: String): ServerMessage? =
             "pong" -> ServerMessage.Pong
             else -> null
         }
-    } catch (_: JSONException) {
+    } catch (error: JSONException) {
+        logger.log(Level.WARNING, "Ignoring malformed relay frame", error)
         null
     }

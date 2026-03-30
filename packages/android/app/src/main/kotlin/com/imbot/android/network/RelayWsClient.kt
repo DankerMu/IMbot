@@ -87,6 +87,15 @@ class RelayWsClient
                 return
             }
 
+            val previousSessionId = activeSessionId
+            if (previousSessionId == normalizedSessionId) {
+                return
+            }
+
+            if (previousSessionId != null && _connectionState.value is ConnectionState.Connected) {
+                sendUnsubscribe(previousSessionId)
+            }
+
             activeSessionId = normalizedSessionId
             if (_connectionState.value is ConnectionState.Connected) {
                 sendSubscribe(normalizedSessionId)
@@ -94,7 +103,11 @@ class RelayWsClient
         }
 
         fun clearSubscription() {
+            val previousSessionId = activeSessionId
             activeSessionId = null
+            if (previousSessionId != null && _connectionState.value is ConnectionState.Connected) {
+                sendUnsubscribe(previousSessionId)
+            }
         }
 
         private fun openSocket() {
@@ -207,6 +220,15 @@ class RelayWsClient
             val payload =
                 JSONObject()
                     .put("action", "subscribe")
+                    .put("session_id", sessionId)
+                    .toString()
+            send(payload)
+        }
+
+        private fun sendUnsubscribe(sessionId: String) {
+            val payload =
+                JSONObject()
+                    .put("action", "unsubscribe")
                     .put("session_id", sessionId)
                     .toString()
             send(payload)
