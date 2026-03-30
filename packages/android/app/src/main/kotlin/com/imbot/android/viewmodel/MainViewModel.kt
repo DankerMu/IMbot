@@ -7,6 +7,8 @@ import com.imbot.android.data.SettingsRepository
 import com.imbot.android.network.ConnectionState
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelayWsClient
+import com.imbot.android.network.ServerMessage
+import com.imbot.android.network.toRelayBaseHttpUrl
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -62,12 +64,31 @@ class MainViewModel
             _token.value = savedSettings.token
 
             if (savedSettings.isConfigured()) {
-                relayWsClient.connect(savedSettings.relayUrl, savedSettings.token)
+                val validationError = savedSettings.relayValidationError()
+                if (validationError == null) {
+                    relayWsClient.connect(savedSettings.relayUrl, savedSettings.token)
+                } else {
+                    updateNotice(
+                        message = validationError,
+                        isError = true,
+                    )
+                }
             }
 
             viewModelScope.launch {
                 relayWsClient.rawMessages.collect { rawMessage ->
                     appendEvent(rawMessage)
+                }
+            }
+
+            viewModelScope.launch {
+                relayWsClient.messages.collect { message ->
+                    message.toNoticeState()?.let { notice ->
+                        updateNotice(
+                            message = notice.message,
+                            isError = notice.isError,
+                        )
+                    }
                 }
             }
         }
@@ -80,16 +101,15 @@ class MainViewModel
             _token.value = value
         }
 
-        fun onHostIdChanged(value: String) {
-            _hostId.value = value
-        }
-
-        fun onCwdChanged(value: String) {
-            _cwd.value = value
-        }
-
-        fun onPromptChanged(value: String) {
-            _prompt.value = value
+        fun onPrototypeInputChanged(
+            field: PrototypeInputField,
+            value: String,
+        ) {
+            when (field) {
+                PrototypeInputField.HostId -> _hostId.value = value
+                PrototypeInputField.Cwd -> _cwd.value = value
+                PrototypeInputField.Prompt -> _prompt.value = value
+            }
         }
 
         fun saveSettings() {
@@ -98,15 +118,28 @@ class MainViewModel
                     relayUrl = _relayUrl.value.trim(),
                     token = _token.value.trim(),
                 )
-            settingsRepository.save(settings)
-            resetPrototypeSession()
-            updateNotice()
-            relayWsClient.clearSubscription()
-            relayWsClient.connect(settings.relayUrl, settings.token)
+            val validationError = settings.relayValidationError()
+            if (validationError != null) {
+                updateNotice(
+                    message = validationError,
+                    isError = true,
+                )
+                return
+            }
+
+            applyRelaySettings(
+                settings = settings,
+                resetSession = true,
+            )
         }
 
         fun createSession() {
-            if (_isCreating.value || _relayUrl.value.isBlank() || _token.value.isBlank()) {
+            val settings =
+                RelaySettings(
+                    relayUrl = _relayUrl.value.trim(),
+                    token = _token.value.trim(),
+                )
+            if (_isCreating.value || !settings.isConfigured()) {
                 return
             }
 
@@ -114,9 +147,26 @@ class MainViewModel
                 _isCreating.value = true
                 updateNotice()
 
+                val validationError = settings.relayValidationError()
+                if (validationError != null) {
+                    updateNotice(
+                        message = validationError,
+                        isError = true,
+                    )
+                    _isCreating.value = false
+                    return@launch
+                }
+
+                if (settings != settingsRepository.load()) {
+                    applyRelaySettings(
+                        settings = settings,
+                        resetSession = true,
+                    )
+                }
+
                 relayHttpClient.createSession(
-                    relayUrl = _relayUrl.value.trim(),
-                    token = _token.value.trim(),
+                    relayUrl = settings.relayUrl,
+                    token = settings.token,
                     provider = "claude",
                     hostId = _hostId.value.trim(),
                     cwd = _cwd.value.trim(),
@@ -138,6 +188,19 @@ class MainViewModel
 
                 _isCreating.value = false
             }
+        }
+
+        private fun applyRelaySettings(
+            settings: RelaySettings,
+            resetSession: Boolean,
+        ) {
+            settingsRepository.save(settings)
+            if (resetSession) {
+                resetPrototypeSession()
+                relayWsClient.clearSubscription()
+            }
+            updateNotice()
+            relayWsClient.connect(settings.relayUrl, settings.token)
         }
 
         private fun resetPrototypeSession() {
@@ -168,4 +231,49 @@ class MainViewModel
                 "Session created while disconnected. Reconnect WebSocket to receive real-time events."
             const val MAX_EVENTS = 5_000
         }
+    }
+
+private data class NoticeState(
+    val message: String,
+    val isError: Boolean,
+)
+
+enum class PrototypeInputField {
+    HostId,
+    Cwd,
+    Prompt,
+}
+
+private const val SECURE_RELAY_URL_ERROR = "Relay URL must use https:// or wss://."
+
+private fun RelaySettings.relayValidationError(): String? =
+    when {
+        relayUrl.isBlank() -> null
+        relayUrl.toRelayBaseHttpUrl() == null -> SECURE_RELAY_URL_ERROR
+        else -> null
+    }
+
+private fun ServerMessage.toNoticeState(): NoticeState? =
+    when (this) {
+        is ServerMessage.Error ->
+            NoticeState(
+                message = message,
+                isError = true,
+            )
+
+        is ServerMessage.HostStatus ->
+            NoticeState(
+                message = "Host $hostId: $status",
+                isError = status != "online",
+            )
+
+        is ServerMessage.Status ->
+            NoticeState(
+                message = "Session status: $status",
+                isError = status == "failed",
+            )
+
+        is ServerMessage.Event,
+        ServerMessage.Pong,
+        -> null
     }

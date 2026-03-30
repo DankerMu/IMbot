@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.imbot.android.R
 import com.imbot.android.viewmodel.MainViewModel
+import com.imbot.android.viewmodel.PrototypeInputField
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -84,7 +85,9 @@ fun MainScreen(viewModel: MainViewModel) {
 
                 OutlinedTextField(
                     value = hostId,
-                    onValueChange = viewModel::onHostIdChanged,
+                    onValueChange = { value ->
+                        viewModel.onPrototypeInputChanged(PrototypeInputField.HostId, value)
+                    },
                     label = {
                         Text(text = stringResource(R.string.host_id_label))
                     },
@@ -94,7 +97,9 @@ fun MainScreen(viewModel: MainViewModel) {
 
                 OutlinedTextField(
                     value = cwd,
-                    onValueChange = viewModel::onCwdChanged,
+                    onValueChange = { value ->
+                        viewModel.onPrototypeInputChanged(PrototypeInputField.Cwd, value)
+                    },
                     label = {
                         Text(text = stringResource(R.string.cwd_label))
                     },
@@ -104,7 +109,9 @@ fun MainScreen(viewModel: MainViewModel) {
 
                 OutlinedTextField(
                     value = prompt,
-                    onValueChange = viewModel::onPromptChanged,
+                    onValueChange = { value ->
+                        viewModel.onPrototypeInputChanged(PrototypeInputField.Prompt, value)
+                    },
                     label = {
                         Text(text = stringResource(R.string.prompt_label))
                     },

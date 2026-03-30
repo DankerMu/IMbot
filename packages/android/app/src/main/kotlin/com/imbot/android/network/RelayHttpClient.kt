@@ -134,9 +134,9 @@ private suspend fun Call.await(): Response =
 internal fun String.toRelayBaseHttpUrl() =
     when {
         startsWith("wss://") -> replaceFirst("wss://", "https://")
-        startsWith("ws://") -> replaceFirst("ws://", "http://")
-        else -> this
-    }.toHttpUrlOrNull()
+        startsWith("https://") -> this
+        else -> null
+    }?.toHttpUrlOrNull()
 
 private fun String.toJsonObjectOrNull(): JSONObject? =
     try {
