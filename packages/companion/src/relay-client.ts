@@ -82,10 +82,7 @@ export class RelayClient extends EventEmitter {
         return;
       }
 
-      if (this.ws !== current || current.readyState !== WebSocket.OPEN) {
-        this.eventBuffer.push(message);
-      }
-
+      this.eventBuffer.push(message);
       this.logger.warn?.(
         `Failed to send outbound ${message.type} message: ${error instanceof Error ? error.message : "unknown error"}`
       );
