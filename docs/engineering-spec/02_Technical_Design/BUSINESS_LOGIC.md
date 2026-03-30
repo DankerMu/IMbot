@@ -285,25 +285,22 @@ cron.schedule('0 3 * * *', () => {
 
 Phase 1 目录安全校验的策略边界如下：
 
-- relay 是 browse allowlist 的执行点：先拒绝任何包含 `..` 的 path，再在本地读取或 companion 返回后，对 canonical path 重新校验其仍然落在已登记 workspace roots 之下。
+- relay 是 browse allowlist 的执行点：先拒绝任何包含 `..` 的 path，再在本地读取或 companion 代理前，用 root allowlist 校验请求 path；对 macOS 仅接受 `/var`、`/tmp`、`/etc` 与 `/private/...` 的受控别名等价。
+- relay 在本地读取或 companion 返回后，会对 canonical path 和返回的子目录 path 再次校验其仍然落在已登记 workspace roots 之下。
+- 如果一次成功 browse 命中的正是某个 legacy root 本身，而 canonical 返回路径与存储值不同，relay 会把该 root 持久化升级为 canonical path。
 - companion 当前对 `browse_directory` 负责本机文件系统校验：path 必须为绝对路径、目标必须存在且是目录、响应只返回 canonical 目录路径下的子目录。
 - companion 侧基于 roots 的 allowlist 校验保留到后续 root 同步能力落地后再承担；当前浏览安全性由 relay 先行兜底。
 
 ```typescript
 function validateBrowsePathAtRelay(requestedPath: string, roots: WorkspaceRoot[]): boolean {
-  const resolved = path.resolve(requestedPath);
   if (requestedPath.split(/[\\/]+/).includes('..')) return false;
-  return roots.some(root => {
-    const relative = path.relative(root.path, resolved);
-    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
-  });
+  return roots.some(root => isPathWithinRootWithControlledAliases(requestedPath, root.path));
 }
 
 async function canonicalBrowseResultStillUnderRoots(
-  requestedPath: string,
+  canonicalPath: string,
   roots: WorkspaceRoot[]
 ): Promise<boolean> {
-  const canonical = await fs.realpath(requestedPath);
-  return validateBrowsePathAtRelay(canonical, roots);
+  return validateBrowsePathAtRelay(canonicalPath, roots);
 }
 ```

@@ -74,6 +74,7 @@
 - `relay-local` 仅接受 `openclaw`
 - `macbook` 仅接受 `claude` 或 `book`
 - root 持久化时使用宿主机校验后的 canonical path
+- `relay-local` 在创建 root 时必须证明目录既存在又可读取；不可访问目录返回 `403 forbidden`
 - 未提供 `label` 时默认取目录 basename
 
 **Request**:
@@ -95,6 +96,7 @@
 **Errors**:
 - `400 invalid_request`: path 为空、非绝对路径，或 provider 与 host 类型不兼容。
 - `404 not_found`: hostId 不存在，或目标目录不存在。
+- `403 forbidden`: 目录存在但当前宿主机无权读取。
 - `409 state_conflict`: 同一 host+provider+path 已存在。
 - `502 host_offline`: companion 离线，无法验证路径（仅 macbook host）。
 
@@ -111,7 +113,10 @@
 
 **Query params**: `path=/Users/danker/Desktop/AI-vault`
 
+- relay 在任何本地读取或 companion 转发前，先用已登记 roots 做 allowlist 校验
+- allowlist 比较接受受控 macOS 别名等价：`/var <-> /private/var`、`/tmp <-> /private/tmp`、`/etc <-> /private/etc`
 - relay 在转发或读取后会用 canonical path 再次校验结果仍然落在已登记 roots 之下
+- 如果一次“精确 root 路径”的成功 browse 暴露出 legacy 非 canonical root，relay 会把该 root 升级为 canonical path 供后续请求复用
 
 **Response 200**:
 ```json
@@ -127,6 +132,7 @@
 **Errors**:
 - `400 invalid_request`: path 为空。
 - `403 forbidden`: path 不在任何 workspace root 下。
+- `403 forbidden`: 目录存在但当前宿主机无权读取。
 - `404 not_found`: 目录不存在。
 - `502 host_offline`: companion 离线。
 

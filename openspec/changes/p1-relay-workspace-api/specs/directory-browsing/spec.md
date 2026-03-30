@@ -57,7 +57,7 @@ THEN the response is `400` with `{ "error": "invalid_request", "message": "path 
 
 ### Requirement: Proxy Browse to Companion for Macbook Hosts
 
-For hosts with `type: "macbook"`, browse requests SHALL be proxied to the companion via the `browse_directory` command. The companion reads the local filesystem and returns the directory listing.
+For hosts with `type: "macbook"`, browse requests SHALL be proxied to the companion via the `browse_directory` command only after the relay confirms the requested path is already under a configured workspace root. The companion reads the local filesystem and returns the directory listing.
 
 #### Scenario: browse macbook path proxied to companion
 
@@ -67,6 +67,13 @@ AND the companion is online
 THEN the relay sends a `browse_directory` command to the companion with `path: "/Users/danker/Projects"`
 AND the companion returns the list of subdirectories
 AND the relay forwards the result as the API response
+
+#### Scenario: macbook path outside all roots is rejected before companion access
+
+WHEN `GET /v1/hosts/macbook-1/browse?path=/etc/secrets` is called
+AND `/etc/secrets` is not under any workspace root for `macbook-1`
+THEN the response is `403` with `{ "error": "forbidden" }`
+AND the relay does NOT send a `browse_directory` command to the companion
 
 #### Scenario: browse macbook path when companion offline returns 502
 
@@ -91,7 +98,7 @@ AND returns only subdirectory entries (filtering out files and symlinks to files
 
 ### Requirement: Path Traversal Prevention
 
-The browse endpoint SHALL reject any path that contains path traversal sequences (`..`, `/../`). Paths MUST be resolved to their canonical form before validation against workspace roots.
+The browse endpoint SHALL reject any path that contains path traversal sequences (`..`, `/../`). The relay SHALL validate the requested path against workspace roots before execution, allowing only controlled macOS alias equivalence for `/var`, `/tmp`, and `/etc` versus `/private/...`. After filesystem access or companion proxy returns, the relay SHALL revalidate the canonical result against workspace roots.
 
 #### Scenario: path traversal attempt with ../ is rejected
 
@@ -111,6 +118,15 @@ WHEN `GET /v1/hosts/macbook-1/browse?path=/Users/danker/Desktop/AI-vault/IMbot` 
 AND the path is absolute with no `..` components
 AND it is under a workspace root
 THEN the request proceeds normally
+
+#### Scenario: legacy root alias is upgraded after exact root browse
+
+WHEN a stored workspace root for `macbook-1` is `/var/tmp/IMbotLegacy`
+AND `GET /v1/hosts/macbook-1/browse?path=/var/tmp/IMbotLegacy` is called
+AND the companion returns canonical path `/private/var/tmp/IMbotLegacy`
+THEN the response is `200`
+AND the relay accepts the canonical result as still under the matched root
+AND the relay upgrades the stored root path to `/private/var/tmp/IMbotLegacy`
 
 #### Scenario: symlink escape is rejected after canonicalization
 

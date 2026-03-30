@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -41,6 +41,8 @@ test("validateWorkspacePath rejects traversal and enforces root containment", ()
 
   assert.equal(isPathWithinRoot("/tmp/workspaces/project-a", rootPath), true);
   assert.equal(isPathWithinRoot("/tmp/other/project-a", rootPath), false);
+  assert.equal(isPathWithinRoot("/var/tmp/workspaces/project-a", "/private/var/tmp/workspaces"), true);
+  assert.equal(isPathWithinRoot("/private/var/tmp/workspaces/project-a", "/var/tmp/workspaces"), true);
   assert.deepEqual(validateWorkspacePath("/tmp/workspaces/project-a", [rootPath]), {
     ok: true,
     resolvedPath: "/tmp/workspaces/project-a"
@@ -166,6 +168,131 @@ test("relay-local browse rejects canonical paths that escape a root via symlink"
   const response = await runtime.app.inject({
     method: "GET",
     url: `/v1/hosts/relay-local/browse?path=${encodeURIComponent(escapeLink)}`,
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(response.json(), {
+    error: "forbidden"
+  });
+});
+
+test("relay-local browse upgrades a legacy symlink root to its canonical path", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-legacy-root-"));
+  const rootDir = path.join(tempDir, "root");
+  const nestedDir = path.join(rootDir, "nested");
+  const rootAlias = path.join(tempDir, "root-link");
+  mkdirSync(rootDir);
+  mkdirSync(nestedDir);
+  symlinkSync(rootDir, rootAlias);
+
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO workspace_roots (id, host_id, provider, path, label, created_at)
+      VALUES ('legacy-root', 'relay-local', 'openclaw', ?, 'root', datetime('now'))
+      `
+    )
+    .run(rootAlias);
+
+  const canonicalRootDir = realpathSync(rootDir);
+  const canonicalNestedDir = realpathSync(nestedDir);
+  const rootBrowseResponse = await runtime.app.inject({
+    method: "GET",
+    url: `/v1/hosts/relay-local/browse?path=${encodeURIComponent(rootAlias)}`,
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  assert.equal(rootBrowseResponse.statusCode, 200);
+  assert.deepEqual(rootBrowseResponse.json(), {
+    path: canonicalRootDir,
+    directories: [
+      {
+        name: "nested",
+        path: canonicalNestedDir
+      }
+    ]
+  });
+  assert.deepEqual(
+    runtime.db.prepare("SELECT path FROM workspace_roots WHERE id = 'legacy-root'").get(),
+    {
+      path: canonicalRootDir
+    }
+  );
+
+  const childBrowseResponse = await runtime.app.inject({
+    method: "GET",
+    url: `/v1/hosts/relay-local/browse?path=${encodeURIComponent(canonicalNestedDir)}`,
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  assert.equal(childBrowseResponse.statusCode, 200);
+  assert.deepEqual(childBrowseResponse.json(), {
+    path: canonicalNestedDir,
+    directories: []
+  });
+});
+
+test("relay-local browse returns forbidden when a configured root becomes unreadable", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-unreadable-root-"));
+  const rootDir = path.join(tempDir, "root");
+  mkdirSync(rootDir);
+
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    try {
+      chmodSync(rootDir, 0o755);
+    } catch {}
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO workspace_roots (id, host_id, provider, path, label, created_at)
+      VALUES ('root-1', 'relay-local', 'openclaw', ?, 'root', datetime('now'))
+      `
+    )
+    .run(rootDir);
+
+  chmodSync(rootDir, 0o000);
+
+  const response = await runtime.app.inject({
+    method: "GET",
+    url: `/v1/hosts/relay-local/browse?path=${encodeURIComponent(rootDir)}`,
     headers: {
       authorization: `Bearer ${config.staticToken}`
     }

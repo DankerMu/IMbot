@@ -9,7 +9,7 @@ import { AuditLogger } from "../audit/logger";
 import { CompanionManager, type BrowseDirectoryResult } from "../companion/manager";
 import type { RelayDatabase } from "../db/init";
 import { RelayError } from "../errors";
-import { hasPathTraversal, validateWorkspacePath } from "../util/path-security";
+import { hasPathTraversal, isPathWithinRoot, validateWorkspacePath } from "../util/path-security";
 
 type HostSummary = Host & {
   readonly providers: Provider[];
@@ -205,16 +205,29 @@ export function registerHostRoutes(
         throw new RelayError("forbidden", "Path is not under any workspace root");
       }
 
+      const matchedRoot = assertRequestedPathWithinRoots(requestedPath, roots);
+
       if (host.type === "relay_local") {
         const canonicalPath = await resolveLocalDirectoryPath(requestedPath);
-        assertPathWithinRoots(canonicalPath, roots);
+        const effectiveRoots = withCanonicalRootOverride(
+          roots,
+          matchedRoot,
+          deriveCanonicalRootPathForBrowse(requestedPath, matchedRoot, canonicalPath)
+        );
         const result = await browseLocalDirectory(canonicalPath);
-        assertBrowseResultWithinRoots(result, roots);
+        assertBrowseResultWithinRoots(result, effectiveRoots);
+        persistCanonicalRootPath(deps.db, matchedRoot, effectiveRoots);
         return result;
       }
 
       const result = await deps.companionManager.browseDirectory(hostId, requestedPath);
-      assertBrowseResultWithinRoots(result, roots);
+      const effectiveRoots = withCanonicalRootOverride(
+        roots,
+        matchedRoot,
+        deriveCanonicalRootPathForBrowse(requestedPath, matchedRoot, result.path)
+      );
+      assertBrowseResultWithinRoots(result, effectiveRoots);
+      persistCanonicalRootPath(deps.db, matchedRoot, effectiveRoots);
       return result;
     }
   );
@@ -334,10 +347,7 @@ async function assertRootTargetExists(
   companionManager: CompanionManager
 ): Promise<BrowseDirectoryResult> {
   if (host.type === "relay_local") {
-    return {
-      path: await resolveLocalDirectoryPath(targetPath),
-      directories: []
-    };
+    return await browseLocalDirectory(await resolveLocalDirectoryPath(targetPath));
   }
 
   return await companionManager.browseDirectory(host.id, targetPath);
@@ -361,6 +371,9 @@ async function resolveLocalDirectoryPath(targetPath: string): Promise<string> {
       const code = (error as { code?: string }).code;
       if (code === "ENOENT" || code === "ENOTDIR") {
         throw new RelayError("not_found", `Directory ${targetPath} not found`);
+      }
+      if (code === "EACCES" || code === "EPERM") {
+        throw new RelayError("forbidden", `Directory ${targetPath} is not accessible`);
       }
     }
 
@@ -390,10 +403,22 @@ async function browseLocalDirectory(targetPath: string): Promise<BrowseDirectory
       if (code === "ENOENT" || code === "ENOTDIR") {
         throw new RelayError("not_found", `Directory ${targetPath} not found`);
       }
+      if (code === "EACCES" || code === "EPERM") {
+        throw new RelayError("forbidden", `Directory ${targetPath} is not accessible`);
+      }
     }
 
     throw error;
   }
+}
+
+function assertRequestedPathWithinRoots(targetPath: string, roots: readonly WorkspaceRoot[]): WorkspaceRoot {
+  const matchedRoot = findBestMatchingRoot(targetPath, roots);
+  if (!matchedRoot) {
+    throw new RelayError("forbidden", "Path is not under any workspace root");
+  }
+
+  return matchedRoot;
 }
 
 function assertPathWithinRoots(targetPath: string, roots: readonly WorkspaceRoot[]): void {
@@ -415,6 +440,88 @@ function assertBrowseResultWithinRoots(
   for (const directory of result.directories) {
     assertPathWithinRoots(directory.path, roots);
   }
+}
+
+function findBestMatchingRoot(targetPath: string, roots: readonly WorkspaceRoot[]): WorkspaceRoot | null {
+  let matchedRoot: WorkspaceRoot | null = null;
+
+  for (const root of roots) {
+    if (!isPathWithinRoot(targetPath, root.path)) {
+      continue;
+    }
+
+    if (!matchedRoot || path.resolve(root.path).length > path.resolve(matchedRoot.path).length) {
+      matchedRoot = root;
+    }
+  }
+
+  return matchedRoot;
+}
+
+function deriveCanonicalRootPathForBrowse(
+  requestedPath: string,
+  matchedRoot: WorkspaceRoot,
+  canonicalBrowsePath: string
+): string | null {
+  if (!isResolvedPathEqual(requestedPath, matchedRoot.path)) {
+    return null;
+  }
+
+  if (isResolvedPathEqual(canonicalBrowsePath, matchedRoot.path)) {
+    return null;
+  }
+
+  return canonicalBrowsePath;
+}
+
+function withCanonicalRootOverride(
+  roots: readonly WorkspaceRoot[],
+  matchedRoot: WorkspaceRoot,
+  canonicalRootPath: string | null
+): WorkspaceRoot[] {
+  if (!canonicalRootPath) {
+    return [...roots];
+  }
+
+  return roots.map((root) => {
+    if (root.id !== matchedRoot.id) {
+      return root;
+    }
+
+    return {
+      ...root,
+      path: canonicalRootPath
+    };
+  });
+}
+
+function persistCanonicalRootPath(
+  db: RelayDatabase,
+  matchedRoot: WorkspaceRoot,
+  effectiveRoots: readonly WorkspaceRoot[]
+): void {
+  const effectiveRoot = effectiveRoots.find((root) => root.id === matchedRoot.id);
+  if (!effectiveRoot || isResolvedPathEqual(effectiveRoot.path, matchedRoot.path)) {
+    return;
+  }
+
+  try {
+    db.prepare("UPDATE workspace_roots SET path = ? WHERE id = ? AND host_id = ?").run(
+      effectiveRoot.path,
+      matchedRoot.id,
+      matchedRoot.host_id
+    );
+  } catch (error) {
+    if (isUniqueConstraintError(error)) {
+      return;
+    }
+
+    throw error;
+  }
+}
+
+function isResolvedPathEqual(leftPath: string, rightPath: string): boolean {
+  return path.resolve(leftPath) === path.resolve(rightPath);
 }
 
 function sortProviders(providers: readonly Provider[]): Provider[] {

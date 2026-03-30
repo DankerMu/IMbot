@@ -1,5 +1,13 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -70,6 +78,46 @@ function waitForJsonMessage(ws, predicate, label, timeoutMs = 5000) {
   });
 }
 
+function assertNoJsonMessage(ws, predicate, label, timeoutMs = 250) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, timeoutMs);
+
+    const cleanup = () => {
+      clearTimeout(timer);
+      ws.removeEventListener("message", onMessage);
+      ws.removeEventListener("close", onClose);
+      ws.removeEventListener("error", onError);
+    };
+
+    const onMessage = (event) => {
+      const message = JSON.parse(String(event.data));
+      if (!predicate(message)) {
+        return;
+      }
+
+      cleanup();
+      reject(new Error(`Received unexpected ${label}`));
+    };
+
+    const onClose = () => {
+      cleanup();
+      reject(new Error(`WebSocket closed while confirming absence of ${label}`));
+    };
+
+    const onError = (event) => {
+      cleanup();
+      reject(new Error(`WebSocket error while confirming absence of ${label}: ${event.message ?? "unknown"}`));
+    };
+
+    ws.addEventListener("message", onMessage);
+    ws.addEventListener("close", onClose, { once: true });
+    ws.addEventListener("error", onError, { once: true });
+  });
+}
+
 function sendHeartbeat(ws, hostId = "macbook-1", providers = ["claude", "book"]) {
   ws.send(
     JSON.stringify({
@@ -95,15 +143,18 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
   const relayBeta = path.join(relayRoot, "beta");
   const relayOutside = path.join(tempDir, "relay-outside");
   const relayEscapeLink = path.join(relayRoot, "escape-link");
+  const relayUnreadable = path.join(tempDir, "relay-unreadable");
   mkdirSync(relayRoot);
   mkdirSync(relayAlpha);
   mkdirSync(relayBeta);
   mkdirSync(relayOutside);
+  mkdirSync(relayUnreadable);
   symlinkSync(relayOutside, relayEscapeLink);
   writeFileSync(path.join(relayRoot, "README.md"), "file");
   const canonicalRelayRoot = realpathSync(relayRoot);
   const canonicalRelayAlpha = realpathSync(relayAlpha);
   const canonicalRelayBeta = realpathSync(relayBeta);
+  chmodSync(relayUnreadable, 0o000);
 
   const config = relay.loadConfig({
     RELAY_STATIC_TOKEN: "t".repeat(64),
@@ -129,6 +180,9 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
   const baseWsUrl = `ws://127.0.0.1:${port}`;
 
   t.after(async () => {
+    try {
+      chmodSync(relayUnreadable, 0o755);
+    } catch {}
     await runtime.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
@@ -187,6 +241,21 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
   });
   assert.equal(relayRootsResponse.status, 200);
   assert.equal((await relayRootsResponse.json()).roots.length, 1);
+
+  const unreadableRelayRootResponse = await fetch(`${baseUrl}/v1/hosts/relay-local/roots`, {
+    method: "POST",
+    headers: authHeaders(config.staticToken, {
+      "content-type": "application/json"
+    }),
+    body: JSON.stringify({
+      provider: "openclaw",
+      path: relayUnreadable
+    })
+  });
+  assert.equal(unreadableRelayRootResponse.status, 403);
+  assert.deepEqual(await unreadableRelayRootResponse.json(), {
+    error: "forbidden"
+  });
 
   const relayBrowseResponse = await fetch(
     `${baseUrl}/v1/hosts/relay-local/browse?path=${encodeURIComponent(relayRoot)}`,
@@ -354,34 +423,106 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
     ]
   });
 
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO workspace_roots (id, host_id, provider, path, label, created_at)
+      VALUES ('legacy-root', 'macbook-1', 'claude', ?, 'legacy-root', datetime('now'))
+      `
+    )
+    .run("/var/tmp/IMbotLegacy");
+
+  const legacyRootBrowsePath = "/var/tmp/IMbotLegacy";
+  const canonicalLegacyRootPath = "/private/var/tmp/IMbotLegacy";
+  const legacyChildPath = `${canonicalLegacyRootPath}/project-a`;
+  const legacyRootBrowsePromise = fetch(
+    `${baseUrl}/v1/hosts/macbook-1/browse?path=${encodeURIComponent(legacyRootBrowsePath)}`,
+    {
+      headers: authHeaders(config.staticToken)
+    }
+  );
+  const legacyRootBrowseCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "browse_directory" && message.path === legacyRootBrowsePath,
+    "macbook legacy root browse"
+  );
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: legacyRootBrowseCommand.req_id,
+      status: "ok",
+      data: {
+        path: canonicalLegacyRootPath,
+        directories: [
+          {
+            name: "project-a",
+            path: legacyChildPath
+          }
+        ]
+      }
+    })
+  );
+  const legacyRootBrowseResponse = await legacyRootBrowsePromise;
+  assert.equal(legacyRootBrowseResponse.status, 200);
+  assert.deepEqual(await legacyRootBrowseResponse.json(), {
+    path: canonicalLegacyRootPath,
+    directories: [
+      {
+        name: "project-a",
+        path: legacyChildPath
+      }
+    ]
+  });
+  assert.deepEqual(
+    runtime.db.prepare("SELECT path FROM workspace_roots WHERE id = 'legacy-root'").get(),
+    {
+      path: canonicalLegacyRootPath
+    }
+  );
+
+  const legacyChildBrowsePromise = fetch(
+    `${baseUrl}/v1/hosts/macbook-1/browse?path=${encodeURIComponent(legacyChildPath)}`,
+    {
+      headers: authHeaders(config.staticToken)
+    }
+  );
+  const legacyChildBrowseCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "browse_directory" && message.path === legacyChildPath,
+    "macbook canonical child browse"
+  );
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: legacyChildBrowseCommand.req_id,
+      status: "ok",
+      data: {
+        path: legacyChildPath,
+        directories: []
+      }
+    })
+  );
+  const legacyChildBrowseResponse = await legacyChildBrowsePromise;
+  assert.equal(legacyChildBrowseResponse.status, 200);
+  assert.deepEqual(await legacyChildBrowseResponse.json(), {
+    path: legacyChildPath,
+    directories: []
+  });
+
   const macbookOutsideResponsePromise = fetch(
     `${baseUrl}/v1/hosts/macbook-1/browse?path=${encodeURIComponent("/etc")}`,
     {
       headers: authHeaders(config.staticToken)
     }
   );
-  const macbookOutsideCommand = await waitForJsonMessage(
-    companion,
-    (message) => message.cmd === "browse_directory" && message.path === "/etc",
-    "macbook outside browse"
-  );
-  companion.send(
-    JSON.stringify({
-      type: "ack",
-      req_id: macbookOutsideCommand.req_id,
-      status: "ok",
-      data: {
-        path: "/etc",
-        directories: [
-          {
-            name: "ssh",
-            path: "/etc/ssh"
-          }
-        ]
-      }
-    })
-  );
-  const macbookOutsideResponse = await macbookOutsideResponsePromise;
+  const [macbookOutsideResponse] = await Promise.all([
+    macbookOutsideResponsePromise,
+    assertNoJsonMessage(
+      companion,
+      (message) => message.cmd === "browse_directory" && message.path === "/etc",
+      "macbook outside browse command"
+    )
+  ]);
   assert.equal(macbookOutsideResponse.status, 403);
   assert.deepEqual(await macbookOutsideResponse.json(), {
     error: "forbidden"
