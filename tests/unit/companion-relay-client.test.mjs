@@ -355,7 +355,8 @@ test("RelayClient reconnect uses exponential backoff delays instead of constant 
 
   client.connect();
 
-  // Wait until at least 4 retry logs accumulate (20+40+80+160 = 300ms + overhead)
+  // Wait until at least 4 retry logs accumulate (20+40+80+160 = 300ms + overhead).
+  // Do NOT unref timers — they must keep the event loop alive in CI.
   await new Promise((resolve) => {
     const check = setInterval(() => {
       if (retryLogs.length >= 4) {
@@ -363,9 +364,8 @@ test("RelayClient reconnect uses exponential backoff delays instead of constant 
         resolve();
       }
     }, 30);
-    check.unref?.();
     const bail = setTimeout(() => { clearInterval(check); resolve(); }, 3000);
-    bail.unref?.();
+    void bail;
   });
 
   assert.equal(retryLogs.length >= 4, true, `Expected at least 4 retry logs, got ${retryLogs.length}`);
