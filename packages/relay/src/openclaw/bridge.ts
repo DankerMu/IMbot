@@ -460,7 +460,7 @@ export class OpenClawBridge {
   }
 
   private extractAckSessionKey(payload: unknown): string | null {
-    return extractOpenClawSessionKey(payload) ?? this.defaultSessionKey;
+    return extractOpenClawSessionKey(payload);
   }
 
   private setSessionMapping(relaySessionId: string, sessionKey: string): void {
