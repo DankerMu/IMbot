@@ -212,6 +212,10 @@ export class SessionOrchestrator {
 
   async delete(sessionId: string): Promise<void> {
     const session = this.requireSession(sessionId);
+    if (session.status === "running") {
+      await this.dispatchCancel(session);
+    }
+
     const result = this.db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
     if (result.changes === 0) {
       throw new RelayError("not_found", `Session ${sessionId} not found`);
@@ -312,7 +316,7 @@ export class SessionOrchestrator {
     const nextErrorCode = newStatus === "failed" ? context?.error_code ?? null : null;
     const nextErrorMessage = newStatus === "failed" ? context?.error_message ?? null : null;
 
-    this.db
+    const result = this.db
       .prepare(
         `
         UPDATE sessions
@@ -321,6 +325,13 @@ export class SessionOrchestrator {
         `
       )
       .run(newStatus, nextErrorCode, nextErrorMessage, now, now, sessionId, session.status);
+
+    if (result.changes !== 1) {
+      throw new RelayError(
+        "state_conflict",
+        `Session ${sessionId} changed while transitioning from ${session.status} to ${newStatus}`
+      );
+    }
 
     const updatedSession = this.getSession(sessionId);
     if (!updatedSession || updatedSession.status !== newStatus) {
