@@ -11,6 +11,7 @@ import { RelayClient } from "./relay-client";
 import { ClaudeRuntimeAdapter } from "./runtime/claude-adapter";
 import { SessionIndex } from "./runtime/session-index";
 import type { LoggerLike } from "./types";
+import { browseDirectory } from "./workspace/browser";
 
 export const COMPANION_SUPPORTED_PROVIDERS = PROVIDERS;
 
@@ -83,6 +84,11 @@ export async function createCompanionRuntime(options?: {
   dispatcher.register("cancel_session", async (command) => {
     await adapter.cancel(command.session_id);
   });
+  dispatcher.register("browse_directory", async (command) => {
+    return await browseDirectory(command.path, {
+      allowedRoots: command.roots
+    });
+  });
 
   relayClient.on("message", (message) => {
     void dispatcher.dispatch(message);
@@ -144,7 +150,15 @@ export async function startCompanion(config = loadCompanionConfig()): Promise<Co
   return runtime;
 }
 
-export { loadCompanionConfig, RelayClient, HeartbeatTimer, CommandDispatcher, ClaudeRuntimeAdapter, SessionIndex };
+export {
+  loadCompanionConfig,
+  RelayClient,
+  HeartbeatTimer,
+  CommandDispatcher,
+  ClaudeRuntimeAdapter,
+  SessionIndex,
+  browseDirectory
+};
 
 if (require.main === module) {
   void startCompanion().catch((error) => {

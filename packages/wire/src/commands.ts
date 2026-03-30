@@ -43,6 +43,7 @@ export type BrowseDirectoryCommand = {
   cmd: "browse_directory";
   req_id: string;
   path: string;
+  roots?: readonly string[];
 };
 
 export type CompanionCommand =

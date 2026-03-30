@@ -1,5 +1,14 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -209,6 +218,77 @@ test("SessionIndex persists mappings and tolerates corrupt files", () => {
     });
     assert.equal(corrupted.get("relay-1"), null);
     assert.equal(readFileSync(filePath, "utf8"), "{not-json");
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("browseDirectory returns subdirectories only and rejects missing targets", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-browse-"));
+  const rootDir = path.join(tempDir, "workspace");
+  const nestedDir = path.join(rootDir, "nested");
+  const emptyDir = path.join(rootDir, "empty");
+  const linkedDir = path.join(tempDir, "workspace-link");
+  const outsideDir = path.join(tempDir, "outside");
+  const escapeLink = path.join(rootDir, "escape-link");
+
+  try {
+    mkdirSync(rootDir);
+    mkdirSync(nestedDir);
+    mkdirSync(emptyDir);
+    mkdirSync(outsideDir);
+    symlinkSync(rootDir, linkedDir);
+    symlinkSync(outsideDir, escapeLink);
+    writeFileSync(path.join(rootDir, "README.md"), "file");
+    const canonicalRootDir = realpathSync(rootDir);
+    const canonicalNestedDir = realpathSync(nestedDir);
+    const canonicalEmptyDir = realpathSync(emptyDir);
+
+    const result = await companion.browseDirectory(rootDir);
+    assert.deepEqual(result, {
+      path: canonicalRootDir,
+      directories: [
+        {
+          name: "empty",
+          path: canonicalEmptyDir
+        },
+        {
+          name: "nested",
+          path: canonicalNestedDir
+        }
+      ]
+    });
+
+    const linkedResult = await companion.browseDirectory(linkedDir);
+    assert.deepEqual(linkedResult, {
+      path: canonicalRootDir,
+      directories: [
+        {
+          name: "empty",
+          path: canonicalEmptyDir
+        },
+        {
+          name: "nested",
+          path: canonicalNestedDir
+        }
+      ]
+    });
+
+    await assert.rejects(() => companion.browseDirectory(path.join(tempDir, "missing")), {
+      code: "not_found",
+      message: `Directory ${path.join(tempDir, "missing")} not found`
+    });
+
+    await assert.rejects(
+      () =>
+        companion.browseDirectory(escapeLink, {
+          allowedRoots: [rootDir]
+        }),
+      {
+        code: "forbidden",
+        message: `Directory ${escapeLink} is not under any workspace root`
+      }
+    );
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

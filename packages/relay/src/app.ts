@@ -12,6 +12,7 @@ import { initializeDatabase } from "./db/init";
 import { isRelayError } from "./errors";
 import { registerEventRoutes } from "./routes/events";
 import { registerHealthRoutes } from "./routes/health";
+import { registerHostRoutes } from "./routes/hosts";
 import { registerSessionRoutes } from "./routes/sessions";
 import { OpenClawBridge } from "./openclaw/bridge";
 import { SessionOrchestrator } from "./session/orchestrator";
@@ -135,6 +136,11 @@ export async function createRelayApp(options?: {
       registerSessionRoutes(securedApp, {
         db,
         orchestrator
+      });
+      registerHostRoutes(securedApp, {
+        db,
+        companionManager,
+        auditLogger
       });
       registerEventRoutes(securedApp, {
         db

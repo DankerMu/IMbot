@@ -13,6 +13,7 @@ AND host `macbook-1` exists
 AND no root with the same (host_id, provider, path) combination exists
 THEN a new `workspace_roots` record is inserted
 AND the response is `201` with the root object containing `id`, `host_id`, `provider`, `path`, `label`, `created_at`
+AND the persisted `path` is the host-validated canonical directory path
 
 #### Scenario: add duplicate root returns 409
 
@@ -40,6 +41,26 @@ THEN the response is `400` with `{ "error": "invalid_request", "message": "path 
 WHEN `POST /v1/hosts/relay-local/roots` is called with `{ "provider": "openclaw", "path": "/home/user/projects", "label": "VPS Projects" }`
 THEN the root is created successfully
 AND the response is `201`
+
+#### Scenario: add root for a missing directory returns 404
+
+WHEN `POST /v1/hosts/macbook-1/roots` is called with `{ "provider": "claude", "path": "/Users/danker/missing" }`
+AND the target directory does not exist on the selected host
+THEN the response is `404` with `{ "error": "not_found" }`
+
+#### Scenario: add root for an unreadable directory returns 403
+
+WHEN `POST /v1/hosts/relay-local/roots` is called with `{ "provider": "openclaw", "path": "/srv/private-project" }`
+AND the target directory exists on the selected host but cannot be read
+THEN the response is `403` with `{ "error": "forbidden" }`
+
+#### Scenario: add root with provider unsupported by host returns 400
+
+WHEN `POST /v1/hosts/relay-local/roots` is called with `{ "provider": "claude", "path": "/srv/project" }`
+THEN the response is `400` with `{ "error": "invalid_request" }`
+
+WHEN `POST /v1/hosts/macbook-1/roots` is called with `{ "provider": "openclaw", "path": "/Users/danker/Projects" }`
+THEN the response is `400` with `{ "error": "invalid_request" }`
 
 ---
 

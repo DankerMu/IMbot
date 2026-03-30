@@ -283,14 +283,33 @@ cron.schedule('0 3 * * *', () => {
 
 ## 9. Directory Security Validation
 
-Companion 在执行 `browse_directory` 和 `create_session` 时必须验证路径合法性：
+Phase 1 目录安全校验的策略边界如下：
+
+- relay 是 browse allowlist 的执行点：先拒绝任何包含 `..` 的 path，再在本地读取或 companion 代理前，用 root allowlist 校验请求 path；受控 macOS 别名等价只用于 `macbook` host，或运行在 macOS 上的 `relay-local`。
+- relay 在本地读取或 companion 返回后，会对 canonical path 和返回的子目录 path 再次校验其仍然落在已登记 workspace roots 之下。
+- 如果一次成功 browse 命中的正是某个 legacy root 本身，而 canonical 返回路径与存储值不同，relay 会把该 root 持久化升级为 canonical path。
+- companion 当前对 `browse_directory` 负责本机文件系统校验：path 必须为绝对路径、目标必须存在且是目录、响应只返回 canonical 目录路径下的子目录。
+- 当 relay 为 `macbook` browse 显式传入 roots 时，companion 也会在 canonical 化后执行一次 root allowlist 校验，并在列目录前拒绝 symlink/canonical escape。
 
 ```typescript
-function validatePath(requestedPath: string, roots: WorkspaceRoot[]): boolean {
-  const resolved = path.resolve(requestedPath);
-  // 拒绝路径遍历
-  if (resolved !== requestedPath && requestedPath.includes('..')) return false;
-  // 必须在某个 root 下
-  return roots.some(root => resolved.startsWith(root.path));
+function validateBrowsePathAtRelay(requestedPath: string, roots: WorkspaceRoot[]): boolean {
+  if (requestedPath.split(/[\\/]+/).includes('..')) return false;
+  return roots.some(root => isPathWithinRootWithControlledAliases(requestedPath, root.path));
+}
+
+async function canonicalBrowseResultStillUnderRoots(
+  canonicalPath: string,
+  roots: WorkspaceRoot[]
+): Promise<boolean> {
+  return validateBrowsePathAtRelay(canonicalPath, roots);
+}
+
+async function companionBrowseWithRoots(
+  requestedPath: string,
+  roots: WorkspaceRoot[]
+): Promise<BrowseDirectoryResult> {
+  return companion.browseDirectory(requestedPath, {
+    allowedRoots: roots.map(root => root.path)
+  });
 }
 ```

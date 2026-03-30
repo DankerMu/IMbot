@@ -26,10 +26,11 @@ packages/relay/src/
 
 Browse requests follow different paths based on host type:
 
-- **macbook host**: Relay sends `browse_directory` command to companion via WS → companion reads fs → returns directory list → relay forwards to client.
+- **macbook host**: Relay first checks that the requested path is under a registered root, then sends `browse_directory` plus the current roots to the companion via WS → companion canonicalizes and rejects out-of-root escapes before listing → relay revalidates the canonical result before forwarding.
 - **relay-local host**: Relay reads local filesystem directly using `fs.readdir({ withFileTypes: true })`.
 
 Both paths validate the requested path against workspace roots before execution.
+In the current slice, the relay remains the primary policy enforcement point for root containment and traversal rejection. Before local filesystem access or companion proxy, the relay performs a lexical allowlist check against registered roots and accepts controlled macOS aliases (`/var`, `/tmp`, `/etc` versus `/private/...`) only for macbook hosts or relay-local running on macOS. After local filesystem access or companion browse returns, the relay revalidates the canonical path to prevent symlink-based escape from a registered root.
 
 ### 2. Path Security as Middleware
 
@@ -37,15 +38,14 @@ Path validation is extracted into a reusable utility:
 
 ```typescript
 function validateBrowsePath(requestedPath: string, roots: WorkspaceRoot[]): { valid: boolean; error?: string } {
-  const resolved = path.resolve(requestedPath);
   if (requestedPath.includes('..')) return { valid: false, error: 'forbidden' };
-  const underRoot = roots.some(r => resolved.startsWith(r.path));
+  const underRoot = roots.some(r => isPathWithinRootWithControlledAliases(requestedPath, r.path));
   if (!underRoot) return { valid: false, error: 'forbidden' };
   return { valid: true };
 }
 ```
 
-This is called in the route handler BEFORE any filesystem access or companion proxy.
+This is called in the route handler BEFORE any filesystem access or companion proxy, and the returned canonical path is checked again after the browse result is produced. For macbook browse, the current roots are also sent to the companion so canonical escapes are rejected before directory enumeration. If the request was an exact browse of a legacy root and the canonical result differs, the relay upgrades that stored root path to canonical form so later child browse requests stay aligned.
 
 ### 3. Heartbeat-Driven Status with Immediate Disconnect Detection
 
@@ -107,9 +107,12 @@ This goes to ALL connected Android WebSocket clients, not just those subscribed 
 | Scenario | Response |
 |----------|----------|
 | Host not found | 404 not_found |
+| Target directory not found during root add or browse | 404 not_found |
+| Target directory exists but is not readable during root add or browse | 403 forbidden |
 | Path not under root | 403 forbidden |
 | Path traversal detected | 403 forbidden |
 | Directory not found | 404 not_found |
+| Provider not supported on selected host | 400 invalid_request |
 | Companion offline (browse/root add for macbook) | 502 host_offline |
 | Duplicate root | 409 state_conflict |
 | Missing required field | 400 invalid_request |

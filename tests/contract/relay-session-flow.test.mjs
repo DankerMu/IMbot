@@ -98,6 +98,17 @@ function waitForClose(ws, label, timeoutMs = 5000) {
   });
 }
 
+function sendHeartbeat(ws, hostId = "macbook-1", providers = ["claude"]) {
+  ws.send(
+    JSON.stringify({
+      type: "heartbeat",
+      host_id: hostId,
+      providers,
+      uptime: 1
+    })
+  );
+}
+
 test("relay creates a session, persists events, and broadcasts companion traffic", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-flow-"));
   const config = relay.loadConfig({
@@ -151,6 +162,7 @@ test("relay creates a session, persists events, and broadcasts companion traffic
     `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
   );
   await waitForOpen(companion, "companion");
+  sendHeartbeat(companion, "macbook-1", ["claude", "book"]);
   await hostOnlinePromise;
 
   const createResponsePromise = fetch(`${baseUrl}/v1/sessions`, {
@@ -301,6 +313,7 @@ test("relay persists companion ack errors onto the failed session", async (t) =>
     `ws://127.0.0.1:${port}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
   );
   await waitForOpen(companion, "companion");
+  sendHeartbeat(companion);
 
   const broadcastCalls = [];
   const originalBroadcastToSession = runtime.hub.broadcastToSession.bind(runtime.hub);
@@ -427,12 +440,14 @@ test("relay keeps the host online when a same-host companion replaces an older s
     `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
   );
   await waitForOpen(firstCompanion, "first companion");
+  sendHeartbeat(firstCompanion);
 
   const firstClosePromise = waitForClose(firstCompanion, "first companion");
   const secondCompanion = new WebSocket(
     `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
   );
   await waitForOpen(secondCompanion, "second companion");
+  sendHeartbeat(secondCompanion);
   await firstClosePromise;
 
   const hostRow = runtime.db
@@ -511,6 +526,7 @@ test("relay clears pending ack state when sending a companion command fails", as
     `ws://127.0.0.1:${port}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
   );
   await waitForOpen(companion, "companion");
+  sendHeartbeat(companion);
 
   t.after(async () => {
     await runtime.close();
