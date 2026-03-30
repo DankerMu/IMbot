@@ -118,6 +118,15 @@ async function createRelayRuntime(prefix) {
 }
 
 async function createRunningSession({ baseUrl, config }, companion, overrides = {}) {
+  companion.send(
+    JSON.stringify({
+      type: "heartbeat",
+      host_id: "macbook-1",
+      providers: ["claude"],
+      uptime: 1
+    })
+  );
+
   const responsePromise = fetch(`${baseUrl}/v1/sessions`, {
     method: "POST",
     headers: {

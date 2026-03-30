@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -209,6 +209,42 @@ test("SessionIndex persists mappings and tolerates corrupt files", () => {
     });
     assert.equal(corrupted.get("relay-1"), null);
     assert.equal(readFileSync(filePath, "utf8"), "{not-json");
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("browseDirectory returns subdirectories only and rejects missing targets", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-browse-"));
+  const rootDir = path.join(tempDir, "workspace");
+  const nestedDir = path.join(rootDir, "nested");
+  const emptyDir = path.join(rootDir, "empty");
+
+  try {
+    mkdirSync(rootDir);
+    mkdirSync(nestedDir);
+    mkdirSync(emptyDir);
+    writeFileSync(path.join(rootDir, "README.md"), "file");
+
+    const result = await companion.browseDirectory(rootDir);
+    assert.deepEqual(result, {
+      path: rootDir,
+      directories: [
+        {
+          name: "empty",
+          path: emptyDir
+        },
+        {
+          name: "nested",
+          path: nestedDir
+        }
+      ]
+    });
+
+    await assert.rejects(() => companion.browseDirectory(path.join(tempDir, "missing")), {
+      code: "not_found",
+      message: `Directory ${path.join(tempDir, "missing")} not found`
+    });
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

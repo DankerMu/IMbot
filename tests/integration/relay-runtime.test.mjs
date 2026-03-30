@@ -98,6 +98,17 @@ function waitForClose(ws, label, timeoutMs = 5000) {
   });
 }
 
+function sendHeartbeat(ws, hostId = "macbook-1", providers = ["claude"]) {
+  ws.send(
+    JSON.stringify({
+      type: "heartbeat",
+      host_id: hostId,
+      providers,
+      uptime: 1
+    })
+  );
+}
+
 test("relay converts companion ack timeout into a failed session", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-timeout-"));
   const config = relay.loadConfig({
@@ -131,6 +142,7 @@ test("relay converts companion ack timeout into a failed session", async (t) => 
     `ws://127.0.0.1:${port}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
   );
   await waitForOpen(companion, "companion");
+  sendHeartbeat(companion);
 
   t.after(async () => {
     await runtime.close();

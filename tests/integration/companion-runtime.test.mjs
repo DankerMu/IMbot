@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   chmodSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -317,6 +318,89 @@ test("companion connects to relay, creates a session, forwards events, and persi
     cwd: tempDir,
     provider: "claude",
     created_at: sessionIndex["relay-session-1"].created_at
+  });
+});
+
+test("companion handles browse_directory commands and returns subdirectories only", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-browse-runtime-"));
+  const workspaceRoot = path.join(tempDir, "workspace");
+  const projectDir = path.join(workspaceRoot, "project");
+  const notesDir = path.join(workspaceRoot, "notes");
+  mkdirSync(workspaceRoot);
+  mkdirSync(projectDir);
+  mkdirSync(notesDir);
+  writeFileSync(path.join(workspaceRoot, "README.md"), "file");
+
+  const server = new WebSocketServer({
+    port: 0,
+    host: "127.0.0.1"
+  });
+  const binaryPath = createMockCliBinary(tempDir);
+
+  t.after(async () => {
+    server.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await waitForListening(server);
+  const port = server.address().port;
+  const runtime = await companion.createCompanionRuntime({
+    config: {
+      configPath: path.join(tempDir, "companion.json"),
+      relayUrl: `ws://127.0.0.1:${port}`,
+      token: "static-token",
+      hostId: "macbook-1",
+      providers: {
+        claude: {
+          binary: binaryPath
+        }
+      },
+      sessionIndexPath: path.join(tempDir, "sessions.json")
+    },
+    logger: silentLogger,
+    heartbeatIntervalMs: 25,
+    reconnectDelaysMs: [20, 20],
+    killGraceMs: 50
+  });
+
+  t.after(async () => {
+    await runtime.close();
+  });
+
+  const connectionPromise = waitForConnection(server);
+  runtime.connect();
+  const { socket } = await connectionPromise;
+
+  socket.send(
+    JSON.stringify({
+      cmd: "browse_directory",
+      req_id: "browse-1",
+      path: workspaceRoot
+    })
+  );
+
+  const browseAck = await waitForJsonMessage(
+    socket,
+    (message) => message.type === "ack" && message.req_id === "browse-1",
+    "browse_directory ack"
+  );
+  assert.deepEqual(browseAck, {
+    type: "ack",
+    req_id: "browse-1",
+    status: "ok",
+    data: {
+      path: workspaceRoot,
+      directories: [
+        {
+          name: "notes",
+          path: notesDir
+        },
+        {
+          name: "project",
+          path: projectDir
+        }
+      ]
+    }
   });
 });
 

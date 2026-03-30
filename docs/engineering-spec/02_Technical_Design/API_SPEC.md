@@ -71,6 +71,10 @@
 
 添加根目录。
 
+- `relay-local` 仅接受 `openclaw`
+- `macbook` 仅接受 `claude` 或 `book`
+- 未提供 `label` 时默认取目录 basename
+
 **Request**:
 ```json
 {
@@ -88,8 +92,8 @@
 ```
 
 **Errors**:
-- `400 invalid_request`: path 为空或格式错误。
-- `404 not_found`: hostId 不存在。
+- `400 invalid_request`: path 为空、非绝对路径，或 provider 与 host 类型不兼容。
+- `404 not_found`: hostId 不存在，或目标目录不存在。
 - `409 state_conflict`: 同一 host+provider+path 已存在。
 - `502 host_offline`: companion 离线，无法验证路径（仅 macbook host）。
 

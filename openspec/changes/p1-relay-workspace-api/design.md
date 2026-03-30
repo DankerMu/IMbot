@@ -30,6 +30,7 @@ Browse requests follow different paths based on host type:
 - **relay-local host**: Relay reads local filesystem directly using `fs.readdir({ withFileTypes: true })`.
 
 Both paths validate the requested path against workspace roots before execution.
+In the current slice, the relay is the policy enforcement point for root containment and traversal rejection. The companion browse handler validates only absolute-path shape and directory existence on the local machine.
 
 ### 2. Path Security as Middleware
 
@@ -107,9 +108,11 @@ This goes to ALL connected Android WebSocket clients, not just those subscribed 
 | Scenario | Response |
 |----------|----------|
 | Host not found | 404 not_found |
+| Target directory not found during root add or browse | 404 not_found |
 | Path not under root | 403 forbidden |
 | Path traversal detected | 403 forbidden |
 | Directory not found | 404 not_found |
+| Provider not supported on selected host | 400 invalid_request |
 | Companion offline (browse/root add for macbook) | 502 host_offline |
 | Duplicate root | 409 state_conflict |
 | Missing required field | 400 invalid_request |

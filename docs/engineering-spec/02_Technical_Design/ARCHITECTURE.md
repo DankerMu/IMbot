@@ -194,7 +194,8 @@ export class WorkspaceCatalog {
 
 - 根目录列表持久化在本地 JSON 配置文件中。
 - `browse` 直接读取文件系统，只返回目录（过滤文件）。
-- 路径安全校验：拒绝 `..` 路径遍历，拒绝不在任何 root 下的路径。
+- 当前 Phase 1 路径安全校验由 relay 先执行：拒绝 `..` 路径遍历，拒绝不在任何 root 下的路径。
+- companion 的 `browse_directory` 处理器当前负责本机绝对路径与目录存在性校验，并返回子目录列表。
 
 ### Module: `runtime/` — Claude/book Adapter
 

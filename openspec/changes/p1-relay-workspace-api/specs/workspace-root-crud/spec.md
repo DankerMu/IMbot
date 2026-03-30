@@ -41,6 +41,20 @@ WHEN `POST /v1/hosts/relay-local/roots` is called with `{ "provider": "openclaw"
 THEN the root is created successfully
 AND the response is `201`
 
+#### Scenario: add root for a missing directory returns 404
+
+WHEN `POST /v1/hosts/macbook-1/roots` is called with `{ "provider": "claude", "path": "/Users/danker/missing" }`
+AND the target directory does not exist on the selected host
+THEN the response is `404` with `{ "error": "not_found" }`
+
+#### Scenario: add root with provider unsupported by host returns 400
+
+WHEN `POST /v1/hosts/relay-local/roots` is called with `{ "provider": "claude", "path": "/srv/project" }`
+THEN the response is `400` with `{ "error": "invalid_request" }`
+
+WHEN `POST /v1/hosts/macbook-1/roots` is called with `{ "provider": "openclaw", "path": "/Users/danker/Projects" }`
+THEN the response is `400` with `{ "error": "invalid_request" }`
+
 ---
 
 ### Requirement: List Workspace Roots by Host

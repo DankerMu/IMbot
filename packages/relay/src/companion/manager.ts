@@ -1,8 +1,11 @@
 import type {
+  ErrorCode,
   CompanionCommand,
   CompanionHeartbeatMessage,
-  CompanionMessage
+  CompanionMessage,
+  Provider
 } from "@imbot/wire";
+import { ERROR_CODES, PROVIDERS } from "@imbot/wire";
 import { randomUUID } from "node:crypto";
 import type WebSocket from "ws";
 
@@ -27,7 +30,9 @@ type LoggerLike = {
 
 export class CompanionManager {
   private readonly pendingByHost = new Map<string, Map<string, PendingAck>>();
+  private readonly providersByHost = new Map<string, Provider[]>();
   private readonly awaitingOnlineAudit = new Set<string>();
+  private readonly staleHeartbeatTimer: NodeJS.Timeout;
   private isShuttingDown = false;
 
   constructor(
@@ -39,7 +44,14 @@ export class CompanionManager {
       readonly auditLogger?: AuditLogger;
       readonly onHostDisconnected?: (hostId: string) => Promise<void> | void;
     }
-  ) {}
+  ) {
+    this.staleHeartbeatTimer = setInterval(() => {
+      void this.markStaleHostsOffline().catch((error) => {
+        this.logger.error(error);
+      });
+    }, this.config.heartbeatIntervalMs);
+    this.staleHeartbeatTimer.unref?.();
+  }
 
   registerConnection(hostId: string, ws: WebSocket): void {
     const replaced = this.hub.setCompanionClient(hostId, ws);
@@ -49,13 +61,12 @@ export class CompanionManager {
 
     this.pendingByHost.set(hostId, this.pendingByHost.get(hostId) ?? new Map());
     const previousStatus = this.getStoredHostStatus(hostId);
-    this.upsertHost(hostId, "online");
+    this.ensureHost(hostId);
     if (previousStatus !== "online") {
       this.awaitingOnlineAudit.add(hostId);
     } else {
       this.awaitingOnlineAudit.delete(hostId);
     }
-    this.hub.broadcastHostStatus(hostId, "online");
   }
 
   unregisterConnection(hostId: string, ws: WebSocket): void {
@@ -69,37 +80,28 @@ export class CompanionManager {
       return;
     }
 
-    this.upsertHost(hostId, "offline");
-    this.rejectPendingForHost(hostId, new RelayError("host_offline", "Companion disconnected"));
-    this.awaitingOnlineAudit.delete(hostId);
-    this.options?.auditLogger?.write("host.offline", {
-      host_id: hostId,
-      detail: {
-        reason: "disconnect"
-      }
-    });
-    this.hub.broadcastHostStatus(hostId, "offline");
-    const disconnectResult = this.options?.onHostDisconnected?.(hostId);
-    if (disconnectResult && typeof (disconnectResult as Promise<void>).catch === "function") {
-      void (disconnectResult as Promise<void>).catch((error) => {
-        this.logger.error(error);
-      });
-    }
+    void this.markHostOffline(hostId, "disconnect");
   }
 
   handleHeartbeat(hostId: string, message: CompanionHeartbeatMessage): void {
-    this.upsertHost(hostId, "online");
-    if (!this.awaitingOnlineAudit.has(hostId)) {
-      return;
+    const previousStatus = this.getStoredHostStatus(hostId);
+    const providers = normalizeProviders(message.providers);
+    this.providersByHost.set(hostId, providers);
+    this.markHostOnline(hostId);
+
+    if (previousStatus !== "online") {
+      this.hub.broadcastHostStatus(hostId, "online");
     }
 
-    this.awaitingOnlineAudit.delete(hostId);
-    this.options?.auditLogger?.write("host.online", {
-      host_id: hostId,
-      detail: {
-        providers: [...message.providers]
-      }
-    });
+    if (this.awaitingOnlineAudit.has(hostId) || previousStatus !== "online") {
+      this.awaitingOnlineAudit.delete(hostId);
+      this.options?.auditLogger?.write("host.online", {
+        host_id: hostId,
+        detail: {
+          providers: [...providers]
+        }
+      });
+    }
   }
 
   handleAck(hostId: string, message: CompanionMessage): void {
@@ -121,14 +123,34 @@ export class CompanionManager {
   }
 
   isOnline(hostId: string): boolean {
-    return this.hub.getCompanionClient(hostId) != null;
+    return this.hub.getCompanionClient(hostId) != null && this.getStoredHostStatus(hostId) === "online";
   }
 
   hasOnlineCompanion(): boolean {
-    return this.hub.hasOnlineCompanion();
+    const row = this.db
+      .prepare("SELECT COUNT(*) AS count FROM hosts WHERE type = 'macbook' AND status = 'online'")
+      .get() as { count: number };
+    return row.count > 0;
+  }
+
+  getDeclaredProviders(hostId: string): Provider[] {
+    return [...(this.providersByHost.get(hostId) ?? [])];
+  }
+
+  async browseDirectory(hostId: string, requestedPath: string): Promise<BrowseDirectoryResult> {
+    const ack = await this.sendCommand(hostId, {
+      cmd: "browse_directory",
+      req_id: this.createRequestId(),
+      path: requestedPath
+    });
+
+    return this.extractBrowseResult(ack);
   }
 
   async sendCommand(hostId: string, command: CompanionCommand): Promise<CompanionMessage> {
+    if (!this.isOnline(hostId)) {
+      throw new RelayError("host_offline", `Companion host ${hostId} is offline`);
+    }
     const ws = this.hub.getCompanionClient(hostId);
     if (!ws) {
       throw new RelayError("host_offline", `Companion host ${hostId} is offline`);
@@ -169,6 +191,7 @@ export class CompanionManager {
 
   shutdown(): void {
     this.isShuttingDown = true;
+    clearInterval(this.staleHeartbeatTimer);
     for (const hostId of this.pendingByHost.keys()) {
       this.rejectPendingForHost(hostId, new RelayError("host_offline", "Relay shutting down"));
     }
@@ -176,6 +199,25 @@ export class CompanionManager {
 
   createRequestId(): string {
     return randomUUID();
+  }
+
+  async markStaleHostsOffline(now = new Date()): Promise<string[]> {
+    const cutoff = new Date(now.getTime() - this.config.heartbeatStaleMs).toISOString();
+    const rows = this.db
+      .prepare(
+        `
+        SELECT id
+        FROM hosts
+        WHERE type = 'macbook' AND status = 'online' AND last_heartbeat_at IS NOT NULL AND last_heartbeat_at < ?
+        `
+      )
+      .all(cutoff) as Array<{ id: string }>;
+
+    for (const row of rows) {
+      await this.markHostOffline(row.id, "heartbeat_timeout");
+    }
+
+    return rows.map((row) => row.id);
   }
 
   private rejectPendingForHost(hostId: string, error: unknown): void {
@@ -209,9 +251,8 @@ export class CompanionManager {
     return new RelayError("provider_unreachable", `Failed to send companion command${detail}`);
   }
 
-  private upsertHost(hostId: string, status: "online" | "offline"): void {
+  private ensureHost(hostId: string): void {
     const now = new Date().toISOString();
-
     this.db
       .prepare(
         `
@@ -223,11 +264,16 @@ export class CompanionManager {
           last_heartbeat_at,
           created_at,
           updated_at
-        ) VALUES (?, ?, 'macbook', ?, ?, ?, ?)
+        ) VALUES (?, ?, 'macbook', 'offline', NULL, ?, ?)
         `
       )
-      .run(hostId, hostId, status, now, now, now);
+      .run(hostId, hostId, now, now);
+  }
 
+  private markHostOnline(hostId: string): void {
+    const now = new Date().toISOString();
+
+    this.ensureHost(hostId);
     this.db
       .prepare(
         `
@@ -236,7 +282,7 @@ export class CompanionManager {
         WHERE id = ?
         `
       )
-      .run(status, now, now, hostId);
+      .run("online", now, now, hostId);
   }
 
   private getStoredHostStatus(hostId: string): "online" | "offline" | null {
@@ -246,4 +292,113 @@ export class CompanionManager {
 
     return row?.status ?? null;
   }
+
+  private async markHostOffline(hostId: string, reason: "disconnect" | "heartbeat_timeout"): Promise<void> {
+    const previousStatus = this.getStoredHostStatus(hostId);
+    this.awaitingOnlineAudit.delete(hostId);
+    this.db
+      .prepare(
+        `
+        UPDATE hosts
+        SET status = 'offline', updated_at = ?
+        WHERE id = ? AND status != 'offline'
+        `
+      )
+      .run(new Date().toISOString(), hostId);
+
+    this.rejectPendingForHost(
+      hostId,
+      new RelayError(
+        "host_offline",
+        reason === "disconnect" ? "Companion disconnected" : "Companion heartbeat timed out"
+      )
+    );
+
+    if (previousStatus === "online") {
+      this.options?.auditLogger?.write("host.offline", {
+        host_id: hostId,
+        detail: {
+          reason
+        }
+      });
+      this.hub.broadcastHostStatus(hostId, "offline");
+      const disconnectResult = this.options?.onHostDisconnected?.(hostId);
+      if (disconnectResult && typeof (disconnectResult as Promise<void>).catch === "function") {
+        void (disconnectResult as Promise<void>).catch((error) => {
+          this.logger.error(error);
+        });
+      }
+    }
+  }
+
+  private extractBrowseResult(message: CompanionMessage): BrowseDirectoryResult {
+    const data = this.extractAckData(message);
+    if (!data || typeof data !== "object" || Array.isArray(data)) {
+      throw new RelayError("provider_unreachable", "Companion browse response was malformed");
+    }
+
+    const responsePath = "path" in data && typeof data.path === "string" ? data.path : null;
+    const directories = "directories" in data && Array.isArray(data.directories) ? data.directories : null;
+    if (!responsePath || !directories) {
+      throw new RelayError("provider_unreachable", "Companion browse response was malformed");
+    }
+
+    return {
+      path: responsePath,
+      directories: directories.flatMap((entry) => {
+        if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+          return [];
+        }
+
+        const name = "name" in entry && typeof entry.name === "string" ? entry.name : null;
+        const targetPath = "path" in entry && typeof entry.path === "string" ? entry.path : null;
+        if (!name || !targetPath) {
+          return [];
+        }
+
+        return [
+          {
+            name,
+            path: targetPath
+          }
+        ];
+      })
+    };
+  }
+
+  private extractAckData(message: CompanionMessage): unknown {
+    if (message.type !== "ack") {
+      throw new RelayError("provider_unreachable", "Unexpected companion response");
+    }
+
+    if (message.status === "error") {
+      throw new RelayError(
+        this.normalizeErrorCode(message.error_code),
+        message.message || "Companion command failed"
+      );
+    }
+
+    return message.data;
+  }
+
+  private normalizeErrorCode(errorCode: string | undefined): ErrorCode {
+    if (errorCode && ERROR_CODES.includes(errorCode as ErrorCode)) {
+      return errorCode as ErrorCode;
+    }
+
+    return "provider_unreachable";
+  }
+}
+
+function normalizeProviders(providers: readonly string[]): Provider[] {
+  const provided = new Set(providers);
+  return PROVIDERS.filter((provider) => provided.has(provider));
+}
+
+export interface BrowseDirectoryResult {
+  readonly path: string;
+  readonly directories: Array<{
+    readonly name: string;
+    readonly path: string;
+  }>;
 }

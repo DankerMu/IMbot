@@ -283,14 +283,19 @@ cron.schedule('0 3 * * *', () => {
 
 ## 9. Directory Security Validation
 
-Companion 在执行 `browse_directory` 和 `create_session` 时必须验证路径合法性：
+Phase 1 目录安全校验的策略边界如下：
+
+- relay 是 browse allowlist 的执行点：拒绝任何包含 `..` 的 path，并且只允许访问落在已登记 workspace roots 之下的目录。
+- companion 当前对 `browse_directory` 只负责本机文件系统校验：path 必须为绝对路径、目标必须存在且是目录、响应只返回子目录。
+- companion 侧基于 roots 的 allowlist 校验保留到后续 root 同步能力落地后再承担；当前浏览安全性由 relay 先行兜底。
 
 ```typescript
-function validatePath(requestedPath: string, roots: WorkspaceRoot[]): boolean {
+function validateBrowsePathAtRelay(requestedPath: string, roots: WorkspaceRoot[]): boolean {
   const resolved = path.resolve(requestedPath);
-  // 拒绝路径遍历
-  if (resolved !== requestedPath && requestedPath.includes('..')) return false;
-  // 必须在某个 root 下
-  return roots.some(root => resolved.startsWith(root.path));
+  if (requestedPath.split(/[\\/]+/).includes('..')) return false;
+  return roots.some(root => {
+    const relative = path.relative(root.path, resolved);
+    return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
+  });
 }
 ```
