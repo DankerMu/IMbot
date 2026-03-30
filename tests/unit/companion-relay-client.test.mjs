@@ -163,6 +163,38 @@ test("EventBuffer evicts the oldest message when it overflows", () => {
   assert.deepEqual(buffer.flush(), [second, third]);
 });
 
+test("EventBuffer warns when it evicts the oldest message on overflow", () => {
+  const warnings = [];
+  const buffer = new companion.EventBuffer(2, {
+    warn: (message) => warnings.push(String(message))
+  });
+
+  buffer.push({
+    type: "heartbeat",
+    host_id: "macbook-1",
+    providers: ["claude"],
+    uptime: 10
+  });
+  buffer.push({
+    type: "event",
+    session_id: "relay-2",
+    event_type: "assistant_delta",
+    payload: {
+      text: "second"
+    }
+  });
+  buffer.push({
+    type: "event",
+    session_id: "relay-3",
+    event_type: "assistant_delta",
+    payload: {
+      text: "third"
+    }
+  });
+
+  assert.deepEqual(warnings, ["Event buffer overflow (max 2), dropping oldest message"]);
+});
+
 test("EventBuffer clear removes buffered messages", () => {
   const buffer = new companion.EventBuffer();
   buffer.push({

@@ -567,9 +567,9 @@ export class OpenClawBridge {
       const relaySessionId = this.openClawToRelay.get(gatewaySessionKey);
       const recoveryStatus = relaySessionId
         ? `matched relay session ${relaySessionId}`
-        : "no relay session mapping could be recovered";
+        : "no relay mapping could be recovered";
       this.deps.logger.info?.(
-        `OpenClaw bridge reconnected; gateway reported main session ${gatewaySessionKey}; ${recoveryStatus}`
+        `OpenClaw bridge reconnected; gateway has an active session; ${recoveryStatus}`
       );
       this.lastDisconnectedSessionCount = 0;
       return;

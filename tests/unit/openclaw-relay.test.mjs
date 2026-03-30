@@ -291,3 +291,74 @@ test("OpenClawBridge resets backoff after each successful connect handshake", as
   await waitFor(() => bridge.isAvailable(), 500, "second bridge availability");
   assert.equal(resetCalls, 2);
 });
+
+test("OpenClawBridge recovery log does not expose the gateway session key when a relay mapping is recovered", () => {
+  const infoLogs = [];
+  const bridge = new OpenClawBridge(
+    {
+      openClawUrl: "ws://127.0.0.1:1",
+      openClawToken: "",
+      companionTimeoutMs: 200
+    },
+    {
+      hub: {
+        broadcastHostStatus() {}
+      },
+      logger: {
+        ...silentLogger,
+        info(message) {
+          infoLogs.push(String(message));
+        }
+      },
+      onRelayEvent: async () => {}
+    }
+  );
+
+  bridge.openClawToRelay.set("oc-secret-key", "relay-123");
+  bridge.lastDisconnectedSessionCount = 1;
+  bridge.logRecoveryStatus({
+    snapshot: {
+      sessionDefaults: {
+        mainSessionKey: "oc-secret-key"
+      }
+    }
+  });
+
+  assert.deepEqual(infoLogs, ["OpenClaw bridge reconnected; gateway has an active session; matched relay session relay-123"]);
+  assert.equal(infoLogs[0].includes("oc-secret-key"), false);
+});
+
+test("OpenClawBridge recovery log omits the gateway session key when no relay mapping can be recovered", () => {
+  const infoLogs = [];
+  const bridge = new OpenClawBridge(
+    {
+      openClawUrl: "ws://127.0.0.1:1",
+      openClawToken: "",
+      companionTimeoutMs: 200
+    },
+    {
+      hub: {
+        broadcastHostStatus() {}
+      },
+      logger: {
+        ...silentLogger,
+        info(message) {
+          infoLogs.push(String(message));
+        }
+      },
+      onRelayEvent: async () => {}
+    }
+  );
+
+  bridge.lastDisconnectedSessionCount = 1;
+  bridge.logRecoveryStatus({
+    snapshot: {
+      sessionDefaults: {
+        mainSessionKey: "oc-secret-key"
+      }
+    }
+  });
+
+  assert.deepEqual(infoLogs, ["OpenClaw bridge reconnected; gateway has an active session; no relay mapping could be recovered"]);
+  assert.equal(infoLogs[0].includes("oc-secret-key"), false);
+});

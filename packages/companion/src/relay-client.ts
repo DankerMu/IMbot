@@ -26,7 +26,7 @@ export class RelayClient extends EventEmitter {
   private readonly logger: LoggerLike;
   private readonly backoff: ExponentialBackoff;
   private readonly createWebSocket: (url: string) => WebSocket;
-  private readonly eventBuffer = new EventBuffer();
+  private readonly eventBuffer: EventBuffer;
   private ws: WebSocket | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private closedByUser = false;
@@ -40,6 +40,7 @@ export class RelayClient extends EventEmitter {
       options.backoff?.maxMs ?? 30000,
       options.backoff?.jitterMs ?? 1000
     );
+    this.eventBuffer = new EventBuffer(10_000, this.logger);
   }
 
   connect(): void {
