@@ -239,7 +239,7 @@
 
 **Response 200**: session 对象（status 变为 `cancelled`）。
 
-**Errors**: `404`, `409` (session 不在 running/queued 状态)。
+**Errors**: `404`, `409` (session 不在 running 状态，包括 `queued`)。
 
 ### DELETE /v1/sessions/:id
 

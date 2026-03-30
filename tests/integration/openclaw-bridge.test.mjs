@@ -189,6 +189,19 @@ async function createMockOpenClawGateway() {
         })
       );
     },
+    replyError(socket, requestId, code, message) {
+      socket.send(
+        JSON.stringify({
+          type: "res",
+          id: requestId,
+          ok: false,
+          error: {
+            code,
+            message
+          }
+        })
+      );
+    },
     emit(event, payload) {
       for (const socket of connections) {
         if (socket.readyState === socket.OPEN) {
@@ -422,4 +435,115 @@ test("relay bridges openclaw sessions through the gateway, translates events, an
     const response = await fetch(`${baseUrl}/healthz`);
     return response.ok && (await response.json()).openclaw === "online";
   }, "openclaw reconnect online");
+});
+
+test("relay keeps the session unchanged when openclaw resume is rejected by the gateway", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-openclaw-resume-reject-"));
+  const gateway = await createMockOpenClawGateway();
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_HOST: "127.0.0.1",
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: gateway.url,
+    RELAY_COMPANION_TIMEOUT_MS: "1000"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  await runtime.app.listen({
+    host: "127.0.0.1",
+    port: 0
+  });
+
+  const address = runtime.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const baseUrl = `http://127.0.0.1:${port}`;
+
+  t.after(async () => {
+    await runtime.close();
+    await gateway.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await waitForCondition(async () => {
+    const response = await fetch(`${baseUrl}/healthz`);
+    return response.ok && (await response.json()).openclaw === "online";
+  }, "openclaw online");
+
+  const createResponsePromise = fetch(`${baseUrl}/v1/sessions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      provider: "openclaw",
+      host_id: "relay-local",
+      cwd: "/srv/project",
+      prompt: "resume me"
+    })
+  });
+
+  const createRequest = await gateway.waitForRequest(
+    (frame) => frame.type === "req" && frame.method === "session.create",
+    "openclaw session.create"
+  );
+  gateway.replyOk(createRequest.socket, createRequest.frame.id, {
+    session_key: "oc-resume"
+  });
+
+  const createResponse = await createResponsePromise;
+  const createPayload = await createResponse.json();
+  assert.equal(createResponse.status, 201);
+
+  const sessionId = createPayload.session.id;
+  gateway.emit("session.complete", {
+    session_key: "oc-resume",
+    result: "done"
+  });
+
+  await waitForCondition(() => {
+    const session = runtime.db.prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId);
+    return session?.status === "completed";
+  }, "completed openclaw session");
+
+  const resumeResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  const resumeRequest = await gateway.waitForRequest(
+    (frame) => frame.type === "req" && frame.method === "session.resume",
+    "openclaw session.resume"
+  );
+  gateway.replyError(
+    resumeRequest.socket,
+    resumeRequest.frame.id,
+    "METHOD_NOT_SUPPORTED",
+    "session.resume unsupported"
+  );
+
+  const resumeResponse = await resumeResponsePromise;
+  assert.equal(resumeResponse.status, 502);
+  assert.deepEqual(await resumeResponse.json(), { error: "provider_unreachable" });
+
+  const sessionAfterResume = runtime.db
+    .prepare("SELECT status FROM sessions WHERE id = ?")
+    .get(sessionId);
+  const resumeAuditCount = runtime.db
+    .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'session.resume' AND session_id = ?")
+    .get(sessionId);
+
+  assert.deepEqual(sessionAfterResume, {
+    status: "completed"
+  });
+  assert.deepEqual(resumeAuditCount, {
+    count: 0
+  });
 });

@@ -169,6 +169,70 @@ test("handleEvent ignores late provider events after a session reaches a termina
   }
 });
 
+test("handleEvent accepts provider events during create and resume lifecycle windows", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-active-mutation-events-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const now = new Date().toISOString();
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+
+  insertSession(runtime.db, "sess-create-window", "queued");
+  insertSession(runtime.db, "sess-resume-window", "completed");
+
+  runtime.orchestrator.activeLifecycleMutations.set("sess-create-window", "create");
+  runtime.orchestrator.activeLifecycleMutations.set("sess-resume-window", "resume");
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-create-window",
+    event_type: "assistant_delta",
+    payload: {
+      text: "first create event"
+    }
+  });
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-resume-window",
+    event_type: "assistant_delta",
+    payload: {
+      text: "first resume event"
+    }
+  });
+
+  const createWindowEvents = runtime.db
+    .prepare("SELECT COUNT(*) AS count FROM session_events WHERE session_id = ?")
+    .get("sess-create-window");
+  const resumeWindowEvents = runtime.db
+    .prepare("SELECT COUNT(*) AS count FROM session_events WHERE session_id = ?")
+    .get("sess-resume-window");
+
+  assert.deepEqual(createWindowEvents, { count: 1 });
+  assert.deepEqual(resumeWindowEvents, { count: 1 });
+});
+
 test("transition rejects a raced same-target update without emitting a duplicate status event", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-transition-race-"));
   const config = relay.loadConfig({

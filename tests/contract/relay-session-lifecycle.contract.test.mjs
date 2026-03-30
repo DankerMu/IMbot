@@ -289,6 +289,19 @@ test("relay supports resume, message, cancel, delete, catch-up, and lifecycle au
     "cancel_session command"
   );
 
+  const messageDuringCancelResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}/message`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      text: "during cancel"
+    })
+  });
+  assert.equal(messageDuringCancelResponse.status, 409);
+  assert.deepEqual(await messageDuringCancelResponse.json(), { error: "state_conflict" });
+
   companion.send(
     JSON.stringify({
       type: "ack",

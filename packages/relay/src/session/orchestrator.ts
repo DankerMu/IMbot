@@ -38,7 +38,7 @@ type SessionErrorContext = {
 };
 
 export class SessionOrchestrator {
-  private readonly activeLifecycleMutations = new Set<string>();
+  private readonly activeLifecycleMutations = new Map<string, "create" | "resume" | "cancel" | "delete">();
 
   constructor(
     private readonly _config: RelayConfig,
@@ -65,6 +65,10 @@ export class SessionOrchestrator {
 
     if (input.provider === "openclaw" && input.host_id !== "relay-local") {
       throw new RelayError("invalid_request", "OpenClaw sessions must target the relay-local host");
+    }
+
+    if (input.provider === "openclaw" && !this.openClawBridge.isAvailable()) {
+      throw new RelayError("provider_unreachable", "OpenClaw gateway is offline");
     }
 
     const provider = input.provider as "claude" | "book" | "openclaw";
@@ -128,15 +132,15 @@ export class SessionOrchestrator {
         session.last_active_at
       );
 
+    this.activeLifecycleMutations.set(session.id, "create");
     try {
       const providerSessionId = await this.dispatchCreate(session);
-      await this.markSessionStarted(session.id, providerSessionId);
+      await this.markSessionStarted(session.id, providerSessionId, "queued");
       this.auditLogger.write("session.create", {
         session_id: session.id,
         host_id: session.host_id,
         detail: this.buildCreateAuditDetail(session)
       });
-
       return this.getSession(session.id) ?? session;
     } catch (error) {
       const relayError =
@@ -146,16 +150,18 @@ export class SessionOrchestrator {
         error_code: relayError.code,
         message: relayError.message
       });
-      await this.transition(session.id, "failed", {
+      await this.transitionWithConflictTolerance(session.id, "failed", {
         error_code: relayError.code,
         error_message: relayError.message
       });
       throw relayError;
+    } finally {
+      this.activeLifecycleMutations.delete(session.id);
     }
   }
 
   async resume(sessionId: string): Promise<Session> {
-    return await this.runWithLifecycleLock(sessionId, async () => {
+    return await this.runWithLifecycleLock(sessionId, "resume", async () => {
       const session = this.requireSession(sessionId);
       if (session.status !== "completed" && session.status !== "failed") {
         throw new RelayError("state_conflict", `Session ${sessionId} is not resumable from ${session.status}`);
@@ -169,7 +175,7 @@ export class SessionOrchestrator {
 
       const previousStatus = session.status;
       const providerSessionId = await this.dispatchResume(session);
-      await this.markSessionStarted(session.id, providerSessionId);
+      await this.markSessionStarted(session.id, providerSessionId, previousStatus);
       this.auditLogger.write("session.resume", {
         session_id: session.id,
         host_id: session.host_id,
@@ -187,12 +193,16 @@ export class SessionOrchestrator {
       throw new RelayError("state_conflict", `Session ${sessionId} is not running`);
     }
 
+    if (this.activeLifecycleMutations.has(sessionId)) {
+      throw new RelayError("state_conflict", `Session ${sessionId} already has a lifecycle mutation in flight`);
+    }
+
     this.assertProviderAvailable(session);
     await this.dispatchSendMessage(session, text);
   }
 
   async cancel(sessionId: string): Promise<Session> {
-    return await this.runWithLifecycleLock(sessionId, async () => {
+    return await this.runWithLifecycleLock(sessionId, "cancel", async () => {
       const session = this.requireSession(sessionId);
       if (session.status !== "running") {
         throw new RelayError("state_conflict", `Session ${sessionId} cannot be cancelled from ${session.status}`);
@@ -217,7 +227,7 @@ export class SessionOrchestrator {
   }
 
   async delete(sessionId: string): Promise<void> {
-    await this.runWithLifecycleLock(sessionId, async () => {
+    await this.runWithLifecycleLock(sessionId, "delete", async () => {
       const session = this.requireSession(sessionId);
       if (session.status === "queued" || session.status === "running") {
         throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
@@ -246,7 +256,10 @@ export class SessionOrchestrator {
       return;
     }
 
-    if (session.status !== "running") {
+    const activeMutation = this.activeLifecycleMutations.get(message.session_id);
+    const acceptsEvents =
+      session.status === "running" || activeMutation === "create" || activeMutation === "resume";
+    if (!acceptsEvents) {
       this.logger.warn(
         `Dropping ${message.event_type} for non-running session ${message.session_id} (${session.status})`
       );
@@ -255,6 +268,17 @@ export class SessionOrchestrator {
 
     const payload = this.sanitizeIncomingPayload(message.payload);
     if (message.event_type === "session_started") {
+      return;
+    }
+
+    if (
+      message.event_type === "session_status_changed" &&
+      activeMutation === "cancel" &&
+      payload &&
+      typeof payload === "object" &&
+      "status" in payload &&
+      payload.status === "cancelled"
+    ) {
       return;
     }
 
@@ -538,20 +562,27 @@ export class SessionOrchestrator {
       : null;
   }
 
-  private async markSessionStarted(sessionId: string, providerSessionId: string | null): Promise<void> {
+  private async markSessionStarted(
+    sessionId: string,
+    providerSessionId: string | null,
+    expectedStatus: "queued" | "completed" | "failed"
+  ): Promise<void> {
     const now = new Date().toISOString();
     const result = this.db
       .prepare(
         `
         UPDATE sessions
-        SET provider_session_id = ?, updated_at = ?, last_active_at = ?
-        WHERE id = ?
+        SET provider_session_id = ?, status = 'running', error_code = NULL, error_message = NULL, updated_at = ?, last_active_at = ?
+        WHERE id = ? AND status = ?
         `
       )
-      .run(providerSessionId, now, now, sessionId);
+      .run(providerSessionId, now, now, sessionId, expectedStatus);
 
     if (result.changes !== 1) {
-      throw new RelayError("state_conflict", `Session ${sessionId} changed before it could enter running`);
+      throw new RelayError(
+        "state_conflict",
+        `Session ${sessionId} changed before it could enter running from ${expectedStatus}`
+      );
     }
 
     if (!this.isLatestEventType(sessionId, "session_started")) {
@@ -559,7 +590,18 @@ export class SessionOrchestrator {
         provider_session_id: providerSessionId
       });
     }
-    await this.transition(sessionId, "running");
+
+    this.insertAndBroadcastEvent(sessionId, "session_status_changed", {
+      status: "running",
+      error_code: null,
+      error_message: null
+    });
+
+    this.hub.broadcastToSession(sessionId, {
+      type: "status",
+      session_id: sessionId,
+      status: "running"
+    });
   }
 
   private assertProviderAvailable(session: Session): void {
@@ -614,12 +656,16 @@ export class SessionOrchestrator {
     return row?.type === eventType;
   }
 
-  private async runWithLifecycleLock<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
+  private async runWithLifecycleLock<T>(
+    sessionId: string,
+    mutation: "resume" | "cancel" | "delete",
+    action: () => Promise<T>
+  ): Promise<T> {
     if (this.activeLifecycleMutations.has(sessionId)) {
       throw new RelayError("state_conflict", `Session ${sessionId} already has a lifecycle mutation in flight`);
     }
 
-    this.activeLifecycleMutations.add(sessionId);
+    this.activeLifecycleMutations.set(sessionId, mutation);
     try {
       return await action();
     } finally {
