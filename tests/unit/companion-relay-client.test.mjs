@@ -27,6 +27,44 @@ function waitForEvent(emitter, eventName, timeoutMs = 2000) {
   ]);
 }
 
+async function waitForSocketJsonMessage(socket, label, timeoutMs = 2000) {
+  const [raw] = await Promise.race([
+    once(socket, "message"),
+    new Promise((_, reject) => {
+      const handle = setTimeout(() => {
+        reject(new Error(`Timed out waiting for ${label}`));
+      }, timeoutMs);
+      handle.unref?.();
+    })
+  ]);
+
+  return JSON.parse(raw.toString());
+}
+
+async function waitForSocketJsonMessages(socket, count, label, timeoutMs = 2000) {
+  return await new Promise((resolve, reject) => {
+    const messages = [];
+    const handle = setTimeout(() => {
+      socket.off("message", onMessage);
+      reject(new Error(`Timed out waiting for ${label}`));
+    }, timeoutMs);
+    handle.unref?.();
+
+    const onMessage = (raw) => {
+      messages.push(JSON.parse(raw.toString()));
+      if (messages.length < count) {
+        return;
+      }
+
+      clearTimeout(handle);
+      socket.off("message", onMessage);
+      resolve(messages);
+    };
+
+    socket.on("message", onMessage);
+  });
+}
+
 test("RelayClient connects with token auth query parameters and parses incoming JSON frames", async (t) => {
   const server = new WebSocketServer({
     port: 0,
@@ -68,8 +106,79 @@ test("RelayClient connects with token auth query parameters and parses incoming 
   });
 });
 
-test("RelayClient reconnects after disconnect and drops sends while disconnected", async (t) => {
-  const warnings = [];
+test("EventBuffer pushes and flushes buffered messages", () => {
+  const buffer = new companion.EventBuffer();
+  const first = {
+    type: "heartbeat",
+    host_id: "macbook-1",
+    providers: ["claude"],
+    uptime: 10
+  };
+  const second = {
+    type: "event",
+    session_id: "relay-1",
+    event_type: "assistant_delta",
+    payload: {
+      text: "hello"
+    }
+  };
+
+  buffer.push(first);
+  buffer.push(second);
+
+  assert.equal(buffer.size, 2);
+  assert.deepEqual(buffer.flush(), [first, second]);
+  assert.equal(buffer.size, 0);
+});
+
+test("EventBuffer evicts the oldest message when it overflows", () => {
+  const buffer = new companion.EventBuffer(2);
+  const first = {
+    type: "heartbeat",
+    host_id: "macbook-1",
+    providers: ["claude"],
+    uptime: 10
+  };
+  const second = {
+    type: "event",
+    session_id: "relay-2",
+    event_type: "assistant_delta",
+    payload: {
+      text: "second"
+    }
+  };
+  const third = {
+    type: "event",
+    session_id: "relay-3",
+    event_type: "assistant_delta",
+    payload: {
+      text: "third"
+    }
+  };
+
+  buffer.push(first);
+  buffer.push(second);
+  buffer.push(third);
+
+  assert.deepEqual(buffer.flush(), [second, third]);
+});
+
+test("EventBuffer clear removes buffered messages", () => {
+  const buffer = new companion.EventBuffer();
+  buffer.push({
+    type: "heartbeat",
+    host_id: "macbook-1",
+    providers: ["claude"],
+    uptime: 10
+  });
+
+  buffer.clear();
+
+  assert.equal(buffer.size, 0);
+  assert.deepEqual(buffer.flush(), []);
+});
+
+test("RelayClient buffers outbound messages while disconnected instead of dropping them", async (t) => {
   const server = new WebSocketServer({
     port: 0,
     host: "127.0.0.1"
@@ -85,33 +194,101 @@ test("RelayClient reconnects after disconnect and drops sends while disconnected
     relayUrl: `ws://127.0.0.1:${port}`,
     token: "static-token",
     hostId: "macbook-1",
-    backoffDelaysMs: [20, 20],
-    logger: {
-      warn: (message) => {
-        warnings.push(String(message));
-      }
-    }
+    backoff: {
+      baseMs: 20,
+      maxMs: 20,
+      jitterMs: 0
+    },
+    logger: silentLogger
   });
 
   t.after(() => {
     client.close();
   });
 
-  client.send({
+  const bufferedMessage = {
     type: "heartbeat",
     host_id: "macbook-1",
     providers: ["claude"],
     uptime: 0
+  };
+  client.send(bufferedMessage);
+
+  const receivedBufferedMessage = new Promise((resolve, reject) => {
+    server.once("connection", (socket) => {
+      void waitForSocketJsonMessage(socket, "buffered outbound message").then(resolve, reject);
+    });
   });
-  assert.equal(warnings.some((message) => message.includes("Dropping outbound heartbeat")), true);
+
+  client.connect();
+  const message = await receivedBufferedMessage;
+
+  assert.deepEqual(message, bufferedMessage);
+});
+
+test("RelayClient flushes buffered messages on reconnect", async (t) => {
+  const server = new WebSocketServer({
+    port: 0,
+    host: "127.0.0.1"
+  });
+
+  t.after(() => {
+    server.close();
+  });
+
+  await waitForEvent(server, "listening");
+  const port = server.address().port;
+  const client = new companion.RelayClient({
+    relayUrl: `ws://127.0.0.1:${port}`,
+    token: "static-token",
+    hostId: "macbook-1",
+    backoff: {
+      baseMs: 50,
+      maxMs: 50,
+      jitterMs: 0
+    },
+    logger: silentLogger
+  });
+
+  t.after(() => {
+    client.close();
+  });
 
   const firstConnectionPromise = waitForEvent(server, "connection");
   client.connect();
   const [firstSocket] = await firstConnectionPromise;
 
-  const secondConnectionPromise = waitForEvent(server, "connection");
-  firstSocket.close(1012, "restart");
-  const [secondSocket] = await secondConnectionPromise;
+  const reconnectMessagesPromise = new Promise((resolve, reject) => {
+    server.once("connection", (socket) => {
+      void waitForSocketJsonMessages(socket, 2, "flushed buffered messages").then(resolve, reject);
+    });
+  });
 
-  assert.ok(secondSocket);
+  firstSocket.close(1012, "restart");
+  await waitForEvent(client, "disconnected");
+
+  const bufferedMessages = [
+    {
+      type: "event",
+      session_id: "relay-1",
+      event_type: "assistant_delta",
+      payload: {
+        text: "first"
+      }
+    },
+    {
+      type: "event",
+      session_id: "relay-1",
+      event_type: "assistant_message",
+      payload: {
+        text: "second"
+      }
+    }
+  ];
+
+  client.send(bufferedMessages[0]);
+  client.send(bufferedMessages[1]);
+  const flushedMessages = await reconnectMessagesPromise;
+
+  assert.deepEqual(flushedMessages, bufferedMessages);
 });

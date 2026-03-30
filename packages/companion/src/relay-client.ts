@@ -1,34 +1,45 @@
 import { EventEmitter } from "node:events";
 
-import type { CompanionMessage } from "@imbot/wire";
+import { ExponentialBackoff, type CompanionMessage } from "@imbot/wire";
 import WebSocket from "ws";
 import type { RawData } from "ws";
 
+import { EventBuffer } from "./event-buffer";
 import type { LoggerLike } from "./types";
+
+export interface RelayClientBackoffOptions {
+  readonly baseMs?: number;
+  readonly maxMs?: number;
+  readonly jitterMs?: number;
+}
 
 export interface RelayClientOptions {
   readonly relayUrl: string;
   readonly token: string;
   readonly hostId: string;
   readonly logger?: LoggerLike;
-  readonly backoffDelaysMs?: readonly number[];
+  readonly backoff?: RelayClientBackoffOptions;
   readonly createWebSocket?: (url: string) => WebSocket;
 }
 
 export class RelayClient extends EventEmitter {
   private readonly logger: LoggerLike;
-  private readonly backoffDelaysMs: readonly number[];
+  private readonly backoff: ExponentialBackoff;
   private readonly createWebSocket: (url: string) => WebSocket;
+  private readonly eventBuffer = new EventBuffer();
   private ws: WebSocket | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
-  private reconnectAttempt = 0;
   private closedByUser = false;
 
   constructor(private readonly options: RelayClientOptions) {
     super();
     this.logger = options.logger ?? console;
-    this.backoffDelaysMs = options.backoffDelaysMs ?? [1000, 2000, 4000, 8000, 16000, 30000];
     this.createWebSocket = options.createWebSocket ?? ((url) => new WebSocket(url));
+    this.backoff = new ExponentialBackoff(
+      options.backoff?.baseMs ?? 1000,
+      options.backoff?.maxMs ?? 30000,
+      options.backoff?.jitterMs ?? 1000
+    );
   }
 
   connect(): void {
@@ -39,6 +50,7 @@ export class RelayClient extends EventEmitter {
   close(): void {
     this.closedByUser = true;
     this.clearReconnectTimer();
+    this.eventBuffer.clear();
 
     const current = this.ws;
     this.ws = null;
@@ -53,12 +65,15 @@ export class RelayClient extends EventEmitter {
   }
 
   send(message: CompanionMessage): void {
+    if (!this.sendNow(message)) {
+      this.eventBuffer.push(message);
+    }
+  }
+
+  private sendNow(message: CompanionMessage): boolean {
     const current = this.ws;
     if (!current || current.readyState !== WebSocket.OPEN) {
-      const sessionId =
-        "session_id" in message && typeof message.session_id === "string" ? ` session_id=${message.session_id}` : "";
-      this.logger.warn?.(`Dropping outbound ${message.type} message while disconnected${sessionId}`);
-      return;
+      return false;
     }
 
     current.send(JSON.stringify(message), (error) => {
@@ -66,10 +81,27 @@ export class RelayClient extends EventEmitter {
         return;
       }
 
+      if (this.ws !== current || current.readyState !== WebSocket.OPEN) {
+        this.eventBuffer.push(message);
+      }
+
       this.logger.warn?.(
         `Failed to send outbound ${message.type} message: ${error instanceof Error ? error.message : "unknown error"}`
       );
     });
+    return true;
+  }
+
+  private flushBufferedEvents(): void {
+    const buffered = this.eventBuffer.flush();
+    if (buffered.length === 0) {
+      return;
+    }
+
+    this.logger.info?.(`flushing ${buffered.length} buffered companion message(s)`);
+    for (const message of buffered) {
+      this.send(message);
+    }
   }
 
   private openSocket(): void {
@@ -91,9 +123,10 @@ export class RelayClient extends EventEmitter {
         return;
       }
 
-      this.reconnectAttempt = 0;
+      this.backoff.reset();
       this.logger.info?.(`connected to relay ${socketUrl}`);
       this.emit("connected");
+      this.flushBufferedEvents();
     });
 
     socket.on("message", (raw: RawData, isBinary: boolean) => {
@@ -139,10 +172,8 @@ export class RelayClient extends EventEmitter {
       return;
     }
 
-    const delay =
-      this.backoffDelaysMs[Math.min(this.reconnectAttempt, this.backoffDelaysMs.length - 1)] ?? 30000;
-    const attemptNumber = this.reconnectAttempt + 1;
-    this.reconnectAttempt += 1;
+    const delay = this.backoff.nextDelay();
+    const attemptNumber = this.backoff.attempts;
 
     this.logger.info?.(`retrying relay connection attempt ${attemptNumber} in ${delay}ms`);
     this.reconnectTimer = setTimeout(() => {

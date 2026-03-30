@@ -637,3 +637,55 @@ test("CompanionRuntime add_root and remove_root handlers dispatch correctly", as
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("CompanionRuntime reports running sessions after reconnect", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-reconnect-"));
+  const sentMessages = [];
+
+  let runtime;
+  try {
+    runtime = await companion.createCompanionRuntime({
+      config: createRuntimeConfig(tempDir),
+      logger: silentLogger
+    });
+    runtime.relayClient.send = (message) => {
+      sentMessages.push(message);
+    };
+    runtime.adapter.getActiveSessionIds = () => ["relay-running-1", "relay-running-2"];
+
+    runtime.relayClient.emit("connected");
+
+    await waitFor(() => sentMessages.length === 3);
+    assert.deepEqual(sentMessages[0], {
+      type: "heartbeat",
+      host_id: "macbook-1",
+      providers: ["claude", "book"],
+      uptime: sentMessages[0].uptime
+    });
+    assert.equal(typeof sentMessages[0].uptime, "number");
+    assert.deepEqual(sentMessages.slice(1), [
+      {
+        type: "event",
+        session_id: "relay-running-1",
+        event_type: "session_status_changed",
+        payload: {
+          status: "running"
+        }
+      },
+      {
+        type: "event",
+        session_id: "relay-running-2",
+        event_type: "session_status_changed",
+        payload: {
+          status: "running"
+        }
+      }
+    ]);
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
