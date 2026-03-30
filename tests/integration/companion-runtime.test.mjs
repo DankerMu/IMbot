@@ -4,7 +4,9 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync
 } from "node:fs";
 import { createRequire } from "node:module";
@@ -324,12 +326,17 @@ test("companion connects to relay, creates a session, forwards events, and persi
 test("companion handles browse_directory commands and returns subdirectories only", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-browse-runtime-"));
   const workspaceRoot = path.join(tempDir, "workspace");
+  const workspaceLink = path.join(tempDir, "workspace-link");
   const projectDir = path.join(workspaceRoot, "project");
   const notesDir = path.join(workspaceRoot, "notes");
   mkdirSync(workspaceRoot);
   mkdirSync(projectDir);
   mkdirSync(notesDir);
+  symlinkSync(workspaceRoot, workspaceLink);
   writeFileSync(path.join(workspaceRoot, "README.md"), "file");
+  const canonicalWorkspaceRoot = realpathSync(workspaceRoot);
+  const canonicalProjectDir = realpathSync(projectDir);
+  const canonicalNotesDir = realpathSync(notesDir);
 
   const server = new WebSocketServer({
     port: 0,
@@ -375,7 +382,7 @@ test("companion handles browse_directory commands and returns subdirectories onl
     JSON.stringify({
       cmd: "browse_directory",
       req_id: "browse-1",
-      path: workspaceRoot
+      path: workspaceLink
     })
   );
 
@@ -389,15 +396,15 @@ test("companion handles browse_directory commands and returns subdirectories onl
     req_id: "browse-1",
     status: "ok",
     data: {
-      path: workspaceRoot,
+      path: canonicalWorkspaceRoot,
       directories: [
         {
           name: "notes",
-          path: notesDir
+          path: canonicalNotesDir
         },
         {
           name: "project",
-          path: projectDir
+          path: canonicalProjectDir
         }
       ]
     }

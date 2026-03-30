@@ -111,3 +111,10 @@ WHEN `GET /v1/hosts/macbook-1/browse?path=/Users/danker/Desktop/AI-vault/IMbot` 
 AND the path is absolute with no `..` components
 AND it is under a workspace root
 THEN the request proceeds normally
+
+#### Scenario: symlink escape is rejected after canonicalization
+
+WHEN `GET /v1/hosts/relay-local/browse?path=/home/user/projects/escape-link` is called
+AND `/home/user/projects/escape-link` is a symlink to `/etc`
+THEN the response is `403` with `{ "error": "forbidden" }`
+AND the canonical target path is not treated as under the workspace root

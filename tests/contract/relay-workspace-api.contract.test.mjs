@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -93,10 +93,17 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
   const relayRoot = path.join(tempDir, "relay-root");
   const relayAlpha = path.join(relayRoot, "alpha");
   const relayBeta = path.join(relayRoot, "beta");
+  const relayOutside = path.join(tempDir, "relay-outside");
+  const relayEscapeLink = path.join(relayRoot, "escape-link");
   mkdirSync(relayRoot);
   mkdirSync(relayAlpha);
   mkdirSync(relayBeta);
+  mkdirSync(relayOutside);
+  symlinkSync(relayOutside, relayEscapeLink);
   writeFileSync(path.join(relayRoot, "README.md"), "file");
+  const canonicalRelayRoot = realpathSync(relayRoot);
+  const canonicalRelayAlpha = realpathSync(relayAlpha);
+  const canonicalRelayBeta = realpathSync(relayBeta);
 
   const config = relay.loadConfig({
     RELAY_STATIC_TOKEN: "t".repeat(64),
@@ -157,7 +164,7 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
   });
   const addRelayRootPayload = await addRelayRootResponse.json();
   assert.equal(addRelayRootResponse.status, 201);
-  assert.equal(addRelayRootPayload.root.path, relayRoot);
+  assert.equal(addRelayRootPayload.root.path, canonicalRelayRoot);
   assert.equal(addRelayRootPayload.root.label, "relay-root");
 
   const duplicateRelayRootResponse = await fetch(`${baseUrl}/v1/hosts/relay-local/roots`, {
@@ -189,15 +196,15 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
   );
   assert.equal(relayBrowseResponse.status, 200);
   assert.deepEqual(await relayBrowseResponse.json(), {
-    path: relayRoot,
+    path: canonicalRelayRoot,
     directories: [
       {
         name: "alpha",
-        path: relayAlpha
+        path: canonicalRelayAlpha
       },
       {
         name: "beta",
-        path: relayBeta
+        path: canonicalRelayBeta
       }
     ]
   });
@@ -221,6 +228,17 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
   );
   assert.equal(relayTraversalResponse.status, 403);
   assert.deepEqual(await relayTraversalResponse.json(), {
+    error: "forbidden"
+  });
+
+  const relaySymlinkEscapeResponse = await fetch(
+    `${baseUrl}/v1/hosts/relay-local/browse?path=${encodeURIComponent(relayEscapeLink)}`,
+    {
+      headers: authHeaders(config.staticToken)
+    }
+  );
+  assert.equal(relaySymlinkEscapeResponse.status, 403);
+  assert.deepEqual(await relaySymlinkEscapeResponse.json(), {
     error: "forbidden"
   });
 
@@ -336,12 +354,34 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
     ]
   });
 
-  const macbookOutsideResponse = await fetch(
+  const macbookOutsideResponsePromise = fetch(
     `${baseUrl}/v1/hosts/macbook-1/browse?path=${encodeURIComponent("/etc")}`,
     {
       headers: authHeaders(config.staticToken)
     }
   );
+  const macbookOutsideCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "browse_directory" && message.path === "/etc",
+    "macbook outside browse"
+  );
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: macbookOutsideCommand.req_id,
+      status: "ok",
+      data: {
+        path: "/etc",
+        directories: [
+          {
+            name: "ssh",
+            path: "/etc/ssh"
+          }
+        ]
+      }
+    })
+  );
+  const macbookOutsideResponse = await macbookOutsideResponsePromise;
   assert.equal(macbookOutsideResponse.status, 403);
   assert.deepEqual(await macbookOutsideResponse.json(), {
     error: "forbidden"
@@ -355,6 +395,35 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
   );
   assert.equal(macbookTraversalResponse.status, 403);
   assert.deepEqual(await macbookTraversalResponse.json(), {
+    error: "forbidden"
+  });
+
+  const macbookSymlinkBrowsePromise = fetch(
+    `${baseUrl}/v1/hosts/macbook-1/browse?path=${encodeURIComponent(`${macbookRootPath}/escape-link`)}`,
+    {
+      headers: authHeaders(config.staticToken)
+    }
+  );
+  const macbookSymlinkBrowseCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "browse_directory" && message.path === `${macbookRootPath}/escape-link`,
+    "macbook symlink browse"
+  );
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: macbookSymlinkBrowseCommand.req_id,
+      status: "ok",
+      data: {
+        path: "/Users/example/Outside",
+        directories: []
+      }
+    })
+  );
+
+  const macbookSymlinkBrowseResponse = await macbookSymlinkBrowsePromise;
+  assert.equal(macbookSymlinkBrowseResponse.status, 403);
+  assert.deepEqual(await macbookSymlinkBrowseResponse.json(), {
     error: "forbidden"
   });
 

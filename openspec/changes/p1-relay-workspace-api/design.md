@@ -30,7 +30,7 @@ Browse requests follow different paths based on host type:
 - **relay-local host**: Relay reads local filesystem directly using `fs.readdir({ withFileTypes: true })`.
 
 Both paths validate the requested path against workspace roots before execution.
-In the current slice, the relay is the policy enforcement point for root containment and traversal rejection. The companion browse handler validates only absolute-path shape and directory existence on the local machine.
+In the current slice, the relay is the policy enforcement point for root containment and traversal rejection. After local filesystem access or companion browse returns, the relay revalidates the canonical path to prevent symlink-based escape from a registered root.
 
 ### 2. Path Security as Middleware
 
@@ -46,7 +46,7 @@ function validateBrowsePath(requestedPath: string, roots: WorkspaceRoot[]): { va
 }
 ```
 
-This is called in the route handler BEFORE any filesystem access or companion proxy.
+This is called in the route handler BEFORE any filesystem access or companion proxy, and the returned canonical path is checked again after the browse result is produced.
 
 ### 3. Heartbeat-Driven Status with Immediate Disconnect Detection
 

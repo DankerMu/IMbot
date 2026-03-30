@@ -28,17 +28,18 @@ export async function browseDirectory(targetPath: string): Promise<BrowseDirecto
   const normalizedPath = path.resolve(trimmed);
 
   try {
-    const entries = await fs.readdir(normalizedPath, {
+    const canonicalPath = await fs.realpath(normalizedPath);
+    const entries = await fs.readdir(canonicalPath, {
       withFileTypes: true
     });
 
     return {
-      path: normalizedPath,
+      path: canonicalPath,
       directories: entries
         .filter((entry) => entry.isDirectory())
         .map((entry) => ({
           name: entry.name,
-          path: path.join(normalizedPath, entry.name)
+          path: path.join(canonicalPath, entry.name)
         }))
         .sort((left, right) => left.name.localeCompare(right.name))
     };

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -127,4 +127,52 @@ test("stale heartbeat sweep marks hosts offline and fails running sessions", asy
       status: "online"
     }
   );
+});
+
+test("relay-local browse rejects canonical paths that escape a root via symlink", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-symlink-browse-"));
+  const rootDir = path.join(tempDir, "root");
+  const outsideDir = path.join(tempDir, "outside");
+  const escapeLink = path.join(rootDir, "escape-link");
+  mkdirSync(rootDir);
+  mkdirSync(outsideDir);
+  symlinkSync(outsideDir, escapeLink);
+
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO workspace_roots (id, host_id, provider, path, label, created_at)
+      VALUES ('root-1', 'relay-local', 'openclaw', ?, 'root', datetime('now'))
+      `
+    )
+    .run(rootDir);
+
+  const response = await runtime.app.inject({
+    method: "GET",
+    url: `/v1/hosts/relay-local/browse?path=${encodeURIComponent(escapeLink)}`,
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  assert.equal(response.statusCode, 403);
+  assert.deepEqual(response.json(), {
+    error: "forbidden"
+  });
 });

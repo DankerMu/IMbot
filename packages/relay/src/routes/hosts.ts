@@ -9,7 +9,7 @@ import { AuditLogger } from "../audit/logger";
 import { CompanionManager, type BrowseDirectoryResult } from "../companion/manager";
 import type { RelayDatabase } from "../db/init";
 import { RelayError } from "../errors";
-import { validateWorkspacePath } from "../util/path-security";
+import { hasPathTraversal, validateWorkspacePath } from "../util/path-security";
 
 type HostSummary = Host & {
   readonly providers: Provider[];
@@ -96,17 +96,18 @@ export function registerHostRoutes(
       const host = requireHost(deps.db, hostId);
       const body = (request.body ?? {}) as Record<string, unknown>;
       const provider = parseProvider(body.provider);
-      const normalizedPath = path.resolve(normalizeAbsolutePath(body.path));
-      const label = normalizeRootLabel(body.label, normalizedPath);
+      const requestedPath = normalizeAbsolutePath(body.path);
 
       assertProviderMatchesHost(host, provider);
-      await assertRootTargetExists(host, normalizedPath, deps.companionManager);
+      const target = await assertRootTargetExists(host, requestedPath, deps.companionManager);
+      const rootPath = target.path;
+      const label = normalizeRootLabel(body.label, rootPath);
 
       const root: WorkspaceRoot = {
         id: randomUUID(),
         host_id: hostId,
         provider,
-        path: normalizedPath,
+        path: rootPath,
         label,
         created_at: new Date().toISOString()
       };
@@ -199,20 +200,22 @@ export function registerHostRoutes(
       const roots = deps.db
         .prepare("SELECT * FROM workspace_roots WHERE host_id = ?")
         .all(hostId) as WorkspaceRoot[];
-      const validation = validateWorkspacePath(
-        requestedPath,
-        roots.map((root) => root.path)
-      );
 
-      if (!validation.ok) {
+      if (hasPathTraversal(requestedPath)) {
         throw new RelayError("forbidden", "Path is not under any workspace root");
       }
 
       if (host.type === "relay_local") {
-        return await browseLocalDirectory(validation.resolvedPath);
+        const canonicalPath = await resolveLocalDirectoryPath(requestedPath);
+        assertPathWithinRoots(canonicalPath, roots);
+        const result = await browseLocalDirectory(canonicalPath);
+        assertBrowseResultWithinRoots(result, roots);
+        return result;
       }
 
-      return await deps.companionManager.browseDirectory(hostId, validation.resolvedPath);
+      const result = await deps.companionManager.browseDirectory(hostId, requestedPath);
+      assertBrowseResultWithinRoots(result, roots);
+      return result;
     }
   );
 }
@@ -329,13 +332,40 @@ async function assertRootTargetExists(
   host: Host,
   targetPath: string,
   companionManager: CompanionManager
-): Promise<void> {
+): Promise<BrowseDirectoryResult> {
   if (host.type === "relay_local") {
-    await browseLocalDirectory(targetPath);
-    return;
+    return {
+      path: await resolveLocalDirectoryPath(targetPath),
+      directories: []
+    };
   }
 
-  await companionManager.browseDirectory(host.id, targetPath);
+  return await companionManager.browseDirectory(host.id, targetPath);
+}
+
+async function resolveLocalDirectoryPath(targetPath: string): Promise<string> {
+  try {
+    const canonicalPath = await fs.realpath(targetPath);
+    const stats = await fs.stat(canonicalPath);
+    if (!stats.isDirectory()) {
+      throw new RelayError("not_found", `Directory ${canonicalPath} not found`);
+    }
+
+    return canonicalPath;
+  } catch (error) {
+    if (error instanceof RelayError) {
+      throw error;
+    }
+
+    if (error && typeof error === "object" && "code" in error) {
+      const code = (error as { code?: string }).code;
+      if (code === "ENOENT" || code === "ENOTDIR") {
+        throw new RelayError("not_found", `Directory ${targetPath} not found`);
+      }
+    }
+
+    throw error;
+  }
 }
 
 async function browseLocalDirectory(targetPath: string): Promise<BrowseDirectoryResult> {
@@ -363,6 +393,27 @@ async function browseLocalDirectory(targetPath: string): Promise<BrowseDirectory
     }
 
     throw error;
+  }
+}
+
+function assertPathWithinRoots(targetPath: string, roots: readonly WorkspaceRoot[]): void {
+  const validation = validateWorkspacePath(
+    targetPath,
+    roots.map((root) => root.path)
+  );
+  if (!validation.ok) {
+    throw new RelayError("forbidden", "Path is not under any workspace root");
+  }
+}
+
+function assertBrowseResultWithinRoots(
+  result: BrowseDirectoryResult,
+  roots: readonly WorkspaceRoot[]
+): void {
+  assertPathWithinRoots(result.path, roots);
+
+  for (const directory of result.directories) {
+    assertPathWithinRoots(directory.path, roots);
   }
 }
 

@@ -73,6 +73,7 @@
 
 - `relay-local` 仅接受 `openclaw`
 - `macbook` 仅接受 `claude` 或 `book`
+- root 持久化时使用宿主机校验后的 canonical path
 - 未提供 `label` 时默认取目录 basename
 
 **Request**:
@@ -109,6 +110,8 @@
 浏览目录，返回子目录列表。
 
 **Query params**: `path=/Users/danker/Desktop/AI-vault`
+
+- relay 在转发或读取后会用 canonical path 再次校验结果仍然落在已登记 roots 之下
 
 **Response 200**:
 ```json

@@ -1,5 +1,14 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -219,24 +228,44 @@ test("browseDirectory returns subdirectories only and rejects missing targets", 
   const rootDir = path.join(tempDir, "workspace");
   const nestedDir = path.join(rootDir, "nested");
   const emptyDir = path.join(rootDir, "empty");
+  const linkedDir = path.join(tempDir, "workspace-link");
 
   try {
     mkdirSync(rootDir);
     mkdirSync(nestedDir);
     mkdirSync(emptyDir);
+    symlinkSync(rootDir, linkedDir);
     writeFileSync(path.join(rootDir, "README.md"), "file");
+    const canonicalRootDir = realpathSync(rootDir);
+    const canonicalNestedDir = realpathSync(nestedDir);
+    const canonicalEmptyDir = realpathSync(emptyDir);
 
     const result = await companion.browseDirectory(rootDir);
     assert.deepEqual(result, {
-      path: rootDir,
+      path: canonicalRootDir,
       directories: [
         {
           name: "empty",
-          path: emptyDir
+          path: canonicalEmptyDir
         },
         {
           name: "nested",
-          path: nestedDir
+          path: canonicalNestedDir
+        }
+      ]
+    });
+
+    const linkedResult = await companion.browseDirectory(linkedDir);
+    assert.deepEqual(linkedResult, {
+      path: canonicalRootDir,
+      directories: [
+        {
+          name: "empty",
+          path: canonicalEmptyDir
+        },
+        {
+          name: "nested",
+          path: canonicalNestedDir
         }
       ]
     });

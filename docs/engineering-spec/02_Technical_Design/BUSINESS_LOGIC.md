@@ -285,8 +285,8 @@ cron.schedule('0 3 * * *', () => {
 
 Phase 1 目录安全校验的策略边界如下：
 
-- relay 是 browse allowlist 的执行点：拒绝任何包含 `..` 的 path，并且只允许访问落在已登记 workspace roots 之下的目录。
-- companion 当前对 `browse_directory` 只负责本机文件系统校验：path 必须为绝对路径、目标必须存在且是目录、响应只返回子目录。
+- relay 是 browse allowlist 的执行点：先拒绝任何包含 `..` 的 path，再在本地读取或 companion 返回后，对 canonical path 重新校验其仍然落在已登记 workspace roots 之下。
+- companion 当前对 `browse_directory` 负责本机文件系统校验：path 必须为绝对路径、目标必须存在且是目录、响应只返回 canonical 目录路径下的子目录。
 - companion 侧基于 roots 的 allowlist 校验保留到后续 root 同步能力落地后再承担；当前浏览安全性由 relay 先行兜底。
 
 ```typescript
@@ -297,5 +297,13 @@ function validateBrowsePathAtRelay(requestedPath: string, roots: WorkspaceRoot[]
     const relative = path.relative(root.path, resolved);
     return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
   });
+}
+
+async function canonicalBrowseResultStillUnderRoots(
+  requestedPath: string,
+  roots: WorkspaceRoot[]
+): Promise<boolean> {
+  const canonical = await fs.realpath(requestedPath);
+  return validateBrowsePathAtRelay(canonical, roots);
 }
 ```
