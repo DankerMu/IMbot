@@ -169,6 +169,92 @@ test("handleEvent ignores late provider events after a session reaches a termina
   }
 });
 
+test("handleEvent recovers failed sessions when the companion reconnect reports them as running", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-failed-recovery-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const now = new Date().toISOString();
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+
+  insertSession(runtime.db, "sess-recover", "running");
+
+  await runtime.orchestrator.handleHostDisconnected("macbook-1");
+
+  const failedSession = runtime.db
+    .prepare("SELECT status, error_code FROM sessions WHERE id = ?")
+    .get("sess-recover");
+  assert.deepEqual(failedSession, {
+    status: "failed",
+    error_code: "host_disconnected"
+  });
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-recover",
+    event_type: "session_status_changed",
+    payload: {
+      status: "running"
+    }
+  });
+
+  const recoveredSession = runtime.db
+    .prepare("SELECT status, error_code, error_message FROM sessions WHERE id = ?")
+    .get("sess-recover");
+  assert.deepEqual(recoveredSession, {
+    status: "running",
+    error_code: null,
+    error_message: null
+  });
+
+  const recoveryAuditLog = runtime.db
+    .prepare("SELECT action, session_id, host_id, detail FROM audit_logs WHERE action = 'session.recover'")
+    .get();
+  assert.equal(recoveryAuditLog.action, "session.recover");
+  assert.equal(recoveryAuditLog.session_id, "sess-recover");
+  assert.equal(recoveryAuditLog.host_id, "macbook-1");
+  assert.deepEqual(JSON.parse(recoveryAuditLog.detail), {
+    previous_status: "failed",
+    recovered_status: "running",
+    source_event: "session_status_changed"
+  });
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-recover",
+    event_type: "assistant_message",
+    payload: {
+      text: "still running"
+    }
+  });
+
+  const assistantEvents = runtime.db
+    .prepare("SELECT COUNT(*) AS count FROM session_events WHERE session_id = ? AND type = 'assistant_message'")
+    .get("sess-recover");
+  assert.deepEqual(assistantEvents, { count: 1 });
+});
+
 test("handleEvent accepts provider events during create and resume lifecycle windows", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-active-mutation-events-"));
   const config = relay.loadConfig({

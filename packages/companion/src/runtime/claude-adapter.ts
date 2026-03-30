@@ -216,6 +216,10 @@ export class ClaudeRuntimeAdapter {
     return this.activeByRelaySessionId.size;
   }
 
+  getActiveSessionIds(): string[] {
+    return Array.from(this.activeByRelaySessionId.keys());
+  }
+
   private spawnSession(params: {
     readonly relaySessionId: string;
     readonly provider: InteractiveProvider;

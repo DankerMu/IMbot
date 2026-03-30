@@ -6,8 +6,9 @@ import {
   type CompanionConfig
 } from "./config";
 import { CommandDispatcher } from "./dispatcher";
+import { EventBuffer } from "./event-buffer";
 import { HeartbeatTimer } from "./heartbeat";
-import { RelayClient } from "./relay-client";
+import { RelayClient, type RelayClientBackoffOptions } from "./relay-client";
 import { ClaudeRuntimeAdapter } from "./runtime/claude-adapter";
 import { discoverSessions } from "./runtime/session-discovery";
 import { SessionIndex } from "./runtime/session-index";
@@ -39,6 +40,7 @@ export async function createCompanionRuntime(options?: {
   readonly config?: CompanionConfig;
   readonly logger?: LoggerLike;
   readonly heartbeatIntervalMs?: number;
+  readonly reconnectBackoff?: RelayClientBackoffOptions;
   readonly reconnectDelaysMs?: readonly number[];
   readonly killGraceMs?: number;
 }): Promise<CompanionRuntime> {
@@ -57,7 +59,7 @@ export async function createCompanionRuntime(options?: {
     token: config.token,
     hostId: config.hostId,
     logger,
-    backoffDelaysMs: options?.reconnectDelaysMs
+    backoff: resolveRelayBackoff(options)
   });
   const heartbeat = new HeartbeatTimer({
     hostId: config.hostId,
@@ -120,6 +122,17 @@ export async function createCompanionRuntime(options?: {
   });
   relayClient.on("connected", () => {
     heartbeat.start();
+
+    for (const sessionId of adapter.getActiveSessionIds()) {
+      relayClient.send({
+        type: "event",
+        session_id: sessionId,
+        event_type: "session_status_changed",
+        payload: {
+          status: "running"
+        }
+      });
+    }
   });
   relayClient.on("disconnected", () => {
     heartbeat.stop();
@@ -179,6 +192,7 @@ export async function startCompanion(config = loadCompanionConfig()): Promise<Co
 export {
   loadCompanionConfig,
   RelayClient,
+  EventBuffer,
   HeartbeatTimer,
   CommandDispatcher,
   ClaudeRuntimeAdapter,
@@ -187,6 +201,26 @@ export {
   ConfigManager,
   discoverSessions
 };
+
+function resolveRelayBackoff(options?: {
+  readonly reconnectBackoff?: RelayClientBackoffOptions;
+  readonly reconnectDelaysMs?: readonly number[];
+}): RelayClientBackoffOptions | undefined {
+  if (options?.reconnectBackoff) {
+    return options.reconnectBackoff;
+  }
+
+  const delays = options?.reconnectDelaysMs;
+  if (!delays || delays.length === 0) {
+    return undefined;
+  }
+
+  return {
+    baseMs: delays[0],
+    maxMs: delays[delays.length - 1] ?? delays[0],
+    jitterMs: 0
+  };
+}
 
 if (require.main === module) {
   void startCompanion().catch((error) => {
