@@ -637,3 +637,94 @@ test("CompanionRuntime add_root and remove_root handlers dispatch correctly", as
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("CompanionRuntime reports running sessions after reconnect", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-reconnect-"));
+  const sentMessages = [];
+
+  let runtime;
+  try {
+    runtime = await companion.createCompanionRuntime({
+      config: createRuntimeConfig(tempDir),
+      logger: silentLogger
+    });
+    runtime.relayClient.send = (message) => {
+      sentMessages.push(message);
+    };
+    runtime.adapter.getActiveSessionIds = () => ["relay-running-1", "relay-running-2"];
+
+    runtime.relayClient.emit("connected");
+
+    await waitFor(() => sentMessages.length === 3);
+    assert.deepEqual(sentMessages[0], {
+      type: "heartbeat",
+      host_id: "macbook-1",
+      providers: ["claude", "book"],
+      uptime: sentMessages[0].uptime
+    });
+    assert.equal(typeof sentMessages[0].uptime, "number");
+    assert.deepEqual(sentMessages.slice(1), [
+      {
+        type: "event",
+        session_id: "relay-running-1",
+        event_type: "session_status_changed",
+        payload: {
+          status: "running"
+        }
+      },
+      {
+        type: "event",
+        session_id: "relay-running-2",
+        event_type: "session_status_changed",
+        payload: {
+          status: "running"
+        }
+      }
+    ]);
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("CompanionRuntime does not kill running CLI processes when the relay WS disconnects", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-survive-"));
+  const cancelCalls = [];
+  const shutdownCalls = [];
+
+  let runtime;
+  try {
+    runtime = await companion.createCompanionRuntime({
+      config: createRuntimeConfig(tempDir),
+      logger: silentLogger
+    });
+
+    const originalCancel = runtime.adapter.cancel.bind(runtime.adapter);
+    runtime.adapter.cancel = async (sessionId) => {
+      cancelCalls.push(sessionId);
+      return originalCancel(sessionId);
+    };
+    const originalShutdown = runtime.adapter.shutdown.bind(runtime.adapter);
+    runtime.adapter.shutdown = async () => {
+      shutdownCalls.push("shutdown");
+      return originalShutdown();
+    };
+    runtime.adapter.getActiveSessionIds = () => ["relay-1", "relay-2"];
+
+    runtime.relayClient.emit("disconnected", 1006, "abnormal");
+    await delay(50);
+
+    assert.deepEqual(cancelCalls, []);
+    assert.deepEqual(shutdownCalls, []);
+    assert.deepEqual(runtime.adapter.getActiveSessionIds(), ["relay-1", "relay-2"]);
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});

@@ -1,4 +1,4 @@
-import { ERROR_CODES, type CompanionEventMessage, type ErrorCode } from "@imbot/wire";
+import { ERROR_CODES, ExponentialBackoff, type CompanionEventMessage, type ErrorCode } from "@imbot/wire";
 import { randomUUID } from "node:crypto";
 import WebSocket, { type RawData } from "ws";
 
@@ -39,12 +39,14 @@ export class OpenClawBridge {
   private readonly relayToOpenClaw = new Map<string, string>();
   private readonly openClawToRelay = new Map<string, string>();
   private readonly sessionQueues = new Map<string, Promise<void>>();
+  private readonly backoff = new ExponentialBackoff(1000, 30000, 500);
   private reconnectTimer: NodeJS.Timeout | null = null;
   private connectKickoffTimer: NodeJS.Timeout | null = null;
   private available = false;
   private connectRequested = false;
   private closed = false;
   private defaultSessionKey: string | null = null;
+  private lastDisconnectedSessionCount = 0;
 
   constructor(
     private readonly config: RelayConfig,
@@ -220,6 +222,7 @@ export class OpenClawBridge {
     this.connectRequested = true;
 
     try {
+      const hadReconnectAttempts = this.backoff.attempts > 0 || this.lastDisconnectedSessionCount > 0;
       const response = (await this.request(
         "connect",
         {
@@ -241,7 +244,12 @@ export class OpenClawBridge {
       )) as OpenClawConnectResponse;
 
       this.defaultSessionKey = response.snapshot?.sessionDefaults?.mainSessionKey ?? null;
+      this.backoff.reset();
       this.setAvailability(true);
+
+      if (hadReconnectAttempts) {
+        this.logRecoveryStatus(response);
+      }
     } catch (error) {
       this.connectRequested = false;
       this.deps.logger.warn?.("OpenClaw gateway handshake failed", error);
@@ -508,6 +516,7 @@ export class OpenClawBridge {
     }
 
     const activeSessionIds = Array.from(this.relayToOpenClaw.keys());
+    this.lastDisconnectedSessionCount = activeSessionIds.length;
     this.clearConnectKickoffTimer();
     this.connectRequested = false;
     this.defaultSessionKey = null;
@@ -544,11 +553,37 @@ export class OpenClawBridge {
       return;
     }
 
+    const delay = this.backoff.nextDelay();
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, 30000);
+    }, delay);
     this.reconnectTimer.unref?.();
+  }
+
+  private logRecoveryStatus(response: OpenClawConnectResponse): void {
+    const gatewaySessionKey = response.snapshot?.sessionDefaults?.mainSessionKey;
+    if (gatewaySessionKey) {
+      const relaySessionId = this.openClawToRelay.get(gatewaySessionKey);
+      const recoveryStatus = relaySessionId
+        ? `matched relay session ${relaySessionId}`
+        : "no relay mapping could be recovered";
+      this.deps.logger.info?.(
+        `OpenClaw bridge reconnected; gateway has an active session; ${recoveryStatus}`
+      );
+      this.lastDisconnectedSessionCount = 0;
+      return;
+    }
+
+    if (this.lastDisconnectedSessionCount > 0) {
+      this.deps.logger.info?.(
+        `OpenClaw bridge reconnected; ${this.lastDisconnectedSessionCount} previously active session(s) could not be recovered`
+      );
+    } else {
+      this.deps.logger.info?.("OpenClaw bridge reconnected");
+    }
+
+    this.lastDisconnectedSessionCount = 0;
   }
 
   private clearReconnectTimer(): void {

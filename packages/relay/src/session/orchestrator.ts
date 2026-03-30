@@ -273,6 +273,28 @@ export class SessionOrchestrator {
       return;
     }
 
+    const payload = this.sanitizeIncomingPayload(message.payload);
+    if (
+      message.event_type === "session_status_changed" &&
+      session.status === "failed" &&
+      payload &&
+      typeof payload === "object" &&
+      "status" in payload &&
+      payload.status === "running"
+    ) {
+      await this.transition(session.id, "running");
+      this.auditLogger.write("session.recover", {
+        session_id: session.id,
+        host_id: session.host_id,
+        detail: {
+          previous_status: session.status,
+          recovered_status: "running",
+          source_event: "session_status_changed"
+        }
+      });
+      return;
+    }
+
     const activeMutation = this.activeLifecycleMutations.get(message.session_id);
     const acceptsEvents =
       session.status === "running" || activeMutation === "create" || activeMutation === "resume";
@@ -283,7 +305,6 @@ export class SessionOrchestrator {
       return;
     }
 
-    const payload = this.sanitizeIncomingPayload(message.payload);
     if (message.event_type === "session_started") {
       return;
     }
