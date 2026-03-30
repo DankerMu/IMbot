@@ -26,11 +26,11 @@ packages/relay/src/
 
 Browse requests follow different paths based on host type:
 
-- **macbook host**: Relay first checks that the requested path is under a registered root, then sends `browse_directory` to the companion via WS → companion reads fs → returns directory list → relay revalidates the canonical result before forwarding.
+- **macbook host**: Relay first checks that the requested path is under a registered root, then sends `browse_directory` plus the current roots to the companion via WS → companion canonicalizes and rejects out-of-root escapes before listing → relay revalidates the canonical result before forwarding.
 - **relay-local host**: Relay reads local filesystem directly using `fs.readdir({ withFileTypes: true })`.
 
 Both paths validate the requested path against workspace roots before execution.
-In the current slice, the relay is the policy enforcement point for root containment and traversal rejection. Before local filesystem access or companion proxy, the relay performs a lexical allowlist check against registered roots and accepts only controlled macOS aliases (`/var`, `/tmp`, `/etc` versus `/private/...`) as equivalent. After local filesystem access or companion browse returns, the relay revalidates the canonical path to prevent symlink-based escape from a registered root.
+In the current slice, the relay remains the primary policy enforcement point for root containment and traversal rejection. Before local filesystem access or companion proxy, the relay performs a lexical allowlist check against registered roots and accepts controlled macOS aliases (`/var`, `/tmp`, `/etc` versus `/private/...`) only for macbook hosts or relay-local running on macOS. After local filesystem access or companion browse returns, the relay revalidates the canonical path to prevent symlink-based escape from a registered root.
 
 ### 2. Path Security as Middleware
 
@@ -45,7 +45,7 @@ function validateBrowsePath(requestedPath: string, roots: WorkspaceRoot[]): { va
 }
 ```
 
-This is called in the route handler BEFORE any filesystem access or companion proxy, and the returned canonical path is checked again after the browse result is produced. If the request was an exact browse of a legacy root and the canonical result differs, the relay upgrades that stored root path to canonical form so later child browse requests stay aligned.
+This is called in the route handler BEFORE any filesystem access or companion proxy, and the returned canonical path is checked again after the browse result is produced. For macbook browse, the current roots are also sent to the companion so canonical escapes are rejected before directory enumeration. If the request was an exact browse of a legacy root and the canonical result differs, the relay upgrades that stored root path to canonical form so later child browse requests stay aligned.
 
 ### 3. Heartbeat-Driven Status with Immediate Disconnect Detection
 

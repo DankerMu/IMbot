@@ -9,7 +9,12 @@ import { AuditLogger } from "../audit/logger";
 import { CompanionManager, type BrowseDirectoryResult } from "../companion/manager";
 import type { RelayDatabase } from "../db/init";
 import { RelayError } from "../errors";
-import { hasPathTraversal, isPathWithinRoot, validateWorkspacePath } from "../util/path-security";
+import {
+  hasPathTraversal,
+  isPathWithinRoot,
+  type WorkspacePathValidationOptions,
+  validateWorkspacePath
+} from "../util/path-security";
 
 type HostSummary = Host & {
   readonly providers: Provider[];
@@ -205,7 +210,8 @@ export function registerHostRoutes(
         throw new RelayError("forbidden", "Path is not under any workspace root");
       }
 
-      const matchedRoot = assertRequestedPathWithinRoots(requestedPath, roots);
+      const pathValidationOptions = createPathValidationOptions(host);
+      const matchedRoot = assertRequestedPathWithinRoots(requestedPath, roots, pathValidationOptions);
 
       if (host.type === "relay_local") {
         const canonicalPath = await resolveLocalDirectoryPath(requestedPath);
@@ -215,18 +221,20 @@ export function registerHostRoutes(
           deriveCanonicalRootPathForBrowse(requestedPath, matchedRoot, canonicalPath)
         );
         const result = await browseLocalDirectory(canonicalPath);
-        assertBrowseResultWithinRoots(result, effectiveRoots);
+        assertBrowseResultWithinRoots(result, effectiveRoots, pathValidationOptions);
         persistCanonicalRootPath(deps.db, matchedRoot, effectiveRoots);
         return result;
       }
 
-      const result = await deps.companionManager.browseDirectory(hostId, requestedPath);
+      const result = await deps.companionManager.browseDirectory(hostId, requestedPath, {
+        roots: roots.map((root) => root.path)
+      });
       const effectiveRoots = withCanonicalRootOverride(
         roots,
         matchedRoot,
         deriveCanonicalRootPathForBrowse(requestedPath, matchedRoot, result.path)
       );
-      assertBrowseResultWithinRoots(result, effectiveRoots);
+      assertBrowseResultWithinRoots(result, effectiveRoots, pathValidationOptions);
       persistCanonicalRootPath(deps.db, matchedRoot, effectiveRoots);
       return result;
     }
@@ -412,8 +420,12 @@ async function browseLocalDirectory(targetPath: string): Promise<BrowseDirectory
   }
 }
 
-function assertRequestedPathWithinRoots(targetPath: string, roots: readonly WorkspaceRoot[]): WorkspaceRoot {
-  const matchedRoot = findBestMatchingRoot(targetPath, roots);
+function assertRequestedPathWithinRoots(
+  targetPath: string,
+  roots: readonly WorkspaceRoot[],
+  options: WorkspacePathValidationOptions
+): WorkspaceRoot {
+  const matchedRoot = findBestMatchingRoot(targetPath, roots, options);
   if (!matchedRoot) {
     throw new RelayError("forbidden", "Path is not under any workspace root");
   }
@@ -421,10 +433,15 @@ function assertRequestedPathWithinRoots(targetPath: string, roots: readonly Work
   return matchedRoot;
 }
 
-function assertPathWithinRoots(targetPath: string, roots: readonly WorkspaceRoot[]): void {
+function assertPathWithinRoots(
+  targetPath: string,
+  roots: readonly WorkspaceRoot[],
+  options: WorkspacePathValidationOptions
+): void {
   const validation = validateWorkspacePath(
     targetPath,
-    roots.map((root) => root.path)
+    roots.map((root) => root.path),
+    options
   );
   if (!validation.ok) {
     throw new RelayError("forbidden", "Path is not under any workspace root");
@@ -433,20 +450,25 @@ function assertPathWithinRoots(targetPath: string, roots: readonly WorkspaceRoot
 
 function assertBrowseResultWithinRoots(
   result: BrowseDirectoryResult,
-  roots: readonly WorkspaceRoot[]
+  roots: readonly WorkspaceRoot[],
+  options: WorkspacePathValidationOptions
 ): void {
-  assertPathWithinRoots(result.path, roots);
+  assertPathWithinRoots(result.path, roots, options);
 
   for (const directory of result.directories) {
-    assertPathWithinRoots(directory.path, roots);
+    assertPathWithinRoots(directory.path, roots, options);
   }
 }
 
-function findBestMatchingRoot(targetPath: string, roots: readonly WorkspaceRoot[]): WorkspaceRoot | null {
+function findBestMatchingRoot(
+  targetPath: string,
+  roots: readonly WorkspaceRoot[],
+  options: WorkspacePathValidationOptions
+): WorkspaceRoot | null {
   let matchedRoot: WorkspaceRoot | null = null;
 
   for (const root of roots) {
-    if (!isPathWithinRoot(targetPath, root.path)) {
+    if (!isPathWithinRoot(targetPath, root.path, options)) {
       continue;
     }
 
@@ -522,6 +544,12 @@ function persistCanonicalRootPath(
 
 function isResolvedPathEqual(leftPath: string, rightPath: string): boolean {
   return path.resolve(leftPath) === path.resolve(rightPath);
+}
+
+function createPathValidationOptions(host: Host): WorkspacePathValidationOptions {
+  return {
+    allowMacOsAliases: host.type === "macbook" || process.platform === "darwin"
+  };
 }
 
 function sortProviders(providers: readonly Provider[]): Provider[] {

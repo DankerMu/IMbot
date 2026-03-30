@@ -229,12 +229,16 @@ test("browseDirectory returns subdirectories only and rejects missing targets", 
   const nestedDir = path.join(rootDir, "nested");
   const emptyDir = path.join(rootDir, "empty");
   const linkedDir = path.join(tempDir, "workspace-link");
+  const outsideDir = path.join(tempDir, "outside");
+  const escapeLink = path.join(rootDir, "escape-link");
 
   try {
     mkdirSync(rootDir);
     mkdirSync(nestedDir);
     mkdirSync(emptyDir);
+    mkdirSync(outsideDir);
     symlinkSync(rootDir, linkedDir);
+    symlinkSync(outsideDir, escapeLink);
     writeFileSync(path.join(rootDir, "README.md"), "file");
     const canonicalRootDir = realpathSync(rootDir);
     const canonicalNestedDir = realpathSync(nestedDir);
@@ -274,6 +278,17 @@ test("browseDirectory returns subdirectories only and rejects missing targets", 
       code: "not_found",
       message: `Directory ${path.join(tempDir, "missing")} not found`
     });
+
+    await assert.rejects(
+      () =>
+        companion.browseDirectory(escapeLink, {
+          allowedRoots: [rootDir]
+        }),
+      {
+        code: "forbidden",
+        message: `Directory ${escapeLink} is not under any workspace root`
+      }
+    );
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

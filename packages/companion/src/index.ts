@@ -85,7 +85,9 @@ export async function createCompanionRuntime(options?: {
     await adapter.cancel(command.session_id);
   });
   dispatcher.register("browse_directory", async (command) => {
-    return await browseDirectory(command.path);
+    return await browseDirectory(command.path, {
+      allowedRoots: command.roots
+    });
   });
 
   relayClient.on("message", (message) => {

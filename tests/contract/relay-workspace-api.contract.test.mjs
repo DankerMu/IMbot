@@ -386,6 +386,7 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
     (message) => message.cmd === "browse_directory" && message.path === macbookRootPath,
     "macbook browse"
   );
+  assert.deepEqual(macbookBrowseCommand.roots, [macbookRootPath]);
   companion.send(
     JSON.stringify({
       type: "ack",
@@ -446,6 +447,7 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
     (message) => message.cmd === "browse_directory" && message.path === legacyRootBrowsePath,
     "macbook legacy root browse"
   );
+  assert.equal(legacyRootBrowseCommand.roots.includes(legacyRootBrowsePath), true);
   companion.send(
     JSON.stringify({
       type: "ack",
@@ -491,6 +493,7 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
     (message) => message.cmd === "browse_directory" && message.path === legacyChildPath,
     "macbook canonical child browse"
   );
+  assert.equal(legacyChildBrowseCommand.roots.includes(canonicalLegacyRootPath), true);
   companion.send(
     JSON.stringify({
       type: "ack",
@@ -550,15 +553,15 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
     (message) => message.cmd === "browse_directory" && message.path === `${macbookRootPath}/escape-link`,
     "macbook symlink browse"
   );
+  assert.equal(macbookSymlinkBrowseCommand.roots.includes(macbookRootPath), true);
+  assert.equal(macbookSymlinkBrowseCommand.roots.includes(canonicalLegacyRootPath), true);
   companion.send(
     JSON.stringify({
       type: "ack",
       req_id: macbookSymlinkBrowseCommand.req_id,
-      status: "ok",
-      data: {
-        path: "/Users/example/Outside",
-        directories: []
-      }
+      status: "error",
+      error_code: "forbidden",
+      message: `Directory ${macbookRootPath}/escape-link is not under any workspace root`
     })
   );
 

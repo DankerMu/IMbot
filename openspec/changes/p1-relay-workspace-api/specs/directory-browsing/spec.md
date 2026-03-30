@@ -57,7 +57,7 @@ THEN the response is `400` with `{ "error": "invalid_request", "message": "path 
 
 ### Requirement: Proxy Browse to Companion for Macbook Hosts
 
-For hosts with `type: "macbook"`, browse requests SHALL be proxied to the companion via the `browse_directory` command only after the relay confirms the requested path is already under a configured workspace root. The companion reads the local filesystem and returns the directory listing.
+For hosts with `type: "macbook"`, browse requests SHALL be proxied to the companion via the `browse_directory` command only after the relay confirms the requested path is already under a configured workspace root. The relay SHALL include the current workspace roots with the command, and the companion SHALL reject canonical targets that escape those roots before listing directories.
 
 #### Scenario: browse macbook path proxied to companion
 
@@ -98,7 +98,7 @@ AND returns only subdirectory entries (filtering out files and symlinks to files
 
 ### Requirement: Path Traversal Prevention
 
-The browse endpoint SHALL reject any path that contains path traversal sequences (`..`, `/../`). The relay SHALL validate the requested path against workspace roots before execution, allowing only controlled macOS alias equivalence for `/var`, `/tmp`, and `/etc` versus `/private/...`. After filesystem access or companion proxy returns, the relay SHALL revalidate the canonical result against workspace roots.
+The browse endpoint SHALL reject any path that contains path traversal sequences (`..`, `/../`). The relay SHALL validate the requested path against workspace roots before execution, allowing controlled macOS alias equivalence for `/var`, `/tmp`, and `/etc` versus `/private/...` only for macbook hosts or relay-local running on macOS. After filesystem access or companion proxy returns, the relay SHALL revalidate the canonical result against workspace roots.
 
 #### Scenario: path traversal attempt with ../ is rejected
 
@@ -134,3 +134,11 @@ WHEN `GET /v1/hosts/relay-local/browse?path=/home/user/projects/escape-link` is 
 AND `/home/user/projects/escape-link` is a symlink to `/etc`
 THEN the response is `403` with `{ "error": "forbidden" }`
 AND the canonical target path is not treated as under the workspace root
+
+#### Scenario: macbook symlink escape is rejected by companion root enforcement
+
+WHEN `GET /v1/hosts/macbook-1/browse?path=/Users/danker/Projects/escape-link` is called
+AND `/Users/danker/Projects/escape-link` resolves to a canonical path outside all workspace roots for `macbook-1`
+THEN the relay has already sent the current workspace roots with the `browse_directory` command
+AND the companion returns `forbidden` instead of a directory listing
+AND the API response is `403` with `{ "error": "forbidden" }`

@@ -114,7 +114,8 @@
 **Query params**: `path=/Users/danker/Desktop/AI-vault`
 
 - relay 在任何本地读取或 companion 转发前，先用已登记 roots 做 allowlist 校验
-- allowlist 比较接受受控 macOS 别名等价：`/var <-> /private/var`、`/tmp <-> /private/tmp`、`/etc <-> /private/etc`
+- allowlist 比较仅在 `macbook` host，或 `relay-local` 运行在 macOS 上时接受受控别名等价：`/var <-> /private/var`、`/tmp <-> /private/tmp`、`/etc <-> /private/etc`
+- `macbook` browse 会把当前 roots 一并发给 companion；companion 在 canonical 化后若发现目标已逃出 roots，会直接返回 `403 forbidden`
 - relay 在转发或读取后会用 canonical path 再次校验结果仍然落在已登记 roots 之下
 - 如果一次“精确 root 路径”的成功 browse 暴露出 legacy 非 canonical root，relay 会把该 root 升级为 canonical path 供后续请求复用
 

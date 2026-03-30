@@ -41,8 +41,18 @@ test("validateWorkspacePath rejects traversal and enforces root containment", ()
 
   assert.equal(isPathWithinRoot("/tmp/workspaces/project-a", rootPath), true);
   assert.equal(isPathWithinRoot("/tmp/other/project-a", rootPath), false);
-  assert.equal(isPathWithinRoot("/var/tmp/workspaces/project-a", "/private/var/tmp/workspaces"), true);
-  assert.equal(isPathWithinRoot("/private/var/tmp/workspaces/project-a", "/var/tmp/workspaces"), true);
+  assert.equal(
+    isPathWithinRoot("/var/tmp/workspaces/project-a", "/private/var/tmp/workspaces", {
+      allowMacOsAliases: true
+    }),
+    true
+  );
+  assert.equal(
+    isPathWithinRoot("/private/var/tmp/workspaces/project-a", "/var/tmp/workspaces", {
+      allowMacOsAliases: true
+    }),
+    true
+  );
   assert.deepEqual(validateWorkspacePath("/tmp/workspaces/project-a", [rootPath]), {
     ok: true,
     resolvedPath: "/tmp/workspaces/project-a"

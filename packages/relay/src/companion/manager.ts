@@ -137,11 +137,18 @@ export class CompanionManager {
     return [...(this.providersByHost.get(hostId) ?? [])];
   }
 
-  async browseDirectory(hostId: string, requestedPath: string): Promise<BrowseDirectoryResult> {
+  async browseDirectory(
+    hostId: string,
+    requestedPath: string,
+    options?: {
+      readonly roots?: readonly string[];
+    }
+  ): Promise<BrowseDirectoryResult> {
     const ack = await this.sendCommand(hostId, {
       cmd: "browse_directory",
       req_id: this.createRequestId(),
-      path: requestedPath
+      path: requestedPath,
+      roots: options?.roots
     });
 
     return this.extractBrowseResult(ack);

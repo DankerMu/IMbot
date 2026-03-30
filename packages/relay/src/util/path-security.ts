@@ -11,6 +11,10 @@ export interface WorkspacePathValidationResult {
   readonly resolvedPath: string;
 }
 
+export interface WorkspacePathValidationOptions {
+  readonly allowMacOsAliases?: boolean;
+}
+
 export function hasPathTraversal(requestedPath: string): boolean {
   return requestedPath
     .split(/[\\/]+/)
@@ -21,9 +25,13 @@ export function resolveWorkspacePath(requestedPath: string): string {
   return path.resolve(requestedPath);
 }
 
-export function isPathWithinRoot(requestedPath: string, rootPath: string): boolean {
-  const resolvedPaths = expandEquivalentWorkspacePaths(requestedPath);
-  const resolvedRoots = expandEquivalentWorkspacePaths(rootPath);
+export function isPathWithinRoot(
+  requestedPath: string,
+  rootPath: string,
+  options?: WorkspacePathValidationOptions
+): boolean {
+  const resolvedPaths = expandEquivalentWorkspacePaths(requestedPath, options);
+  const resolvedRoots = expandEquivalentWorkspacePaths(rootPath, options);
 
   return resolvedPaths.some((resolvedPath) =>
     resolvedRoots.some((resolvedRoot) => isResolvedPathWithinRoot(resolvedPath, resolvedRoot))
@@ -32,7 +40,8 @@ export function isPathWithinRoot(requestedPath: string, rootPath: string): boole
 
 export function validateWorkspacePath(
   requestedPath: string,
-  roots: readonly string[]
+  roots: readonly string[],
+  options?: WorkspacePathValidationOptions
 ): WorkspacePathValidationResult {
   const resolvedPath = resolveWorkspacePath(requestedPath);
   if (hasPathTraversal(requestedPath)) {
@@ -43,13 +52,20 @@ export function validateWorkspacePath(
   }
 
   return {
-    ok: roots.some((rootPath) => isPathWithinRoot(resolvedPath, rootPath)),
+    ok: roots.some((rootPath) => isPathWithinRoot(resolvedPath, rootPath, options)),
     resolvedPath
   };
 }
 
-function expandEquivalentWorkspacePaths(inputPath: string): string[] {
+function expandEquivalentWorkspacePaths(
+  inputPath: string,
+  options?: WorkspacePathValidationOptions
+): string[] {
   const resolvedPath = resolveWorkspacePath(inputPath);
+  if (!options?.allowMacOsAliases) {
+    return [resolvedPath];
+  }
+
   const variants = new Set<string>([resolvedPath]);
 
   for (const [canonicalPrefix, aliasPrefix] of MACOS_PATH_ALIASES) {

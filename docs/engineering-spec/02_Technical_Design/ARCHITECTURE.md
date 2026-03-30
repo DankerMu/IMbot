@@ -194,9 +194,9 @@ export class WorkspaceCatalog {
 
 - 根目录列表持久化在本地 JSON 配置文件中。
 - `browse` 直接读取文件系统，只返回目录（过滤文件）。
-- 当前 Phase 1 路径安全校验由 relay 先执行：先拒绝 `..` 路径遍历，再在任何 filesystem/companion 访问前验证请求 path 落在已登记 root allowlist 下；对 macOS 兼容仅接受 `/var`、`/tmp`、`/etc` 与 `/private/...` 的受控别名等价。
+- 当前 Phase 1 路径安全校验由 relay 先执行：先拒绝 `..` 路径遍历，再在任何 filesystem/companion 访问前验证请求 path 落在已登记 root allowlist 下；受控 macOS 别名等价仅用于 `macbook` host，或运行在 macOS 上的 `relay-local`。
 - filesystem/companion 返回 canonical path 后，relay 会再次校验结果不在 root 外；若用户浏览的是某个 legacy root 本身，relay 会把该 root 升级为 canonical path。
-- companion 的 `browse_directory` 处理器当前负责本机绝对路径、目录存在性与 canonical path 返回，并输出子目录列表。
+- companion 的 `browse_directory` 处理器负责本机绝对路径、目录存在性与 canonical path 返回；当 relay 传入 roots 时，companion 会在列目录前先拒绝 canonical path 已逃出 roots 的请求。
 
 ### Module: `runtime/` — Claude/book Adapter
 

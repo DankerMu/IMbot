@@ -382,7 +382,8 @@ test("companion handles browse_directory commands and returns subdirectories onl
     JSON.stringify({
       cmd: "browse_directory",
       req_id: "browse-1",
-      path: workspaceLink
+      path: workspaceLink,
+      roots: [workspaceRoot]
     })
   );
 
@@ -408,6 +409,78 @@ test("companion handles browse_directory commands and returns subdirectories onl
         }
       ]
     }
+  });
+});
+
+test("companion rejects browse_directory when canonical target escapes provided roots", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-browse-guard-"));
+  const workspaceRoot = path.join(tempDir, "workspace");
+  const outsideDir = path.join(tempDir, "outside");
+  const escapeLink = path.join(workspaceRoot, "escape-link");
+  mkdirSync(workspaceRoot);
+  mkdirSync(outsideDir);
+  symlinkSync(outsideDir, escapeLink);
+
+  const server = new WebSocketServer({
+    port: 0,
+    host: "127.0.0.1"
+  });
+  const binaryPath = createMockCliBinary(tempDir);
+
+  t.after(async () => {
+    server.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await waitForListening(server);
+  const port = server.address().port;
+  const runtime = await companion.createCompanionRuntime({
+    config: {
+      configPath: path.join(tempDir, "companion.json"),
+      relayUrl: `ws://127.0.0.1:${port}`,
+      token: "static-token",
+      hostId: "macbook-1",
+      providers: {
+        claude: {
+          binary: binaryPath
+        }
+      },
+      sessionIndexPath: path.join(tempDir, "sessions.json")
+    },
+    logger: silentLogger,
+    heartbeatIntervalMs: 25,
+    reconnectDelaysMs: [20, 20],
+    killGraceMs: 50
+  });
+
+  t.after(async () => {
+    await runtime.close();
+  });
+
+  const connectionPromise = waitForConnection(server);
+  runtime.connect();
+  const { socket } = await connectionPromise;
+
+  socket.send(
+    JSON.stringify({
+      cmd: "browse_directory",
+      req_id: "browse-guard-1",
+      path: escapeLink,
+      roots: [workspaceRoot]
+    })
+  );
+
+  const browseAck = await waitForJsonMessage(
+    socket,
+    (message) => message.type === "ack" && message.req_id === "browse-guard-1",
+    "browse_directory guard ack"
+  );
+  assert.deepEqual(browseAck, {
+    type: "ack",
+    req_id: "browse-guard-1",
+    status: "error",
+    error_code: "forbidden",
+    message: `Directory ${escapeLink} is not under any workspace root`
   });
 });
 
