@@ -30,7 +30,18 @@ export class ConfigManager {
   load(): void {
     this.roots = [];
 
-    const document = this.readConfigDocument(true);
+    let document: Record<string, unknown>;
+    try {
+      document = this.readConfigDocument(true);
+    } catch (error) {
+      if (error instanceof CompanionError && error.code === "invalid_config") {
+        this.logger.warn?.(`Failed to load workspace roots from ${this.options.configPath}: ${error.message}`);
+        return;
+      }
+
+      throw error;
+    }
+
     const rawRoots = document.workspace_roots;
     if (!Array.isArray(rawRoots)) {
       return;
@@ -70,35 +81,65 @@ export class ConfigManager {
       throw new CompanionError("not_found", `Workspace root ${normalizedPath} not found`);
     }
 
-    if (this.roots.some((root) => root.provider === provider && root.path === normalizedPath)) {
+    const canonicalPath = canonicalizeExistingPath(normalizedPath);
+    if (!canonicalPath) {
+      throw new CompanionError("not_found", `Workspace root ${normalizedPath} not found`);
+    }
+
+    if (this.roots.some((root) => root.provider === provider && arePathsEquivalent(root.path, canonicalPath))) {
       return;
     }
 
-    this.roots.push({
+    const previous = this.roots;
+    const updated = [...this.roots, {
       provider,
-      path: normalizedPath,
+      path: canonicalPath,
       label: normalizeLabel(label),
       added_at: new Date().toISOString()
-    });
-    this.persist();
+    }];
+
+    this.roots = updated;
+    try {
+      this.persist();
+    } catch (error) {
+      this.roots = previous;
+      throw error;
+    }
   }
 
   removeRoot(provider: InteractiveProvider, rootPath: string): void {
     const normalizedPath = normalizeComparablePath(rootPath);
-    const rootIndex = this.roots.findIndex((root) => root.provider === provider && root.path === normalizedPath);
-    if (rootIndex === -1) {
+    const updated = this.roots.filter(
+      (root) => root.provider !== provider || !arePathsEquivalent(root.path, normalizedPath)
+    );
+    if (updated.length === this.roots.length) {
       throw new CompanionError("not_found", "Workspace root not found");
     }
 
-    this.roots.splice(rootIndex, 1);
-    this.persist();
+    const previous = this.roots;
+    this.roots = updated;
+    try {
+      this.persist();
+    } catch (error) {
+      this.roots = previous;
+      throw error;
+    }
   }
 
   isPathUnderRoot(provider: InteractiveProvider, cwd: string): boolean {
-    const normalizedCwd = normalizeComparablePath(cwd);
-    return this.roots.some(
-      (root) => root.provider === provider && isSameOrNestedPath(normalizedCwd, root.path)
-    );
+    const canonicalCwd = canonicalizeExistingPath(cwd);
+    if (!canonicalCwd) {
+      return false;
+    }
+
+    return this.roots.some((root) => {
+      if (root.provider !== provider) {
+        return false;
+      }
+
+      const canonicalRoot = canonicalizeExistingPath(root.path);
+      return canonicalRoot != null && isSameOrNestedPath(canonicalCwd, canonicalRoot);
+    });
   }
 
   private persist(): void {
@@ -171,6 +212,27 @@ function normalizeWorkspaceRootEntry(value: unknown): WorkspaceRootEntry | null 
     label: normalizeLabel(record.label),
     added_at: addedAt
   };
+}
+
+function canonicalizeExistingPath(targetPath: string): string | null {
+  try {
+    return normalizeComparablePath(fs.realpathSync(targetPath));
+  } catch {
+    return null;
+  }
+}
+
+function arePathsEquivalent(leftPath: string, rightPath: string): boolean {
+  const normalizedLeft = normalizeComparablePath(leftPath);
+  const normalizedRight = normalizeComparablePath(rightPath);
+
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+
+  const canonicalLeft = canonicalizeExistingPath(normalizedLeft);
+  const canonicalRight = canonicalizeExistingPath(normalizedRight);
+  return canonicalLeft != null && canonicalRight != null && canonicalLeft === canonicalRight;
 }
 
 function normalizeComparablePath(targetPath: string): string {

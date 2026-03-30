@@ -9,6 +9,7 @@ import type { LoggerLike } from "../types";
 export interface SessionDiscoveryOptions {
   readonly claudeProjectsDir?: string;
   readonly logger?: LoggerLike;
+  readonly limit?: number;
 }
 
 export async function discoverSessions(
@@ -101,8 +102,9 @@ export async function discoverSessions(
     }
   }
 
+  const maxResults = options.limit ?? 200;
   discovered.sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
-  return discovered;
+  return discovered.slice(0, maxResults);
 }
 
 function resolveProjectCwd(projectDirName: string, normalizedCwd: string): string | null {

@@ -8,6 +8,7 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync
 } from "node:fs";
 import { createRequire } from "node:module";
@@ -29,6 +30,57 @@ function delay(ms) {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
+}
+
+async function waitFor(condition, timeoutMs = 500) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) {
+      return;
+    }
+
+    await delay(10);
+  }
+
+  throw new Error("Timed out waiting for condition");
+}
+
+function createRuntimeConfig(tempDir) {
+  return {
+    configPath: path.join(tempDir, "companion.json"),
+    relayUrl: "ws://127.0.0.1:3010",
+    token: "test-token",
+    hostId: "macbook-1",
+    providers: {
+      claude: {
+        binary: "claude"
+      },
+      book: {
+        binary: "book"
+      }
+    },
+    sessionIndexPath: path.join(tempDir, "sessions.json")
+  };
+}
+
+function encodeProjectPath(projectPath) {
+  return projectPath.replace(/^\/+/, "").replace(/\//g, "-");
+}
+
+function createDiscoveredSessionFile(cwd, sessionId, createdAt, contents = '{"ok":true}\n') {
+  const projectDir = path.join(os.homedir(), ".claude", "projects", encodeProjectPath(cwd));
+  mkdirSync(projectDir, { recursive: true });
+
+  const sessionFile = path.join(projectDir, `${sessionId}.jsonl`);
+  writeFileSync(sessionFile, contents, "utf8");
+
+  const timestamp = new Date(createdAt);
+  utimesSync(sessionFile, timestamp, timestamp);
+
+  return {
+    projectDir,
+    sessionFile
+  };
 }
 
 test("loadCompanionConfig reads env overrides and validates configured providers", () => {
@@ -480,6 +532,108 @@ test("browseDirectory returns subdirectories only and rejects missing targets", 
       }
     );
   } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("CompanionRuntime list_sessions handler dispatches correctly", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-list-"));
+  const cwd = path.join(tempDir, "workspace");
+  const sentMessages = [];
+  const { projectDir } = createDiscoveredSessionFile(cwd, "session-runtime", "2026-03-30T02:00:00.000Z");
+  mkdirSync(cwd, { recursive: true });
+
+  let runtime;
+  try {
+    runtime = await companion.createCompanionRuntime({
+      config: createRuntimeConfig(tempDir),
+      logger: silentLogger
+    });
+    runtime.relayClient.send = (message) => {
+      sentMessages.push(message);
+    };
+
+    runtime.relayClient.emit("message", {
+      cmd: "list_sessions",
+      req_id: "req-list",
+      cwd,
+      provider: "claude"
+    });
+
+    await waitFor(() => sentMessages.length === 1);
+
+    assert.equal(sentMessages[0].type, "ack");
+    assert.equal(sentMessages[0].status, "ok");
+    assert.equal(Array.isArray(sentMessages[0].data), true);
+    assert.deepEqual(sentMessages[0].data, [
+      {
+        provider_session_id: "session-runtime",
+        cwd,
+        created_at: "2026-03-30T02:00:00.000Z",
+        status: "completed"
+      }
+    ]);
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+
+    rmSync(projectDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("CompanionRuntime add_root and remove_root handlers dispatch correctly", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-roots-"));
+  const rootPath = path.join(tempDir, "novel");
+  const sentMessages = [];
+  mkdirSync(rootPath, { recursive: true });
+
+  let runtime;
+  try {
+    const canonicalRootPath = realpathSync(rootPath);
+    runtime = await companion.createCompanionRuntime({
+      config: createRuntimeConfig(tempDir),
+      logger: silentLogger
+    });
+    runtime.relayClient.send = (message) => {
+      sentMessages.push(message);
+    };
+
+    runtime.relayClient.emit("message", {
+      cmd: "add_root",
+      req_id: "req-add-root",
+      provider: "book",
+      path: rootPath,
+      label: "Novel"
+    });
+
+    await waitFor(() => sentMessages.length === 1);
+    assert.equal(sentMessages[0].status, "ok");
+    assert.deepEqual(runtime.configManager.getRoots("book"), [
+      {
+        provider: "book",
+        path: canonicalRootPath,
+        label: "Novel",
+        added_at: runtime.configManager.getRoots("book")[0].added_at
+      }
+    ]);
+
+    runtime.relayClient.emit("message", {
+      cmd: "remove_root",
+      req_id: "req-remove-root",
+      provider: "book",
+      path: rootPath
+    });
+
+    await waitFor(() => sentMessages.length === 2);
+    assert.equal(sentMessages[1].status, "ok");
+    assert.deepEqual(runtime.configManager.getRoots("book"), []);
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+
     rmSync(tempDir, { recursive: true, force: true });
   }
 });

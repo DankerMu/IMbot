@@ -177,6 +177,91 @@ test("discoverSessions matches only the requested cwd prefix", async () => {
   }
 });
 
+test("discoverSessions includes nested cwd history when querying a parent cwd", async () => {
+  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-nested-"));
+  const parentCwd = "/Users/danker/Desktop/a/b";
+  const nestedCwd = path.join(parentCwd, "c");
+
+  try {
+    createSessionFile(projectsDir, parentCwd, "session-parent", "2026-03-30T04:00:00.000Z");
+    createSessionFile(projectsDir, nestedCwd, "session-child", "2026-03-30T05:00:00.000Z");
+
+    const results = await companion.discoverSessions(parentCwd, "claude", {
+      claudeProjectsDir: projectsDir,
+      logger: silentLogger
+    });
+
+    assert.deepEqual(
+      results.map((entry) => ({
+        provider_session_id: entry.provider_session_id,
+        cwd: entry.cwd
+      })),
+      [
+        {
+          provider_session_id: "session-child",
+          cwd: nestedCwd
+        },
+        {
+          provider_session_id: "session-parent",
+          cwd: parentCwd
+        }
+      ]
+    );
+  } finally {
+    rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
+test("discoverSessions skips non-jsonl files and nested directories inside project dirs", async () => {
+  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-non-jsonl-"));
+  const cwd = "/Users/danker/Desktop/AI-vault";
+  const projectDir = path.join(projectsDir, encodeProjectPath(cwd));
+
+  try {
+    createSessionFile(projectsDir, cwd, "session-real", "2026-03-30T03:00:00.000Z");
+    writeFileSync(path.join(projectDir, "session-ignored.json"), "{\"ok\":true}\n", "utf8");
+    mkdirSync(path.join(projectDir, "subdir"), { recursive: true });
+
+    const results = await companion.discoverSessions(cwd, "claude", {
+      claudeProjectsDir: projectsDir,
+      logger: silentLogger
+    });
+
+    assert.deepEqual(
+      results.map((entry) => entry.provider_session_id),
+      ["session-real"]
+    );
+  } finally {
+    rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
+test("discoverSessions applies the configured result limit after sorting newest first", async () => {
+  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-limit-"));
+  const cwd = "/Users/danker/Desktop/AI-vault";
+
+  try {
+    createSessionFile(projectsDir, cwd, "session-1", "2026-03-30T01:00:00.000Z");
+    createSessionFile(projectsDir, cwd, "session-2", "2026-03-30T02:00:00.000Z");
+    createSessionFile(projectsDir, cwd, "session-3", "2026-03-30T03:00:00.000Z");
+    createSessionFile(projectsDir, cwd, "session-4", "2026-03-30T04:00:00.000Z");
+    createSessionFile(projectsDir, cwd, "session-5", "2026-03-30T05:00:00.000Z");
+
+    const results = await companion.discoverSessions(cwd, "claude", {
+      claudeProjectsDir: projectsDir,
+      logger: silentLogger,
+      limit: 2
+    });
+
+    assert.deepEqual(
+      results.map((entry) => entry.provider_session_id),
+      ["session-5", "session-4"]
+    );
+  } finally {
+    rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
 test("discoverSessions marks empty session files as unknown", async () => {
   const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-empty-file-"));
   const cwd = "/Users/danker/Desktop/AI-vault";
