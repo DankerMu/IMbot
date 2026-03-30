@@ -43,7 +43,7 @@ The workflow names stay stable so branch protection does not need to be redesign
 | `Node Static Quality`        | Root Node workspace exists and `p0-monorepo-and-wire` is underway                                                                              | `lint`, `typecheck`, `test:unit`, `build`; add `test:contract` once relay/companion/wire API contracts exist |
 | `Node Integration`           | `p0-relay-minimal` and `p0-companion-minimal` can run against mocks in CI                                                                      | `IT-01`, `IT-02`, `IT-03`, `IT-04`, `IT-05`, `IT-07`, `IT-08`, `IT-10` as applicable                         |
 | `Android Static Quality`     | `packages/android` can compile in CI                                                                                                           | Android lint, unit tests, `detekt`, `ktlint`, debug assembly                                                 |
-| `Android Instrumented Smoke` | `p2-android-session-list`, `p2-android-new-session`, `p2-android-session-detail`, or `p2-android-workspace-settings` introduce stable UI flows | Instrumented smoke for onboarding, session list, new session, session detail, workspace/settings             |
+| `Android Instrumented Smoke` | a stable Android emulator smoke path exists; enabled now for `p0-android-prototype`, then expanded through `p2-android-session-list`, `p2-android-new-session`, `p2-android-session-detail`, and `p2-android-workspace-settings` | Prototype shell render smoke first, then onboarding, session list, new session, session detail, workspace/settings |
 
 ### Nightly / Scheduled Gates
 
