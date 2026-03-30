@@ -178,6 +178,12 @@ WHEN `POST /v1/sessions/:id/message` is called
 AND the host is offline
 THEN the response is `502` with `{ "error": "host_offline" }`
 
+#### Scenario: POST /sessions/:id/message provider unavailable
+
+WHEN `POST /v1/sessions/:id/message` is called for an OpenClaw session
+AND the OpenClaw gateway is offline
+THEN the response is `502` with `{ "error": "provider_unreachable" }`
+
 ---
 
 ### Requirement: Cancel Session

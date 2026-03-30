@@ -214,7 +214,7 @@
 
 **Errors**:
 - `404 not_found`。
-- `409 state_conflict`: session 已在 running 状态。
+- `409 state_conflict`: session 处于 `running`、`queued` 或 `cancelled` 状态，无法恢复。
 - `502 host_offline`。
 - `502 provider_unreachable`: OpenClaw gateway 不可用或拒绝恢复。
 
@@ -233,6 +233,7 @@
 - `404 not_found`。
 - `409 state_conflict`: session 不在 running 状态。
 - `502 host_offline`。
+- `502 provider_unreachable`: OpenClaw gateway 不可用。
 
 ### POST /v1/sessions/:id/cancel
 
