@@ -392,6 +392,71 @@ test("relay supports resume, message, cancel, delete, catch-up, and lifecycle au
   assert.deepEqual(await missingEventsResponse.json(), { error: "not_found" });
 });
 
+test("relay returns the provider terminal state when it wins the cancel race", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-cancel-race-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createRunningSession({ baseUrl, config }, companion);
+
+  const cancelResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/cancel`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  const cancelCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "cancel_session" && message.session_id === sessionId,
+    "cancel_session command"
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_result",
+      payload: {
+        result: "done before cancel ack"
+      }
+    })
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: cancelCommand.req_id,
+      status: "ok"
+    })
+  );
+
+  const cancelResponse = await cancelResponsePromise;
+  const terminalSession = await cancelResponse.json();
+  assert.equal(cancelResponse.status, 200);
+  assert.equal(terminalSession.status, "completed");
+
+  await waitForCondition(() => {
+    const session = runtime.db.prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId);
+    return session?.status === "completed";
+  }, "completed session after cancel race");
+
+  const cancelAuditCount = runtime.db
+    .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'session.cancel' AND session_id = ?")
+    .get(sessionId);
+  assert.deepEqual(cancelAuditCount, {
+    count: 0
+  });
+});
+
 test("relay resumes failed sessions and clears stored error fields", async (t) => {
   const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-retry-");
   const companion = new WebSocket(

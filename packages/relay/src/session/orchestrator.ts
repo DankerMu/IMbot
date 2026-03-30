@@ -226,14 +226,19 @@ export class SessionOrchestrator {
 
       const previousStatus = session.status;
       await this.dispatchCancel(session);
-      await this.transition(session.id, "cancelled");
-      this.auditLogger.write("session.cancel", {
-        session_id: session.id,
-        host_id: session.host_id,
-        detail: {
-          previous_status: previousStatus
-        }
-      });
+
+      const terminalStateWon = await this.applyPendingTerminalTransition(session.id);
+      if (!terminalStateWon) {
+        await this.transition(session.id, "cancelled");
+        this.auditLogger.write("session.cancel", {
+          session_id: session.id,
+          host_id: session.host_id,
+          detail: {
+            previous_status: previousStatus
+          }
+        });
+      }
+
       return this.requireSession(session.id);
     });
   }
@@ -477,7 +482,7 @@ export class SessionOrchestrator {
     eventType: EventType,
     payload: unknown
   ): PendingTerminalTransition | null {
-    if (activeMutation !== "create" && activeMutation !== "resume") {
+    if (activeMutation !== "create" && activeMutation !== "resume" && activeMutation !== "cancel") {
       return null;
     }
 
@@ -714,14 +719,15 @@ export class SessionOrchestrator {
     }
   }
 
-  private async applyPendingTerminalTransition(sessionId: string): Promise<void> {
+  private async applyPendingTerminalTransition(sessionId: string): Promise<boolean> {
     const pending = this.pendingTerminalTransitions.get(sessionId);
     if (!pending) {
-      return;
+      return false;
     }
 
     this.pendingTerminalTransitions.delete(sessionId);
     await this.transitionWithConflictTolerance(sessionId, pending.status, pending.context);
+    return true;
   }
 
   private async transitionWithConflictTolerance(
