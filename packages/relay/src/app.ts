@@ -2,6 +2,7 @@ import cors from "@fastify/cors";
 import websocket from "@fastify/websocket";
 import Fastify, { type FastifyInstance } from "fastify";
 
+import { AuditLogger } from "./audit/logger";
 import { createAuthGuard } from "./auth/guard";
 import { CompanionManager } from "./companion/manager";
 import type { RelayConfig } from "./config";
@@ -45,8 +46,15 @@ export async function createRelayApp(options?: {
   });
 
   const hub = new WsHub(config.wsPingIntervalMs);
-  const companionManager = new CompanionManager(config, db, hub, app.log);
+  const auditLogger = new AuditLogger(db, app.log);
+  let companionManager!: CompanionManager;
   let orchestrator!: SessionOrchestrator;
+  companionManager = new CompanionManager(config, db, hub, app.log, {
+    auditLogger,
+    onHostDisconnected: async (hostId) => {
+      await orchestrator.handleHostDisconnected(hostId);
+    }
+  });
   const openClawBridge = new OpenClawBridge(config, {
     hub,
     logger: app.log,
@@ -54,7 +62,15 @@ export async function createRelayApp(options?: {
       await orchestrator.handleEvent(message);
     }
   });
-  orchestrator = new SessionOrchestrator(config, db, hub, companionManager, openClawBridge, app.log);
+  orchestrator = new SessionOrchestrator(
+    config,
+    db,
+    hub,
+    companionManager,
+    openClawBridge,
+    auditLogger,
+    app.log
+  );
   let shutdownComplete = false;
 
   const performShutdown = async (): Promise<void> => {
@@ -70,6 +86,16 @@ export async function createRelayApp(options?: {
   };
 
   app.setErrorHandler((error, _request, reply) => {
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "validation" in error &&
+      Array.isArray((error as { validation?: unknown }).validation)
+    ) {
+      reply.code(400).send({ error: "invalid_request" });
+      return;
+    }
+
     if (isRelayError(error)) {
       reply.code(error.statusCode).send({ error: error.code });
       return;

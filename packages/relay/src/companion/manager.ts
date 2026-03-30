@@ -10,6 +10,7 @@ import type { RelayConfig } from "../config";
 import type { RelayDatabase } from "../db/init";
 import { RelayError } from "../errors";
 import { WsHub } from "../ws/hub";
+import { AuditLogger } from "../audit/logger";
 
 type PendingAck = {
   readonly resolve: (message: CompanionMessage) => void;
@@ -32,7 +33,11 @@ export class CompanionManager {
     private readonly config: RelayConfig,
     private readonly db: RelayDatabase,
     private readonly hub: WsHub,
-    private readonly logger: LoggerLike
+    private readonly logger: LoggerLike,
+    private readonly options?: {
+      readonly auditLogger?: AuditLogger;
+      readonly onHostDisconnected?: (hostId: string) => Promise<void> | void;
+    }
   ) {}
 
   registerConnection(hostId: string, ws: WebSocket): void {
@@ -43,6 +48,9 @@ export class CompanionManager {
 
     this.pendingByHost.set(hostId, this.pendingByHost.get(hostId) ?? new Map());
     this.upsertHost(hostId, "online");
+    this.options?.auditLogger?.write("host.online", {
+      host_id: hostId
+    });
     this.hub.broadcastHostStatus(hostId, "online");
   }
 
@@ -59,7 +67,16 @@ export class CompanionManager {
 
     this.upsertHost(hostId, "offline");
     this.rejectPendingForHost(hostId, new RelayError("host_offline", "Companion disconnected"));
+    this.options?.auditLogger?.write("host.offline", {
+      host_id: hostId
+    });
     this.hub.broadcastHostStatus(hostId, "offline");
+    const disconnectResult = this.options?.onHostDisconnected?.(hostId);
+    if (disconnectResult && typeof (disconnectResult as Promise<void>).catch === "function") {
+      void (disconnectResult as Promise<void>).catch((error) => {
+        this.logger.error(error);
+      });
+    }
   }
 
   handleHeartbeat(hostId: string, _message: CompanionHeartbeatMessage): void {

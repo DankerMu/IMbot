@@ -348,6 +348,7 @@ test("relay bridges openclaw sessions through the gateway, translates events, an
 
   assert.equal(eventsResponse.status, 200);
   assert.equal(eventTypes.includes("session_started"), true);
+  assert.equal(eventTypes.filter((eventType) => eventType === "session_started").length, 1);
   assert.equal(eventTypes.includes("assistant_delta"), true);
   assert.equal(eventTypes.includes("assistant_message"), true);
   assert.equal(eventTypes.includes("session_result"), true);

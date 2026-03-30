@@ -5,12 +5,55 @@ import type { RelayDatabase } from "../db/init";
 import { RelayError } from "../errors";
 import { SessionOrchestrator } from "../session/orchestrator";
 
-function parseLimit(value: string | undefined, fallback: number, max: number): number {
-  if (!value) {
+const sessionIdParamsSchema = {
+  type: "object",
+  required: ["id"],
+  properties: {
+    id: { type: "string", minLength: 1 }
+  }
+} as const;
+
+const createSessionBodySchema = {
+  type: "object",
+  required: ["provider", "host_id", "cwd", "prompt"],
+  additionalProperties: false,
+  properties: {
+    provider: { type: "string" },
+    host_id: { type: "string" },
+    cwd: { type: "string" },
+    prompt: { type: "string" },
+    model: { type: "string" },
+    permission_mode: { type: "string" }
+  }
+} as const;
+
+const sessionListQuerySchema = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    provider: { type: "string" },
+    status: { type: "string" },
+    host_id: { type: "string" },
+    limit: { type: "integer", minimum: 0 },
+    offset: { type: "integer", minimum: 0 }
+  }
+} as const;
+
+const messageBodySchema = {
+  type: "object",
+  required: ["text"],
+  additionalProperties: false,
+  properties: {
+    text: { type: "string" }
+  }
+} as const;
+
+function parseLimit(value: string | number | undefined, fallback: number, max: number): number {
+  if (value === undefined || value === null || value === "") {
     return fallback;
   }
 
-  const parsed = Number.parseInt(value, 10);
+  const parsed = typeof value === "number" ? value : Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed < 0) {
     throw new RelayError("invalid_request", "limit must be a non-negative integer");
   }
@@ -18,12 +61,12 @@ function parseLimit(value: string | undefined, fallback: number, max: number): n
   return Math.min(parsed, max);
 }
 
-function parseOffset(value: string | undefined): number {
-  if (!value) {
+function parseOffset(value: string | number | undefined): number {
+  if (value === undefined || value === null || value === "") {
     return 0;
   }
 
-  const parsed = Number.parseInt(value, 10);
+  const parsed = typeof value === "number" ? value : Number.parseInt(value, 10);
   if (!Number.isFinite(parsed) || parsed < 0) {
     throw new RelayError("invalid_request", "offset must be a non-negative integer");
   }
@@ -38,7 +81,7 @@ export function registerSessionRoutes(
     readonly orchestrator: SessionOrchestrator;
   }
 ): void {
-  app.post("/sessions", async (request, reply) => {
+  app.post("/sessions", { schema: { body: createSessionBodySchema } }, async (request, reply) => {
     const body = (request.body ?? {}) as Record<string, unknown>;
     const session = await deps.orchestrator.create({
       provider: typeof body.provider === "string" ? body.provider : undefined,
@@ -53,14 +96,14 @@ export function registerSessionRoutes(
     reply.code(201).send({ session });
   });
 
-  app.get("/sessions", async (request) => {
-    const query = request.query as Record<string, string | undefined>;
+  app.get("/sessions", { schema: { querystring: sessionListQuerySchema } }, async (request) => {
+    const query = request.query as Record<string, string | number | undefined>;
     const limit = parseLimit(query.limit, 50, 200);
     const offset = parseOffset(query.offset);
     const filters: string[] = [];
     const params: unknown[] = [];
 
-    if (query.provider) {
+    if (typeof query.provider === "string") {
       if (!PROVIDERS.includes(query.provider as (typeof PROVIDERS)[number])) {
         throw new RelayError("invalid_request", "provider filter is invalid");
       }
@@ -68,7 +111,7 @@ export function registerSessionRoutes(
       params.push(query.provider);
     }
 
-    if (query.status) {
+    if (typeof query.status === "string") {
       if (!SESSION_STATUSES.includes(query.status as (typeof SESSION_STATUSES)[number])) {
         throw new RelayError("invalid_request", "status filter is invalid");
       }
@@ -76,7 +119,7 @@ export function registerSessionRoutes(
       params.push(query.status);
     }
 
-    if (query.host_id) {
+    if (typeof query.host_id === "string") {
       filters.push("host_id = ?");
       params.push(query.host_id);
     }
@@ -106,7 +149,7 @@ export function registerSessionRoutes(
     };
   });
 
-  app.get("/sessions/:id", async (request) => {
+  app.get("/sessions/:id", { schema: { params: sessionIdParamsSchema } }, async (request) => {
     const { id } = request.params as { id: string };
     const session =
       (deps.db.prepare("SELECT * FROM sessions WHERE id = ?").get(id) as Session | undefined) ?? null;
@@ -117,5 +160,39 @@ export function registerSessionRoutes(
 
     return session;
   });
-}
 
+  app.post("/sessions/:id/resume", { schema: { params: sessionIdParamsSchema } }, async (request) => {
+    const { id } = request.params as { id: string };
+    return deps.orchestrator.resume(id);
+  });
+
+  app.post(
+    "/sessions/:id/message",
+    {
+      schema: {
+        params: sessionIdParamsSchema,
+        body: messageBodySchema
+      }
+    },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      await deps.orchestrator.sendMessage(
+        id,
+        typeof body.text === "string" ? body.text : ""
+      );
+      return { ok: true };
+    }
+  );
+
+  app.post("/sessions/:id/cancel", { schema: { params: sessionIdParamsSchema } }, async (request) => {
+    const { id } = request.params as { id: string };
+    return deps.orchestrator.cancel(id);
+  });
+
+  app.delete("/sessions/:id", { schema: { params: sessionIdParamsSchema } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+    await deps.orchestrator.delete(id);
+    reply.code(204).send();
+  });
+}
