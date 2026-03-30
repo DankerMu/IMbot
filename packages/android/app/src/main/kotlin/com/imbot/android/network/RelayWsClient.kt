@@ -28,7 +28,6 @@ class RelayWsClient
         private val okHttpClient: OkHttpClient,
     ) {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        private val subscribedSessionIds = linkedSetOf<String>()
         private val reconnectDelaysMs = listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L)
 
         private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.NotConfigured)
@@ -42,6 +41,7 @@ class RelayWsClient
 
         private var configuredRelayUrl: String? = null
         private var configuredToken: String? = null
+        private var activeSessionId: String? = null
         private var currentSocket: WebSocket? = null
         private var reconnectJob: Job? = null
         private var shouldReconnect = false
@@ -82,14 +82,19 @@ class RelayWsClient
         fun send(message: String): Boolean = currentSocket?.send(message) == true
 
         fun subscribe(sessionId: String) {
-            if (sessionId.isBlank()) {
+            val normalizedSessionId = sessionId.trim()
+            if (normalizedSessionId.isBlank()) {
                 return
             }
 
-            subscribedSessionIds += sessionId
+            activeSessionId = normalizedSessionId
             if (_connectionState.value is ConnectionState.Connected) {
-                sendSubscribe(sessionId)
+                sendSubscribe(normalizedSessionId)
             }
+        }
+
+        fun clearSubscription() {
+            activeSessionId = null
         }
 
         private fun openSocket() {
@@ -125,7 +130,7 @@ class RelayWsClient
 
                             reconnectAttempt = 0
                             _connectionState.value = ConnectionState.Connected
-                            subscribedSessionIds.forEach(::sendSubscribe)
+                            activeSessionId?.let(::sendSubscribe)
                         }
 
                         override fun onMessage(

@@ -94,6 +94,8 @@ class MainViewModel
                     token = _token.value.trim(),
                 )
             settingsRepository.save(settings)
+            resetPrototypeSession()
+            relayWsClient.clearSubscription()
             relayWsClient.connect(settings.relayUrl, settings.token)
         }
 
@@ -114,6 +116,7 @@ class MainViewModel
                     prompt = _prompt.value.trim(),
                     permissionMode = "bypassPermissions",
                 ).onSuccess { response ->
+                    resetPrototypeSession()
                     _sessionId.value = response.sessionId
                     relayWsClient.subscribe(response.sessionId)
                     appendEvent(
@@ -134,6 +137,11 @@ class MainViewModel
 
                 _isCreating.value = false
             }
+        }
+
+        private fun resetPrototypeSession() {
+            _sessionId.value = null
+            _events.value = emptyList()
         }
 
         private fun appendEvent(rawEvent: String) {
