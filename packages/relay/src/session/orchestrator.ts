@@ -15,6 +15,7 @@ import { RelayError } from "../errors";
 import { allocateSeq } from "./seq";
 import { WsHub } from "../ws/hub";
 import { CompanionManager } from "../companion/manager";
+import { OpenClawBridge } from "../openclaw/bridge";
 
 type LoggerLike = {
   readonly error: (...args: unknown[]) => void;
@@ -36,6 +37,7 @@ export class SessionOrchestrator {
     private readonly db: RelayDatabase,
     private readonly hub: WsHub,
     private readonly companionManager: CompanionManager,
+    private readonly openClawBridge: OpenClawBridge,
     private readonly logger: LoggerLike
   ) {}
 
@@ -44,19 +46,19 @@ export class SessionOrchestrator {
       throw new RelayError("invalid_request", "provider, host_id, cwd, and prompt are required");
     }
 
-    if (input.provider === "openclaw") {
-      throw new RelayError("provider_unreachable", "OpenClaw bridge is not available yet");
-    }
-
-    if (input.provider !== "claude" && input.provider !== "book") {
+    if (input.provider !== "claude" && input.provider !== "book" && input.provider !== "openclaw") {
       throw new RelayError("invalid_request", "provider must be claude, book, or openclaw");
     }
 
-    if (!this.companionManager.isOnline(input.host_id)) {
+    if (input.provider !== "openclaw" && !this.companionManager.isOnline(input.host_id)) {
       throw new RelayError("host_offline", `Companion host ${input.host_id} is offline`);
     }
 
-    const provider = input.provider as "claude" | "book";
+    if (input.provider === "openclaw" && input.host_id !== "relay-local") {
+      throw new RelayError("invalid_request", "OpenClaw sessions must target the relay-local host");
+    }
+
+    const provider = input.provider as "claude" | "book" | "openclaw";
     const now = new Date().toISOString();
     const sessionId = randomUUID();
     const session: Session = {
@@ -117,36 +119,16 @@ export class SessionOrchestrator {
         session.last_active_at
       );
 
-    const command = {
-      cmd: "create_session" as const,
-      req_id: this.companionManager.createRequestId(),
-      session_id: session.id,
-      provider,
-      cwd: session.workspace_cwd,
-      prompt: session.initial_prompt ?? "",
-      model: session.model ?? undefined,
-      permission_mode: session.permission_mode
-    };
-
     try {
-      const ack = await this.companionManager.sendCommand(session.host_id, command);
-
-      if (ack.type !== "ack") {
-        throw new RelayError("state_conflict", "Unexpected companion acknowledgement");
-      }
-
-      if (ack.status === "error") {
-        const errorCode = this.normalizeErrorCode(ack.error_code);
-        throw new RelayError(errorCode, ack.message);
-      }
-
       const providerSessionId =
-        ack.data &&
-        typeof ack.data === "object" &&
-        "provider_session_id" in ack.data &&
-        typeof ack.data.provider_session_id === "string"
-          ? ack.data.provider_session_id
-          : null;
+        provider === "openclaw"
+          ? (
+              await this.openClawBridge.createSession(session.id, session.workspace_cwd, session.initial_prompt ?? "", {
+                model: session.model,
+                permissionMode: session.permission_mode
+              })
+            ).sessionKey
+          : await this.createCompanionSession(session);
 
       this.db
         .prepare(
@@ -158,9 +140,12 @@ export class SessionOrchestrator {
         )
         .run(providerSessionId, now, now, session.id);
 
-      this.insertAndBroadcastEvent(session.id, "session_started", {
-        provider_session_id: providerSessionId
-      });
+      if (provider !== "openclaw") {
+        this.insertAndBroadcastEvent(session.id, "session_started", {
+          provider_session_id: providerSessionId
+        });
+      }
+
       await this.transition(session.id, "running");
       this.insertAuditLog("session.create", {
         session_id: session.id,
@@ -171,7 +156,7 @@ export class SessionOrchestrator {
         }
       });
 
-      return session;
+      return this.getSession(session.id) ?? session;
     } catch (error) {
       const relayError =
         error instanceof RelayError ? error : new RelayError("provider_unreachable", "Companion command failed");
@@ -348,5 +333,36 @@ export class SessionOrchestrator {
     }
 
     return "provider_unreachable";
+  }
+
+  private async createCompanionSession(session: Session): Promise<string | null> {
+    const command = {
+      cmd: "create_session" as const,
+      req_id: this.companionManager.createRequestId(),
+      session_id: session.id,
+      provider: session.provider as "claude" | "book",
+      cwd: session.workspace_cwd,
+      prompt: session.initial_prompt ?? "",
+      model: session.model ?? undefined,
+      permission_mode: session.permission_mode
+    };
+
+    const ack = await this.companionManager.sendCommand(session.host_id, command);
+
+    if (ack.type !== "ack") {
+      throw new RelayError("state_conflict", "Unexpected companion acknowledgement");
+    }
+
+    if (ack.status === "error") {
+      const errorCode = this.normalizeErrorCode(ack.error_code);
+      throw new RelayError(errorCode, ack.message);
+    }
+
+    return ack.data &&
+      typeof ack.data === "object" &&
+      "provider_session_id" in ack.data &&
+      typeof ack.data.provider_session_id === "string"
+      ? ack.data.provider_session_id
+      : null;
   }
 }
