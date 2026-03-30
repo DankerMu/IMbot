@@ -341,7 +341,7 @@ Companion 出站连接：`wss://{relay}/v1/companion?token=<TOKEN>&host_id=<HOST
 
 ```typescript
 type CompanionCommand =
-  | { cmd: 'create_session'; req_id: string; provider: 'claude' | 'book'; cwd: string; prompt: string; model?: string; permission_mode: string }
+  | { cmd: 'create_session'; req_id: string; session_id: string; provider: 'claude' | 'book'; cwd: string; prompt: string; model?: string; permission_mode: string }
   | { cmd: 'resume_session'; req_id: string; session_id: string; provider_session_id: string; cwd: string }
   | { cmd: 'send_message'; req_id: string; session_id: string; text: string }
   | { cmd: 'cancel_session'; req_id: string; session_id: string }

@@ -120,6 +120,7 @@ export class SessionOrchestrator {
     const command = {
       cmd: "create_session" as const,
       req_id: this.companionManager.createRequestId(),
+      session_id: session.id,
       provider,
       cwd: session.workspace_cwd,
       prompt: session.initial_prompt ?? "",

@@ -10,7 +10,7 @@ The companion SHALL maintain a registry of command handlers keyed by `cmd` strin
 
 #### Scenario: Known command dispatched correctly
 
-WHEN a command `{ cmd: "create_session", req_id: "abc-123", provider: "claude", cwd: "/path", prompt: "hello", permission_mode: "bypassPermissions" }` arrives
+WHEN a command `{ cmd: "create_session", req_id: "abc-123", session_id: "relay-sess-1", provider: "claude", cwd: "/path", prompt: "hello", permission_mode: "bypassPermissions" }` arrives
 THEN the dispatcher invokes the `create_session` handler with the full command payload
 AND the handler receives the `req_id` for ack generation
 

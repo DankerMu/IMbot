@@ -176,6 +176,7 @@ test("relay creates a session, persists events, and broadcasts companion traffic
   );
 
   assert.equal(createCommand.provider, "claude");
+  assert.equal(typeof createCommand.session_id, "string");
   assert.equal(createCommand.cwd, "/tmp/project");
   assert.equal(createCommand.prompt, "help me refactor");
 
@@ -195,6 +196,7 @@ test("relay creates a session, persists events, and broadcasts companion traffic
   assert.equal(createResponse.status, 201);
   assert.equal(createPayload.session.provider, "claude");
   assert.equal(createPayload.session.host_id, "macbook-1");
+  assert.equal(createPayload.session.id, createCommand.session_id);
 
   const sessionId = createPayload.session.id;
   assert.equal(

@@ -152,7 +152,12 @@ test("relay converts companion ack timeout into a failed session", async (t) => 
     })
   });
 
-  await waitForJsonMessage(companion, (message) => message.cmd === "create_session", "create_session command");
+  const createCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "create_session",
+    "create_session command"
+  );
+  assert.equal(typeof createCommand.session_id, "string");
 
   const createResponse = await createResponsePromise;
   assert.equal(createResponse.status, 504);

@@ -3,6 +3,7 @@ export type InteractiveProvider = "claude" | "book";
 export type CreateSessionCommand = {
   cmd: "create_session";
   req_id: string;
+  session_id: string;
   provider: InteractiveProvider;
   cwd: string;
   prompt: string;
