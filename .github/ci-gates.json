@@ -2,7 +2,7 @@
   "node_static": true,
   "node_integration": true,
   "android_static": true,
-  "android_instrumented": false,
+  "android_instrumented": true,
   "nightly_system": false,
   "codeql_javascript_typescript": false,
   "codeql_kotlin": true
