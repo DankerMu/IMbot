@@ -1,0 +1,13 @@
+complexity:
+  LongMethod:
+    active: false
+  LongParameterList:
+    active: false
+
+naming:
+  FunctionNaming:
+    active: false
+
+style:
+  MagicNumber:
+    active: false

@@ -111,13 +111,31 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK components
+        run: sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: kotlin
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v4
+      - name: Build Android app for CodeQL extraction
+        run: |
+          packages/android/gradlew \
+            --project-dir packages/android \
+            --no-daemon \
+            --stacktrace \
+            assembleDebug
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
