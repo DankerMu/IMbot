@@ -246,7 +246,9 @@
 归档/删除会话及其所有 events。
 
 **Response 204**: 无 body。
-**Errors**: `404`。
+**Errors**:
+- `404`。
+- `409 state_conflict`: session 仍处于 `queued` 或 `running`，必须先进入终态后再删除。
 
 ### GET /v1/sessions/:id/events
 

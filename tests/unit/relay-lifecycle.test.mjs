@@ -26,7 +26,7 @@ function createTestDatabase(prefix) {
   };
 }
 
-function insertSession(db, sessionId) {
+function insertSession(db, sessionId, status = "running") {
   const now = new Date().toISOString();
   db.prepare(
     `
@@ -46,9 +46,9 @@ function insertSession(db, sessionId) {
       created_at,
       updated_at,
       last_active_at
-    ) VALUES (?, 'claude', 'provider-session-1', 'macbook-1', NULL, ?, ?, NULL, 'bypassPermissions', 'running', NULL, NULL, ?, ?, ?)
+    ) VALUES (?, 'claude', 'provider-session-1', 'macbook-1', NULL, ?, ?, NULL, 'bypassPermissions', ?, NULL, NULL, ?, ?, ?)
     `
-  ).run(sessionId, "/tmp/project", "hello", now, now, now);
+  ).run(sessionId, "/tmp/project", "hello", status, now, now, now);
 }
 
 test("relay lifecycle transitions match the expected state machine table", () => {
@@ -115,6 +115,58 @@ test("allocateSeq logs a warning when an existing seq gap is detected", (t) => {
   assert.equal(nextSeq, 4);
   assert.equal(warnings.length, 1);
   assert.match(warnings[0], /Seq gap detected for session sess-gap: expected 3, got 4/);
+});
+
+test("handleEvent ignores late provider events after a session reaches a terminal state", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-late-events-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const now = new Date().toISOString();
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+
+  for (const status of ["completed", "failed", "cancelled"]) {
+    insertSession(runtime.db, `sess-${status}`, status);
+  }
+
+  for (const status of ["completed", "failed", "cancelled"]) {
+    await runtime.orchestrator.handleEvent({
+      type: "event",
+      session_id: `sess-${status}`,
+      event_type: "assistant_delta",
+      payload: {
+        text: `late-${status}`
+      }
+    });
+  }
+
+  for (const status of ["completed", "failed", "cancelled"]) {
+    const eventCount = runtime.db
+      .prepare("SELECT COUNT(*) AS count FROM session_events WHERE session_id = ?")
+      .get(`sess-${status}`);
+    assert.deepEqual(eventCount, { count: 0 });
+  }
 });
 
 test("transition rejects a raced same-target update without emitting a duplicate status event", async (t) => {

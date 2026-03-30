@@ -212,12 +212,8 @@ export class SessionOrchestrator {
 
   async delete(sessionId: string): Promise<void> {
     const session = this.requireSession(sessionId);
-    if (session.status === "running") {
-      try {
-        await this.dispatchCancel(session);
-      } catch (error) {
-        this.logger.warn(`Proceeding with delete for running session ${sessionId} after cancel failed`, error);
-      }
+    if (session.status === "queued" || session.status === "running") {
+      throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
     }
 
     const result = this.db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
@@ -242,8 +238,15 @@ export class SessionOrchestrator {
       return;
     }
 
+    if (session.status !== "running") {
+      this.logger.warn(
+        `Dropping ${message.event_type} for non-running session ${message.session_id} (${session.status})`
+      );
+      return;
+    }
+
     const payload = this.sanitizeIncomingPayload(message.payload);
-    if (message.event_type === "session_started" && session.status === "running") {
+    if (message.event_type === "session_started") {
       return;
     }
 

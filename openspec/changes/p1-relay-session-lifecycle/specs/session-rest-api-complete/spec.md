@@ -199,6 +199,7 @@ THEN the response is `409` with `{ "error": "state_conflict" }`
 #### Scenario: DELETE /sessions/:id success
 
 WHEN `DELETE /v1/sessions/:id` is called with a valid session id
+AND the session is in `completed`, `failed`, or `cancelled` state
 THEN the session record is deleted from the database
 AND all associated `session_events` records are deleted (ON DELETE CASCADE)
 AND the response is `204` with no body
@@ -207,6 +208,13 @@ AND the response is `204` with no body
 
 WHEN `DELETE /v1/sessions/:id` is called with a non-existent id
 THEN the response is `404` with `{ "error": "not_found" }`
+
+#### Scenario: DELETE /sessions/:id active session
+
+WHEN `DELETE /v1/sessions/:id` is called
+AND the session is in `queued` or `running` state
+THEN the response is `409` with `{ "error": "state_conflict" }`
+AND the session record remains unchanged
 
 ---
 
