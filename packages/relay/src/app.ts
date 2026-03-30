@@ -12,6 +12,7 @@ import { isRelayError } from "./errors";
 import { registerEventRoutes } from "./routes/events";
 import { registerHealthRoutes } from "./routes/health";
 import { registerSessionRoutes } from "./routes/sessions";
+import { OpenClawBridge } from "./openclaw/bridge";
 import { SessionOrchestrator } from "./session/orchestrator";
 import { registerAndroidWebSocketRoute } from "./ws/android";
 import { registerCompanionWebSocketRoute } from "./ws/companion";
@@ -23,6 +24,7 @@ export interface RelayRuntime {
   readonly db: RelayDatabase;
   readonly hub: WsHub;
   readonly companionManager: CompanionManager;
+  readonly openClawBridge: OpenClawBridge;
   readonly orchestrator: SessionOrchestrator;
   close(): Promise<void>;
 }
@@ -44,7 +46,15 @@ export async function createRelayApp(options?: {
 
   const hub = new WsHub(config.wsPingIntervalMs);
   const companionManager = new CompanionManager(config, db, hub, app.log);
-  const orchestrator = new SessionOrchestrator(config, db, hub, companionManager, app.log);
+  let orchestrator!: SessionOrchestrator;
+  const openClawBridge = new OpenClawBridge(config, {
+    hub,
+    logger: app.log,
+    onRelayEvent: async (message) => {
+      await orchestrator.handleEvent(message);
+    }
+  });
+  orchestrator = new SessionOrchestrator(config, db, hub, companionManager, openClawBridge, app.log);
   let shutdownComplete = false;
 
   const performShutdown = async (): Promise<void> => {
@@ -54,6 +64,7 @@ export async function createRelayApp(options?: {
 
     shutdownComplete = true;
     companionManager.shutdown();
+    openClawBridge.shutdown();
     await hub.closeAll(1001, "Going Away");
     db.close();
   };
@@ -77,7 +88,8 @@ export async function createRelayApp(options?: {
 
   registerHealthRoutes(app, {
     db,
-    companionManager
+    companionManager,
+    openClawBridge
   });
 
   registerAndroidWebSocketRoute(app, {
@@ -111,12 +123,15 @@ export async function createRelayApp(options?: {
     await performShutdown();
   });
 
+  openClawBridge.connect();
+
   return {
     app,
     config,
     db,
     hub,
     companionManager,
+    openClawBridge,
     orchestrator,
     close: async () => {
       await performShutdown();
