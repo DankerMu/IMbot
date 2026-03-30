@@ -239,7 +239,7 @@
 
 取消正在运行的会话。
 
-**Response 200**: session 对象（status 变为 `cancelled`）。
+**Response 200**: session 对象。正常情况下 `status` 变为 `cancelled`；如果 provider 在 cancel 完成前先发送终态事件，则响应返回 provider 的终态 `completed` 或 `failed`。
 
 **Errors**: `404`, `409` (session 不在 running 状态，包括 `queued`)。
 

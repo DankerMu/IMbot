@@ -188,7 +188,7 @@ THEN the response is `502` with `{ "error": "provider_unreachable" }`
 
 ### Requirement: Cancel Session
 
-`POST /v1/sessions/:id/cancel` SHALL cancel a running session by sending a cancel command and transitioning to `cancelled`.
+`POST /v1/sessions/:id/cancel` SHALL send a cancel command for a running session. If the provider reports a terminal result before the cancel flow completes, the provider terminal state SHALL win over a local `cancelled` transition.
 
 #### Scenario: POST /sessions/:id/cancel success
 
@@ -197,6 +197,15 @@ AND the session is in `running` state
 THEN a `cancel_session` command is dispatched
 AND the session status changes to `cancelled`
 AND the response is `200` with the updated session object
+
+#### Scenario: POST /sessions/:id/cancel races with provider terminal event
+
+WHEN `POST /v1/sessions/:id/cancel` is called
+AND the session is in `running` state
+AND the provider emits `session_result` or `session_error` before the cancel flow completes
+THEN the response is `200` with the provider terminal session object
+AND the session status remains `completed` or `failed`
+AND the relay does not overwrite the session to `cancelled`
 
 #### Scenario: POST /sessions/:id/cancel not cancellable
 

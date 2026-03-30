@@ -93,9 +93,9 @@ AND FCM push is triggered
 
 ---
 
-### Requirement: Running to Cancelled
+### Requirement: Running to Cancelled Or Provider Terminal
 
-The session SHALL transition from `running` to `cancelled` when the user sends `POST /sessions/:id/cancel`. A cancel command MUST be forwarded to the companion or bridge.
+The session SHALL forward a cancel command when the user sends `POST /sessions/:id/cancel` for a running session. If the provider finishes first, the provider terminal state SHALL win over a local `cancelled` transition.
 
 #### Scenario: running to cancelled on POST /cancel
 
@@ -106,6 +106,15 @@ AND the session status is updated to `cancelled`
 AND `sessions.updated_at` and `last_active_at` are updated
 AND a `session_status_changed` event is emitted
 AND the session is NOT eligible for FCM push (cancellation is user-initiated)
+
+#### Scenario: running session reaches provider terminal state before cancel completes
+
+WHEN a session is in `running` state
+AND `POST /v1/sessions/:id/cancel` is received
+AND the provider emits `session_result` or `session_error` before cancel completes
+THEN the session transitions to the provider terminal state (`completed` or `failed`)
+AND the relay does not overwrite the session to `cancelled`
+AND no `session.cancel` audit entry is written
 
 ---
 
