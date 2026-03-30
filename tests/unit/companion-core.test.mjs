@@ -689,3 +689,42 @@ test("CompanionRuntime reports running sessions after reconnect", async () => {
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("CompanionRuntime does not kill running CLI processes when the relay WS disconnects", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-survive-"));
+  const cancelCalls = [];
+  const shutdownCalls = [];
+
+  let runtime;
+  try {
+    runtime = await companion.createCompanionRuntime({
+      config: createRuntimeConfig(tempDir),
+      logger: silentLogger
+    });
+
+    const originalCancel = runtime.adapter.cancel.bind(runtime.adapter);
+    runtime.adapter.cancel = async (sessionId) => {
+      cancelCalls.push(sessionId);
+      return originalCancel(sessionId);
+    };
+    const originalShutdown = runtime.adapter.shutdown.bind(runtime.adapter);
+    runtime.adapter.shutdown = async () => {
+      shutdownCalls.push("shutdown");
+      return originalShutdown();
+    };
+    runtime.adapter.getActiveSessionIds = () => ["relay-1", "relay-2"];
+
+    runtime.relayClient.emit("disconnected", 1006, "abnormal");
+    await delay(50);
+
+    assert.deepEqual(cancelCalls, []);
+    assert.deepEqual(shutdownCalls, []);
+    assert.deepEqual(runtime.adapter.getActiveSessionIds(), ["relay-1", "relay-2"]);
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});

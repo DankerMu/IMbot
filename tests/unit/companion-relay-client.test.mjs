@@ -324,3 +324,63 @@ test("RelayClient flushes buffered messages on reconnect", async (t) => {
 
   assert.deepEqual(flushedMessages, bufferedMessages);
 });
+
+test("RelayClient reconnect uses exponential backoff delays instead of constant intervals", async (t) => {
+  // Use a port with nothing listening so every connection attempt fails,
+  // producing consecutive backoff delays that must escalate.
+  const retryLogs = [];
+  const logCapture = {
+    ...silentLogger,
+    info(message) {
+      const match = String(message).match(/retrying relay connection attempt (\d+) in ([\d.]+)ms/);
+      if (match) {
+        retryLogs.push({ attempt: Number(match[1]), delayMs: Number(match[2]) });
+      }
+    }
+  };
+
+  const client = new companion.RelayClient({
+    relayUrl: "ws://127.0.0.1:1",
+    token: "static-token",
+    hostId: "macbook-1",
+    backoff: { baseMs: 20, maxMs: 320, jitterMs: 0 },
+    logger: logCapture
+  });
+
+  client.on("error", () => {}); // suppress unhandled ECONNREFUSED
+
+  t.after(() => {
+    client.close();
+  });
+
+  client.connect();
+
+  // Wait until at least 4 retry logs accumulate (20+40+80+160 = 300ms + overhead)
+  await new Promise((resolve) => {
+    const check = setInterval(() => {
+      if (retryLogs.length >= 4) {
+        clearInterval(check);
+        resolve();
+      }
+    }, 30);
+    check.unref?.();
+    const bail = setTimeout(() => { clearInterval(check); resolve(); }, 3000);
+    bail.unref?.();
+  });
+
+  assert.equal(retryLogs.length >= 4, true, `Expected at least 4 retry logs, got ${retryLogs.length}`);
+
+  // Delays must be strictly increasing: 20, 40, 80, 160
+  for (let i = 1; i < 4; i++) {
+    assert.equal(
+      retryLogs[i].delayMs > retryLogs[i - 1].delayMs,
+      true,
+      `Delay at attempt ${retryLogs[i].attempt} (${retryLogs[i].delayMs}ms) should exceed attempt ${retryLogs[i - 1].attempt} (${retryLogs[i - 1].delayMs}ms)`
+    );
+  }
+
+  assert.equal(retryLogs[0].delayMs, 20, "First reconnect delay should equal baseMs");
+  assert.equal(retryLogs[1].delayMs, 40, "Second delay should be 2x baseMs");
+  assert.equal(retryLogs[2].delayMs, 80, "Third delay should be 4x baseMs");
+  assert.equal(retryLogs[3].delayMs, 160, "Fourth delay should be 8x baseMs");
+});
