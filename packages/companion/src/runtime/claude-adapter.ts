@@ -39,6 +39,7 @@ export interface ClaudeRuntimeAdapterOptions {
   readonly providers: Readonly<Partial<Record<InteractiveProvider, CompanionProviderConfig>>>;
   readonly sessionIndex: SessionIndex;
   readonly sendEvent: (message: CompanionEventMessage) => Promise<void> | void;
+  readonly isAllowedDirectory?: (provider: InteractiveProvider, cwd: string) => boolean;
   readonly logger?: LoggerLike;
   readonly spawn?: SpawnFunction;
   readonly killGraceMs?: number;
@@ -59,6 +60,12 @@ export class ClaudeRuntimeAdapter {
 
   async createSession(command: CreateSessionCommand): Promise<{ provider_session_id: string }> {
     const providerConfig = this.getProviderConfig(command.provider);
+    if (this.options.isAllowedDirectory && !this.options.isAllowedDirectory(command.provider, command.cwd)) {
+      throw new CompanionError(
+        "forbidden",
+        `Directory ${command.cwd} is not allowed for provider ${command.provider}`
+      );
+    }
     const args = [
       "--output-format",
       "stream-json",
@@ -101,6 +108,12 @@ export class ClaudeRuntimeAdapter {
     }
 
     const providerConfig = this.getProviderConfig(indexed.provider);
+    if (this.options.isAllowedDirectory && !this.options.isAllowedDirectory(indexed.provider, command.cwd)) {
+      throw new CompanionError(
+        "forbidden",
+        `Directory ${command.cwd} is not allowed for provider ${indexed.provider}`
+      );
+    }
     this.spawnSession({
       relaySessionId: command.session_id,
       provider: indexed.provider,

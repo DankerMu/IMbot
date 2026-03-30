@@ -15,4 +15,6 @@ test("relay and companion resolve the shared wire package", () => {
   ]);
   assert.equal(companion.supportsInteractiveProvider("claude"), true);
   assert.equal(companion.supportsInteractiveProvider("openclaw"), false);
+  assert.equal(typeof companion.ConfigManager, "function");
+  assert.equal(typeof companion.discoverSessions, "function");
 });

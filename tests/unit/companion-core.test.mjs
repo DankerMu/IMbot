@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawn as spawnChildProcess } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
@@ -66,6 +67,195 @@ test("loadCompanionConfig reads env overrides and validates configured providers
     assert.deepEqual(Object.keys(config.providers), ["claude"]);
     assert.equal(config.providers.claude.binary, "/usr/local/bin/claude");
     assert.equal(config.sessionIndexPath, sessionIndexPath);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+function createAdapterHarness(tempDir, isAllowedDirectory) {
+  const sessionIndexPath = path.join(tempDir, "sessions.json");
+  const sessionIndex = new companion.SessionIndex({
+    filePath: sessionIndexPath,
+    logger: silentLogger
+  });
+  const spawnCalls = [];
+  const runtimeScript = [
+    "process.stdout.write(JSON.stringify({ type: 'system', session_id: 'provider-session-test' }) + '\\n');",
+    "process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');"
+  ].join("");
+
+  const adapter = new companion.ClaudeRuntimeAdapter({
+    providers: {
+      claude: {
+        binary: "claude"
+      },
+      book: {
+        binary: "book"
+      }
+    },
+    sessionIndex,
+    logger: silentLogger,
+    sendEvent: () => {},
+    isAllowedDirectory,
+    spawn: (binary, args, options) => {
+      spawnCalls.push({
+        binary,
+        args,
+        cwd: options.cwd
+      });
+
+      return spawnChildProcess(process.execPath, ["-e", runtimeScript], {
+        cwd: options.cwd,
+        stdio: ["pipe", "pipe", "pipe"]
+      });
+    }
+  });
+
+  return {
+    adapter,
+    sessionIndex,
+    spawnCalls
+  };
+}
+
+test("ClaudeRuntimeAdapter allows create_session for book when cwd is under a configured root", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-book-allowed-"));
+  const bookRoot = path.join(tempDir, "novel");
+  const bookProject = path.join(bookRoot, "project-1");
+  mkdirSync(bookProject, { recursive: true });
+
+  try {
+    const { adapter, spawnCalls } = createAdapterHarness(
+      tempDir,
+      (provider, cwd) => provider !== "book" || cwd.startsWith(bookRoot)
+    );
+
+    const result = await adapter.createSession({
+      cmd: "create_session",
+      req_id: "req-book-allowed",
+      session_id: "relay-book-1",
+      provider: "book",
+      cwd: bookProject,
+      prompt: "hello",
+      permission_mode: "bypassPermissions"
+    });
+
+    assert.deepEqual(result, {
+      provider_session_id: "provider-session-test"
+    });
+    assert.equal(spawnCalls.length, 1);
+    assert.equal(spawnCalls[0].binary, "book");
+
+    await adapter.shutdown();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ClaudeRuntimeAdapter rejects create_session for book outside configured roots", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-book-forbidden-"));
+  const bookRoot = path.join(tempDir, "novel");
+  const otherProject = path.join(tempDir, "AI-vault");
+  mkdirSync(bookRoot, { recursive: true });
+  mkdirSync(otherProject, { recursive: true });
+
+  try {
+    const { adapter, spawnCalls } = createAdapterHarness(
+      tempDir,
+      (provider, cwd) => provider !== "book" || cwd.startsWith(bookRoot)
+    );
+
+    await assert.rejects(
+      () =>
+        adapter.createSession({
+          cmd: "create_session",
+          req_id: "req-book-forbidden",
+          session_id: "relay-book-2",
+          provider: "book",
+          cwd: otherProject,
+          prompt: "hello",
+          permission_mode: "bypassPermissions"
+        }),
+      {
+        code: "forbidden",
+        message: `Directory ${otherProject} is not allowed for provider book`
+      }
+    );
+    assert.equal(spawnCalls.length, 0);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-claude-open-"));
+  const claudeProject = path.join(tempDir, "AI-vault");
+  mkdirSync(claudeProject, { recursive: true });
+
+  try {
+    const { adapter, spawnCalls } = createAdapterHarness(
+      tempDir,
+      (provider, cwd) => provider !== "book" || cwd.startsWith(path.join(tempDir, "novel"))
+    );
+
+    const result = await adapter.createSession({
+      cmd: "create_session",
+      req_id: "req-claude-open",
+      session_id: "relay-claude-1",
+      provider: "claude",
+      cwd: claudeProject,
+      prompt: "hello",
+      permission_mode: "bypassPermissions"
+    });
+
+    assert.deepEqual(result, {
+      provider_session_id: "provider-session-test"
+    });
+    assert.equal(spawnCalls.length, 1);
+    assert.equal(spawnCalls[0].binary, "claude");
+
+    await adapter.shutdown();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ClaudeRuntimeAdapter rejects resume_session for book outside configured roots", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-book-resume-"));
+  const bookRoot = path.join(tempDir, "novel");
+  const validProject = path.join(bookRoot, "project-1");
+  const invalidProject = path.join(tempDir, "AI-vault");
+  mkdirSync(validProject, { recursive: true });
+  mkdirSync(invalidProject, { recursive: true });
+
+  try {
+    const { adapter, sessionIndex, spawnCalls } = createAdapterHarness(
+      tempDir,
+      (provider, cwd) => provider !== "book" || cwd.startsWith(bookRoot)
+    );
+
+    sessionIndex.set("relay-book-resume", {
+      provider_session_id: "provider-session-existing",
+      cwd: validProject,
+      provider: "book",
+      created_at: "2026-03-30T00:00:00.000Z"
+    });
+
+    await assert.rejects(
+      () =>
+        adapter.resumeSession({
+          cmd: "resume_session",
+          req_id: "req-book-resume",
+          session_id: "relay-book-resume",
+          provider_session_id: "provider-session-existing",
+          cwd: invalidProject
+        }),
+      {
+        code: "forbidden",
+        message: `Directory ${invalidProject} is not allowed for provider book`
+      }
+    );
+    assert.equal(spawnCalls.length, 0);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
