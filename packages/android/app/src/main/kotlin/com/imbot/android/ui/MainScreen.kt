@@ -22,7 +22,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.imbot.android.R
-import com.imbot.android.network.ConnectionState
 import com.imbot.android.viewmodel.MainViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,6 +36,8 @@ fun MainScreen(viewModel: MainViewModel) {
     val events by viewModel.events.collectAsStateWithLifecycle()
     val sessionId by viewModel.sessionId.collectAsStateWithLifecycle()
     val isCreating by viewModel.isCreating.collectAsStateWithLifecycle()
+    val noticeMessage by viewModel.noticeMessage.collectAsStateWithLifecycle()
+    val noticeIsError by viewModel.noticeIsError.collectAsStateWithLifecycle()
 
     Scaffold(
         topBar = {
@@ -113,10 +114,23 @@ fun MainScreen(viewModel: MainViewModel) {
                 )
 
                 CreateSessionButton(
-                    enabled = connectionState is ConnectionState.Connected,
+                    enabled = relayUrl.isNotBlank() && token.isNotBlank(),
                     isCreating = isCreating,
                     onClick = viewModel::createSession,
                 )
+
+                if (!noticeMessage.isNullOrBlank()) {
+                    Text(
+                        text = noticeMessage.orEmpty(),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color =
+                            if (noticeIsError) {
+                                MaterialTheme.colorScheme.error
+                            } else {
+                                MaterialTheme.colorScheme.tertiary
+                            },
+                    )
+                }
 
                 if (!sessionId.isNullOrBlank()) {
                     Text(

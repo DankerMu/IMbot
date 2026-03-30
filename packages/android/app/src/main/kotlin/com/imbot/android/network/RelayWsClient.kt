@@ -155,9 +155,11 @@ class RelayWsClient
                             }
 
                             scope.launch {
-                                _rawMessages.emit(text)
                                 val parsedMessage = parseServerMessage(text)
                                 if (parsedMessage != null) {
+                                    if (parsedMessage is ServerMessage.Event) {
+                                        _rawMessages.emit(text)
+                                    }
                                     _messages.emit(parsedMessage)
                                 }
                             }

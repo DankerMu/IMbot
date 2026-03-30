@@ -21,6 +21,11 @@ data class SessionResponse(
     val rawJson: String,
 )
 
+private data class RelayErrorResponse(
+    val code: String,
+    val message: String,
+)
+
 @Singleton
 class RelayHttpClient
     @Inject
@@ -65,12 +70,16 @@ class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            val errorCode = bodyText.toJsonObjectOrNull()?.optString("error").orEmpty()
+                            val errorResponse = bodyText.toRelayErrorResponse()
                             val message =
                                 buildString {
-                                    append("Create session failed with HTTP ${response.code}")
-                                    if (errorCode.isNotBlank()) {
-                                        append(" ($errorCode)")
+                                    if (errorResponse?.message?.isNotBlank() == true) {
+                                        append(errorResponse.message)
+                                    } else {
+                                        append("Create session failed with HTTP ${response.code}")
+                                        if (errorResponse?.code?.isNotBlank() == true) {
+                                            append(" (${errorResponse.code})")
+                                        }
                                     }
                                 }
                             error(message)
@@ -135,3 +144,11 @@ private fun String.toJsonObjectOrNull(): JSONObject? =
     } catch (_: Exception) {
         null
     }
+
+private fun String.toRelayErrorResponse(): RelayErrorResponse? {
+    val root = toJsonObjectOrNull() ?: return null
+    return RelayErrorResponse(
+        code = root.optString("error"),
+        message = root.optString("message"),
+    )
+}

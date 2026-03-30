@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.json.JSONObject
 import javax.inject.Inject
 
 @HiltViewModel
@@ -48,6 +47,12 @@ class MainViewModel
 
         private val _isCreating = MutableStateFlow(false)
         val isCreating: StateFlow<Boolean> = _isCreating.asStateFlow()
+
+        private val _noticeMessage = MutableStateFlow<String?>(null)
+        val noticeMessage: StateFlow<String?> = _noticeMessage.asStateFlow()
+
+        private val _noticeIsError = MutableStateFlow(false)
+        val noticeIsError: StateFlow<Boolean> = _noticeIsError.asStateFlow()
 
         val connectionState: StateFlow<ConnectionState> = relayWsClient.connectionState
 
@@ -95,17 +100,19 @@ class MainViewModel
                 )
             settingsRepository.save(settings)
             resetPrototypeSession()
+            updateNotice()
             relayWsClient.clearSubscription()
             relayWsClient.connect(settings.relayUrl, settings.token)
         }
 
         fun createSession() {
-            if (_isCreating.value || connectionState.value !is ConnectionState.Connected) {
+            if (_isCreating.value || _relayUrl.value.isBlank() || _token.value.isBlank()) {
                 return
             }
 
             viewModelScope.launch {
                 _isCreating.value = true
+                updateNotice()
 
                 relayHttpClient.createSession(
                     relayUrl = _relayUrl.value.trim(),
@@ -119,19 +126,13 @@ class MainViewModel
                     resetPrototypeSession()
                     _sessionId.value = response.sessionId
                     relayWsClient.subscribe(response.sessionId)
-                    appendEvent(
-                        JSONObject()
-                            .put("type", "local")
-                            .put("action", "session_created")
-                            .put("session_id", response.sessionId)
-                            .toString(),
-                    )
+                    if (connectionState.value !is ConnectionState.Connected) {
+                        updateNotice(message = DISCONNECTED_SESSION_WARNING)
+                    }
                 }.onFailure { error ->
-                    appendEvent(
-                        JSONObject()
-                            .put("type", "local_error")
-                            .put("message", error.message ?: "Failed to create session")
-                            .toString(),
+                    updateNotice(
+                        message = error.message ?: "Failed to create session",
+                        isError = true,
                     )
                 }
 
@@ -144,6 +145,18 @@ class MainViewModel
             _events.value = emptyList()
         }
 
+        private fun updateNotice(
+            message: String? = null,
+            isError: Boolean = false,
+        ) {
+            _noticeMessage.value = null
+            _noticeIsError.value = false
+            if (!message.isNullOrBlank()) {
+                _noticeMessage.value = message
+                _noticeIsError.value = isError
+            }
+        }
+
         private fun appendEvent(rawEvent: String) {
             _events.update { current ->
                 (current + rawEvent).takeLast(MAX_EVENTS)
@@ -151,6 +164,8 @@ class MainViewModel
         }
 
         private companion object {
+            const val DISCONNECTED_SESSION_WARNING =
+                "Session created while disconnected. Reconnect WebSocket to receive real-time events."
             const val MAX_EVENTS = 5_000
         }
     }
