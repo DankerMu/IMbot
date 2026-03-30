@@ -506,6 +506,53 @@ test("relay cancels the provider before deleting a running session", async (t) =
   });
 });
 
+test("relay still deletes a running session when provider cancel fails", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-delete-running-fail-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createRunningSession({ baseUrl, config }, companion, {
+    prompt: "delete while cancel fails"
+  });
+
+  const deleteResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  const cancelCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "cancel_session" && message.session_id === sessionId,
+    "cancel before delete error"
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: cancelCommand.req_id,
+      status: "error",
+      error_code: "provider_unreachable",
+      message: "cancel failed"
+    })
+  );
+
+  const deleteResponse = await deleteResponsePromise;
+  assert.equal(deleteResponse.status, 204);
+
+  const deletedSession = runtime.db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId);
+  assert.equal(deletedSession, undefined);
+});
+
 test("relay returns host_offline when resuming a completed session after the companion disconnects", async (t) => {
   const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-host-offline-");
   const companion = new WebSocket(

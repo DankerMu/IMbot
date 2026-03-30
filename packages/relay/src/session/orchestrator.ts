@@ -213,7 +213,11 @@ export class SessionOrchestrator {
   async delete(sessionId: string): Promise<void> {
     const session = this.requireSession(sessionId);
     if (session.status === "running") {
-      await this.dispatchCancel(session);
+      try {
+        await this.dispatchCancel(session);
+      } catch (error) {
+        this.logger.warn(`Proceeding with delete for running session ${sessionId} after cancel failed`, error);
+      }
     }
 
     const result = this.db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
