@@ -96,8 +96,12 @@ jobs:
         with:
           languages: javascript-typescript
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v4
+      - name: Build Android app for CodeQL extraction
+        run: |
+          packages/android/gradlew \
+            --project-dir packages/android \
+            --no-daemon \
+            assembleDebug
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
@@ -129,8 +133,13 @@ jobs:
         with:
           languages: kotlin
 
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v4
+      - name: Build Android app for CodeQL extraction
+        run: |
+          packages/android/gradlew \
+            --project-dir packages/android \
+            --no-daemon \
+            --stacktrace \
+            assembleDebug
 
       - name: Analyze
         uses: github/codeql-action/analyze@v4
