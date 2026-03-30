@@ -100,6 +100,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     kapt("com.google.dagger:hilt-android-compiler:2.52")
 
     testImplementation("junit:junit:4.13.2")
