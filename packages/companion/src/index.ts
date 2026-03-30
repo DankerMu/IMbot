@@ -9,9 +9,11 @@ import { CommandDispatcher } from "./dispatcher";
 import { HeartbeatTimer } from "./heartbeat";
 import { RelayClient } from "./relay-client";
 import { ClaudeRuntimeAdapter } from "./runtime/claude-adapter";
+import { discoverSessions } from "./runtime/session-discovery";
 import { SessionIndex } from "./runtime/session-index";
 import type { LoggerLike } from "./types";
 import { browseDirectory } from "./workspace/browser";
+import { ConfigManager } from "./workspace/config-manager";
 
 export const COMPANION_SUPPORTED_PROVIDERS = PROVIDERS;
 
@@ -28,6 +30,7 @@ export interface CompanionRuntime {
   readonly dispatcher: CommandDispatcher;
   readonly adapter: ClaudeRuntimeAdapter;
   readonly sessionIndex: SessionIndex;
+  readonly configManager: ConfigManager;
   connect(): void;
   close(): Promise<void>;
 }
@@ -43,6 +46,10 @@ export async function createCompanionRuntime(options?: {
   const logger = options?.logger ?? console;
   const sessionIndex = new SessionIndex({
     filePath: config.sessionIndexPath,
+    logger
+  });
+  const configManager = new ConfigManager({
+    configPath: config.configPath,
     logger
   });
   const relayClient = new RelayClient({
@@ -65,6 +72,13 @@ export async function createCompanionRuntime(options?: {
     sessionIndex,
     logger,
     killGraceMs: options?.killGraceMs,
+    isAllowedDirectory: (provider, cwd) => {
+      if (provider !== "book") {
+        return true;
+      }
+
+      return configManager.isPathUnderRoot("book", cwd);
+    },
     sendEvent: (message) => {
       relayClient.send(message);
     }
@@ -84,10 +98,21 @@ export async function createCompanionRuntime(options?: {
   dispatcher.register("cancel_session", async (command) => {
     await adapter.cancel(command.session_id);
   });
+  dispatcher.register("list_sessions", async (command) => {
+    return await discoverSessions(command.cwd, command.provider, {
+      logger
+    });
+  });
   dispatcher.register("browse_directory", async (command) => {
     return await browseDirectory(command.path, {
       allowedRoots: command.roots
     });
+  });
+  dispatcher.register("add_root", async (command) => {
+    configManager.addRoot(command.provider, command.path, command.label);
+  });
+  dispatcher.register("remove_root", async (command) => {
+    configManager.removeRoot(command.provider, command.path);
   });
 
   relayClient.on("message", (message) => {
@@ -107,6 +132,7 @@ export async function createCompanionRuntime(options?: {
     dispatcher,
     adapter,
     sessionIndex,
+    configManager,
     connect: () => {
       relayClient.connect();
     },
@@ -157,7 +183,9 @@ export {
   CommandDispatcher,
   ClaudeRuntimeAdapter,
   SessionIndex,
-  browseDirectory
+  browseDirectory,
+  ConfigManager,
+  discoverSessions
 };
 
 if (require.main === module) {

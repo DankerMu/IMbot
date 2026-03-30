@@ -39,11 +39,33 @@ export type ListSessionsCommand = {
   provider: InteractiveProvider;
 };
 
+export type LocalSessionInfo = {
+  provider_session_id: string;
+  cwd: string;
+  created_at: string;
+  status: "completed" | "unknown";
+};
+
 export type BrowseDirectoryCommand = {
   cmd: "browse_directory";
   req_id: string;
   path: string;
   roots?: readonly string[];
+};
+
+export type AddRootCommand = {
+  cmd: "add_root";
+  req_id: string;
+  provider: InteractiveProvider;
+  path: string;
+  label?: string;
+};
+
+export type RemoveRootCommand = {
+  cmd: "remove_root";
+  req_id: string;
+  provider: InteractiveProvider;
+  path: string;
 };
 
 export type CompanionCommand =
@@ -52,4 +74,6 @@ export type CompanionCommand =
   | SendMessageCommand
   | CancelSessionCommand
   | ListSessionsCommand
-  | BrowseDirectoryCommand;
+  | BrowseDirectoryCommand
+  | AddRootCommand
+  | RemoveRootCommand;
