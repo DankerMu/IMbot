@@ -191,13 +191,13 @@
     "workspace_cwd": "/Users/danker/Desktop/AI-vault/IMbot",
     "initial_prompt": "帮我看一下这个项目的架构",
     "model": "opus",
-    "status": "queued",
+    "status": "running",
     "created_at": "2026-03-28T13:10:00Z"
   }
 }
 ```
 
-**Side effects**: 立即向 companion（或 OpenClaw bridge）发送 `create_session` 命令。
+**Side effects**: 先以 `queued` 插入 session 记录，再立即向 companion（或 OpenClaw bridge）发送 `create_session` 命令；成功 ack 后会话转为 `running`，响应返回更新后的 session。
 
 **Errors**:
 - `400 invalid_request`: 缺少必填字段。
@@ -214,8 +214,9 @@
 
 **Errors**:
 - `404 not_found`。
-- `409 state_conflict`: session 已在 running 状态。
+- `409 state_conflict`: session 处于 `running`、`queued` 或 `cancelled` 状态，无法恢复。
 - `502 host_offline`。
+- `502 provider_unreachable`: OpenClaw gateway 不可用或拒绝恢复。
 
 ### POST /v1/sessions/:id/message
 
@@ -232,21 +233,24 @@
 - `404 not_found`。
 - `409 state_conflict`: session 不在 running 状态。
 - `502 host_offline`。
+- `502 provider_unreachable`: OpenClaw gateway 不可用。
 
 ### POST /v1/sessions/:id/cancel
 
 取消正在运行的会话。
 
-**Response 200**: session 对象（status 变为 `cancelled`）。
+**Response 200**: session 对象。正常情况下 `status` 变为 `cancelled`；如果 provider 在 cancel 完成前先发送终态事件，则响应返回 provider 的终态 `completed` 或 `failed`。
 
-**Errors**: `404`, `409` (session 不在 running/queued 状态)。
+**Errors**: `404`, `409` (session 不在 running 状态，包括 `queued`)。
 
 ### DELETE /v1/sessions/:id
 
 归档/删除会话及其所有 events。
 
 **Response 204**: 无 body。
-**Errors**: `404`。
+**Errors**:
+- `404`。
+- `409 state_conflict`: session 仍处于 `queued` 或 `running`，必须先进入终态后再删除。
 
 ### GET /v1/sessions/:id/events
 

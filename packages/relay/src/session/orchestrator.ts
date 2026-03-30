@@ -1,6 +1,5 @@
 import {
   ERROR_CODES,
-  VALID_TRANSITIONS,
   type CompanionEventMessage,
   type EventType,
   type Session,
@@ -9,6 +8,7 @@ import {
 } from "@imbot/wire";
 import { randomUUID } from "node:crypto";
 
+import { AuditLogger } from "../audit/logger";
 import type { RelayConfig } from "../config";
 import type { RelayDatabase } from "../db/init";
 import { RelayError } from "../errors";
@@ -16,6 +16,7 @@ import { allocateSeq } from "./seq";
 import { WsHub } from "../ws/hub";
 import { CompanionManager } from "../companion/manager";
 import { OpenClawBridge } from "../openclaw/bridge";
+import { isValidTransition } from "./transitions";
 
 type LoggerLike = {
   readonly error: (...args: unknown[]) => void;
@@ -31,13 +32,29 @@ export type CreateSessionInput = {
   permission_mode?: string;
 };
 
+type SessionErrorContext = {
+  error_code?: string;
+  error_message?: string;
+};
+
+type LifecycleMutation = "create" | "resume" | "cancel" | "delete";
+
+type PendingTerminalTransition = {
+  readonly status: "completed" | "failed";
+  readonly context?: SessionErrorContext;
+};
+
 export class SessionOrchestrator {
+  private readonly activeLifecycleMutations = new Map<string, LifecycleMutation>();
+  private readonly pendingTerminalTransitions = new Map<string, PendingTerminalTransition>();
+
   constructor(
     private readonly _config: RelayConfig,
     private readonly db: RelayDatabase,
     private readonly hub: WsHub,
     private readonly companionManager: CompanionManager,
     private readonly openClawBridge: OpenClawBridge,
+    private readonly auditLogger: AuditLogger,
     private readonly logger: LoggerLike
   ) {}
 
@@ -56,6 +73,10 @@ export class SessionOrchestrator {
 
     if (input.provider === "openclaw" && input.host_id !== "relay-local") {
       throw new RelayError("invalid_request", "OpenClaw sessions must target the relay-local host");
+    }
+
+    if (input.provider === "openclaw" && !this.openClawBridge.isAvailable()) {
+      throw new RelayError("provider_unreachable", "OpenClaw gateway is offline");
     }
 
     const provider = input.provider as "claude" | "book" | "openclaw";
@@ -119,43 +140,17 @@ export class SessionOrchestrator {
         session.last_active_at
       );
 
+    this.auditLogger.write("session.create", {
+      session_id: session.id,
+      host_id: session.host_id,
+      detail: this.buildCreateAuditDetail(session)
+    });
+
+    this.activeLifecycleMutations.set(session.id, "create");
     try {
-      const providerSessionId =
-        provider === "openclaw"
-          ? (
-              await this.openClawBridge.createSession(session.id, session.workspace_cwd, session.initial_prompt ?? "", {
-                model: session.model,
-                permissionMode: session.permission_mode
-              })
-            ).sessionKey
-          : await this.createCompanionSession(session);
-
-      this.db
-        .prepare(
-          `
-          UPDATE sessions
-          SET provider_session_id = ?, updated_at = ?, last_active_at = ?
-          WHERE id = ?
-          `
-        )
-        .run(providerSessionId, now, now, session.id);
-
-      if (provider !== "openclaw") {
-        this.insertAndBroadcastEvent(session.id, "session_started", {
-          provider_session_id: providerSessionId
-        });
-      }
-
-      await this.transition(session.id, "running");
-      this.insertAuditLog("session.create", {
-        session_id: session.id,
-        host_id: session.host_id,
-        detail: {
-          provider: session.provider,
-          cwd: session.workspace_cwd
-        }
-      });
-
+      const providerSessionId = await this.dispatchCreate(session);
+      await this.markSessionStarted(session.id, providerSessionId, "queued");
+      await this.applyPendingTerminalTransition(session.id);
       return this.getSession(session.id) ?? session;
     } catch (error) {
       const relayError =
@@ -165,12 +160,110 @@ export class SessionOrchestrator {
         error_code: relayError.code,
         message: relayError.message
       });
-      await this.transition(session.id, "failed", {
+      await this.transitionWithConflictTolerance(session.id, "failed", {
         error_code: relayError.code,
         error_message: relayError.message
       });
       throw relayError;
+    } finally {
+      this.activeLifecycleMutations.delete(session.id);
+      this.pendingTerminalTransitions.delete(session.id);
     }
+  }
+
+  async resume(sessionId: string): Promise<Session> {
+    return await this.runWithLifecycleLock(sessionId, "resume", async () => {
+      const session = this.requireSession(sessionId);
+      if (session.status !== "completed" && session.status !== "failed") {
+        throw new RelayError("state_conflict", `Session ${sessionId} is not resumable from ${session.status}`);
+      }
+
+      if (!session.provider_session_id) {
+        throw new RelayError("session_not_resumable", `Session ${sessionId} has no provider session id`);
+      }
+
+      this.assertProviderAvailable(session);
+
+      const previousStatus = session.status;
+      const providerSessionId = await this.dispatchResume(session);
+      await this.markSessionStarted(session.id, providerSessionId, previousStatus);
+      this.auditLogger.write("session.resume", {
+        session_id: session.id,
+        host_id: session.host_id,
+        detail: {
+          previous_status: previousStatus
+        }
+      });
+      await this.applyPendingTerminalTransition(session.id);
+      return this.requireSession(session.id);
+    });
+  }
+
+  async sendMessage(sessionId: string, text: string): Promise<void> {
+    const session = this.requireSession(sessionId);
+    if (session.status !== "running") {
+      throw new RelayError("state_conflict", `Session ${sessionId} is not running`);
+    }
+
+    if (this.activeLifecycleMutations.has(sessionId)) {
+      throw new RelayError("state_conflict", `Session ${sessionId} already has a lifecycle mutation in flight`);
+    }
+
+    this.assertProviderAvailable(session);
+    await this.dispatchSendMessage(session, text);
+  }
+
+  async cancel(sessionId: string): Promise<Session> {
+    return await this.runWithLifecycleLock(sessionId, "cancel", async () => {
+      const session = this.requireSession(sessionId);
+      if (session.status !== "running") {
+        throw new RelayError("state_conflict", `Session ${sessionId} cannot be cancelled from ${session.status}`);
+      }
+
+      if (session.provider !== "openclaw") {
+        this.assertProviderAvailable(session);
+      }
+
+      const previousStatus = session.status;
+      await this.dispatchCancel(session);
+
+      const terminalStateWon = await this.applyPendingTerminalTransition(session.id);
+      if (!terminalStateWon) {
+        await this.transition(session.id, "cancelled");
+        this.auditLogger.write("session.cancel", {
+          session_id: session.id,
+          host_id: session.host_id,
+          detail: {
+            previous_status: previousStatus
+          }
+        });
+      }
+
+      return this.requireSession(session.id);
+    });
+  }
+
+  async delete(sessionId: string): Promise<void> {
+    await this.runWithLifecycleLock(sessionId, "delete", async () => {
+      const session = this.requireSession(sessionId);
+      if (session.status === "queued" || session.status === "running") {
+        throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
+      }
+
+      const result = this.db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+      if (result.changes === 0) {
+        throw new RelayError("not_found", `Session ${sessionId} not found`);
+      }
+
+      this.auditLogger.write("session.delete", {
+        session_id: sessionId,
+        host_id: session.host_id,
+        detail: {
+          provider: session.provider,
+          status: session.status
+        }
+      });
+    });
   }
 
   async handleEvent(message: CompanionEventMessage): Promise<void> {
@@ -180,48 +273,83 @@ export class SessionOrchestrator {
       return;
     }
 
-    this.insertAndBroadcastEvent(session.id, message.event_type, message.payload);
+    const activeMutation = this.activeLifecycleMutations.get(message.session_id);
+    const acceptsEvents =
+      session.status === "running" || activeMutation === "create" || activeMutation === "resume";
+    if (!acceptsEvents) {
+      this.logger.warn(
+        `Dropping ${message.event_type} for non-running session ${message.session_id} (${session.status})`
+      );
+      return;
+    }
+
+    const payload = this.sanitizeIncomingPayload(message.payload);
+    if (message.event_type === "session_started") {
+      return;
+    }
+
+    if (
+      message.event_type === "session_status_changed" &&
+      activeMutation === "cancel" &&
+      payload &&
+      typeof payload === "object" &&
+      "status" in payload &&
+      payload.status === "cancelled"
+    ) {
+      return;
+    }
+
+    this.insertAndBroadcastEvent(session.id, message.event_type, payload);
+
+    const pendingTerminalTransition = this.buildPendingTerminalTransition(activeMutation, message.event_type, payload);
+    if (pendingTerminalTransition) {
+      this.pendingTerminalTransitions.set(session.id, pendingTerminalTransition);
+      return;
+    }
 
     if (message.event_type === "session_result") {
-      await this.transition(session.id, "completed");
+      await this.transitionWithConflictTolerance(session.id, "completed");
       return;
     }
 
     if (message.event_type === "session_error") {
-      const context =
-        message.payload && typeof message.payload === "object"
-          ? {
-              error_code: this.normalizeErrorCode(
-                "error_code" in message.payload && typeof message.payload.error_code === "string"
-                  ? message.payload.error_code
-                  : undefined
-              ),
-              error_message:
-                "message" in message.payload && typeof message.payload.message === "string"
-                  ? message.payload.message
-                  : "Session failed"
-            }
-          : {
-              error_code: "provider_unreachable",
-              error_message: "Session failed"
-            };
+      await this.transitionWithConflictTolerance(session.id, "failed", this.buildSessionErrorContext(payload));
+    }
+  }
 
-      await this.transition(session.id, "failed", context);
+  async handleHostDisconnected(hostId: string): Promise<void> {
+    const sessions = this.db
+      .prepare(
+        `
+        SELECT *
+        FROM sessions
+        WHERE host_id = ? AND status = 'running'
+        ORDER BY created_at ASC
+        `
+      )
+      .all(hostId) as Session[];
+
+    for (const session of sessions) {
+      const context = {
+        error_code: "host_disconnected",
+        error_message: "Host companion disconnected unexpectedly"
+      };
+
+      this.insertAndBroadcastEvent(session.id, "session_error", {
+        error_code: context.error_code,
+        message: context.error_message
+      });
+      await this.transitionWithConflictTolerance(session.id, "failed", context);
     }
   }
 
   async transition(
     sessionId: string,
     newStatus: SessionStatus,
-    context?: { error_code?: string; error_message?: string }
+    context?: SessionErrorContext
   ): Promise<void> {
-    const session = this.getSession(sessionId);
-    if (!session) {
-      throw new RelayError("not_found", `Session ${sessionId} does not exist`);
-    }
-
-    const allowedTransitions = VALID_TRANSITIONS[session.status];
-    if (!allowedTransitions?.includes(newStatus)) {
+    const session = this.requireSession(sessionId);
+    if (!isValidTransition(session.status, newStatus)) {
       throw new RelayError(
         "state_conflict",
         `Cannot transition session ${sessionId} from ${session.status} to ${newStatus}`
@@ -232,15 +360,30 @@ export class SessionOrchestrator {
     const nextErrorCode = newStatus === "failed" ? context?.error_code ?? null : null;
     const nextErrorMessage = newStatus === "failed" ? context?.error_message ?? null : null;
 
-    this.db
+    const result = this.db
       .prepare(
         `
         UPDATE sessions
         SET status = ?, error_code = ?, error_message = ?, updated_at = ?, last_active_at = ?
-        WHERE id = ?
+        WHERE id = ? AND status = ?
         `
       )
-      .run(newStatus, nextErrorCode, nextErrorMessage, now, now, sessionId);
+      .run(newStatus, nextErrorCode, nextErrorMessage, now, now, sessionId, session.status);
+
+    if (result.changes !== 1) {
+      throw new RelayError(
+        "state_conflict",
+        `Session ${sessionId} changed while transitioning from ${session.status} to ${newStatus}`
+      );
+    }
+
+    const updatedSession = this.getSession(sessionId);
+    if (!updatedSession || updatedSession.status !== newStatus) {
+      throw new RelayError(
+        "state_conflict",
+        `Session ${sessionId} changed while transitioning from ${session.status} to ${newStatus}`
+      );
+    }
 
     this.insertAndBroadcastEvent(sessionId, "session_status_changed", {
       status: newStatus,
@@ -261,8 +404,17 @@ export class SessionOrchestrator {
     );
   }
 
+  private requireSession(sessionId: string): Session {
+    const session = this.getSession(sessionId);
+    if (!session) {
+      throw new RelayError("not_found", `Session ${sessionId} does not exist`);
+    }
+
+    return session;
+  }
+
   private insertEvent(sessionId: string, eventType: EventType, payload: unknown) {
-    const seq = allocateSeq(this.db, sessionId);
+    const seq = allocateSeq(this.db, sessionId, this.logger);
     const createdAt = new Date().toISOString();
     const event = {
       id: randomUUID(),
@@ -302,37 +454,117 @@ export class SessionOrchestrator {
     return storedEvent;
   }
 
-  private insertAuditLog(
-    action: string,
-    payload: {
-      session_id?: string;
-      host_id?: string;
-      detail?: unknown;
-    }
-  ): void {
-    this.db
-      .prepare(
-        `
-        INSERT INTO audit_logs (id, action, session_id, host_id, detail, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        `
-      )
-      .run(
-        randomUUID(),
-        action,
-        payload.session_id ?? null,
-        payload.host_id ?? null,
-        payload.detail ? JSON.stringify(payload.detail) : null,
-        new Date().toISOString()
-      );
-  }
-
   private normalizeErrorCode(errorCode: string | undefined): ErrorCode {
     if (errorCode && ERROR_CODES.includes(errorCode as ErrorCode)) {
       return errorCode as ErrorCode;
     }
 
     return "provider_unreachable";
+  }
+
+  private buildSessionErrorContext(payload: unknown): Required<SessionErrorContext> {
+    return payload && typeof payload === "object"
+      ? {
+          error_code: this.normalizeErrorCode(
+            "error_code" in payload && typeof payload.error_code === "string" ? payload.error_code : undefined
+          ),
+          error_message:
+            "message" in payload && typeof payload.message === "string" ? payload.message : "Session failed"
+        }
+      : {
+          error_code: "provider_unreachable",
+          error_message: "Session failed"
+        };
+  }
+
+  private buildPendingTerminalTransition(
+    activeMutation: LifecycleMutation | undefined,
+    eventType: EventType,
+    payload: unknown
+  ): PendingTerminalTransition | null {
+    if (activeMutation !== "create" && activeMutation !== "resume" && activeMutation !== "cancel") {
+      return null;
+    }
+
+    if (eventType === "session_result") {
+      return {
+        status: "completed"
+      };
+    }
+
+    if (eventType === "session_error") {
+      return {
+        status: "failed",
+        context: this.buildSessionErrorContext(payload)
+      };
+    }
+
+    return null;
+  }
+
+  private async dispatchCreate(session: Session): Promise<string | null> {
+    if (session.provider === "openclaw") {
+      return (
+        await this.openClawBridge.createSession(session.id, session.workspace_cwd, session.initial_prompt ?? "", {
+          model: session.model,
+          permissionMode: session.permission_mode
+        })
+      ).sessionKey;
+    }
+
+    return await this.createCompanionSession(session);
+  }
+
+  private async dispatchResume(session: Session): Promise<string> {
+    if (!session.provider_session_id) {
+      throw new RelayError("session_not_resumable", `Session ${session.id} has no provider session id`);
+    }
+
+    if (session.provider === "openclaw") {
+      await this.openClawBridge.resumeSession(session.id, session.provider_session_id);
+      return session.provider_session_id;
+    }
+
+    const ack = await this.companionManager.sendCommand(session.host_id, {
+      cmd: "resume_session",
+      req_id: this.companionManager.createRequestId(),
+      session_id: session.id,
+      provider_session_id: session.provider_session_id,
+      cwd: session.workspace_cwd
+    });
+
+    return this.extractProviderSessionIdFromAck(ack) ?? session.provider_session_id;
+  }
+
+  private async dispatchSendMessage(session: Session, text: string): Promise<void> {
+    if (session.provider === "openclaw") {
+      await this.openClawBridge.sendMessage(session.id, text);
+      return;
+    }
+
+    const ack = await this.companionManager.sendCommand(session.host_id, {
+      cmd: "send_message",
+      req_id: this.companionManager.createRequestId(),
+      session_id: session.id,
+      text
+    });
+
+    this.assertAckOk(ack);
+  }
+
+  private async dispatchCancel(session: Session): Promise<void> {
+    if (session.provider === "openclaw") {
+      await this.openClawBridge.cancelSession(session.id);
+      return;
+    }
+
+    const ack = await this.companionManager.sendCommand(session.host_id, {
+      cmd: "cancel_session",
+      req_id: this.companionManager.createRequestId(),
+      session_id: session.id
+    });
+
+    this.assertAckOk(ack);
   }
 
   private async createCompanionSession(session: Session): Promise<string | null> {
@@ -348,15 +580,24 @@ export class SessionOrchestrator {
     };
 
     const ack = await this.companionManager.sendCommand(session.host_id, command);
+    return this.extractProviderSessionIdFromAck(ack);
+  }
 
-    if (ack.type !== "ack") {
+  private assertAckOk(ack: unknown): asserts ack is { type: "ack"; status: "ok"; data?: unknown } {
+    if (!ack || typeof ack !== "object" || !("type" in ack) || ack.type !== "ack") {
       throw new RelayError("state_conflict", "Unexpected companion acknowledgement");
     }
 
-    if (ack.status === "error") {
-      const errorCode = this.normalizeErrorCode(ack.error_code);
-      throw new RelayError(errorCode, ack.message);
+    if ("status" in ack && ack.status === "error") {
+      const errorCode = this.normalizeErrorCode(
+        "error_code" in ack && typeof ack.error_code === "string" ? ack.error_code : undefined
+      );
+      throw new RelayError(errorCode, "message" in ack && typeof ack.message === "string" ? ack.message : undefined);
     }
+  }
+
+  private extractProviderSessionIdFromAck(ack: unknown): string | null {
+    this.assertAckOk(ack);
 
     return ack.data &&
       typeof ack.data === "object" &&
@@ -364,5 +605,145 @@ export class SessionOrchestrator {
       typeof ack.data.provider_session_id === "string"
       ? ack.data.provider_session_id
       : null;
+  }
+
+  private async markSessionStarted(
+    sessionId: string,
+    providerSessionId: string | null,
+    expectedStatus: "queued" | "completed" | "failed"
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const result = this.db
+      .prepare(
+        `
+        UPDATE sessions
+        SET provider_session_id = ?, status = 'running', error_code = NULL, error_message = NULL, updated_at = ?, last_active_at = ?
+        WHERE id = ? AND status = ?
+        `
+      )
+      .run(providerSessionId, now, now, sessionId, expectedStatus);
+
+    if (result.changes !== 1) {
+      throw new RelayError(
+        "state_conflict",
+        `Session ${sessionId} changed before it could enter running from ${expectedStatus}`
+      );
+    }
+
+    if (!this.isLatestEventType(sessionId, "session_started")) {
+      this.insertAndBroadcastEvent(sessionId, "session_started", {
+        provider_session_id: providerSessionId
+      });
+    }
+
+    this.insertAndBroadcastEvent(sessionId, "session_status_changed", {
+      status: "running",
+      error_code: null,
+      error_message: null
+    });
+
+    this.hub.broadcastToSession(sessionId, {
+      type: "status",
+      session_id: sessionId,
+      status: "running"
+    });
+  }
+
+  private assertProviderAvailable(session: Session): void {
+    if (session.provider === "openclaw") {
+      if (!this.openClawBridge.isAvailable()) {
+        throw new RelayError("provider_unreachable", "OpenClaw gateway is offline");
+      }
+      return;
+    }
+
+    if (!this.companionManager.isOnline(session.host_id)) {
+      throw new RelayError("host_offline", `Companion host ${session.host_id} is offline`);
+    }
+  }
+
+  private sanitizeIncomingPayload(payload: unknown): unknown {
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+      return payload;
+    }
+
+    const { seq: _ignoredSeq, ...rest } = payload as Record<string, unknown>;
+    return rest;
+  }
+
+  private buildCreateAuditDetail(session: Session): {
+    provider: Session["provider"];
+    host_id: string;
+    cwd: string;
+    prompt: string;
+  } {
+    return {
+      provider: session.provider,
+      host_id: session.host_id,
+      cwd: session.workspace_cwd,
+      prompt: (session.initial_prompt ?? "").slice(0, 100)
+    };
+  }
+
+  private isLatestEventType(sessionId: string, eventType: EventType): boolean {
+    const row = this.db
+      .prepare(
+        `
+        SELECT type
+        FROM session_events
+        WHERE session_id = ?
+        ORDER BY seq DESC
+        LIMIT 1
+        `
+      )
+      .get(sessionId) as { type: EventType } | undefined;
+
+    return row?.type === eventType;
+  }
+
+  private async runWithLifecycleLock<T>(
+    sessionId: string,
+    mutation: "resume" | "cancel" | "delete",
+    action: () => Promise<T>
+  ): Promise<T> {
+    if (this.activeLifecycleMutations.has(sessionId)) {
+      throw new RelayError("state_conflict", `Session ${sessionId} already has a lifecycle mutation in flight`);
+    }
+
+    this.activeLifecycleMutations.set(sessionId, mutation);
+    try {
+      return await action();
+    } finally {
+      this.activeLifecycleMutations.delete(sessionId);
+      this.pendingTerminalTransitions.delete(sessionId);
+    }
+  }
+
+  private async applyPendingTerminalTransition(sessionId: string): Promise<boolean> {
+    const pending = this.pendingTerminalTransitions.get(sessionId);
+    if (!pending) {
+      return false;
+    }
+
+    this.pendingTerminalTransitions.delete(sessionId);
+    await this.transitionWithConflictTolerance(sessionId, pending.status, pending.context);
+    return true;
+  }
+
+  private async transitionWithConflictTolerance(
+    sessionId: string,
+    newStatus: SessionStatus,
+    context?: SessionErrorContext
+  ): Promise<void> {
+    try {
+      await this.transition(sessionId, newStatus, context);
+    } catch (error) {
+      if (error instanceof RelayError && error.code === "state_conflict") {
+        this.logger.warn(`Ignoring terminal transition conflict for session ${sessionId}: ${error.message}`);
+        return;
+      }
+
+      throw error;
+    }
   }
 }

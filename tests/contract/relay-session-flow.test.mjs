@@ -197,6 +197,7 @@ test("relay creates a session, persists events, and broadcasts companion traffic
   assert.equal(createPayload.session.provider, "claude");
   assert.equal(createPayload.session.host_id, "macbook-1");
   assert.equal(createPayload.session.id, createCommand.session_id);
+  assert.equal(createPayload.session.status, "running");
 
   const sessionId = createPayload.session.id;
   assert.equal(
@@ -387,7 +388,7 @@ test("relay persists companion ack errors onto the failed session", async (t) =>
   const auditLogCount = runtime.db
     .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'session.create' AND session_id = ?")
     .get(failedSession.id);
-  assert.deepEqual(auditLogCount, { count: 0 });
+  assert.deepEqual(auditLogCount, { count: 1 });
 
   companion.close();
 });

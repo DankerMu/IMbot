@@ -31,6 +31,12 @@ THEN an audit log entry is inserted with:
 - `session_id`: the session's id
 - `detail`: JSON containing `previous_status` (running)
 
+#### Scenario: cancel race resolved by provider terminal event
+
+WHEN `POST /v1/sessions/:id/cancel` races with a provider `session_result` or `session_error`
+AND the provider terminal event wins
+THEN no `session.cancel` audit log entry is inserted
+
 #### Scenario: session.delete audit entry
 
 WHEN a session is deleted via `DELETE /v1/sessions/:id`

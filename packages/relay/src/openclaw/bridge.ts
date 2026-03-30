@@ -141,21 +141,12 @@ export class OpenClawBridge {
       throw new RelayError("provider_unreachable", "OpenClaw gateway is offline");
     }
 
-    try {
-      await this.request("session.resume", {
-        relay_session_id: relaySessionId,
-        session_id: relaySessionId,
-        session_key: openClawSessionKey,
-        sessionKey: openClawSessionKey
-      });
-    } catch (error) {
-      if (this.isUnsupportedMethod(error)) {
-        this.setSessionMapping(relaySessionId, openClawSessionKey);
-        return;
-      }
-
-      throw error;
-    }
+    await this.request("session.resume", {
+      relay_session_id: relaySessionId,
+      session_id: relaySessionId,
+      session_key: openClawSessionKey,
+      sessionKey: openClawSessionKey
+    });
 
     this.setSessionMapping(relaySessionId, openClawSessionKey);
   }

@@ -8,7 +8,7 @@ import test from "node:test";
 const require = createRequire(import.meta.url);
 const relay = require("../../packages/relay/dist/index.js");
 
-test("relay reports openclaw offline and fails openclaw session creation when gateway is unavailable", async (t) => {
+test("relay reports openclaw offline and rejects openclaw session creation before inserting a session", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-openclaw-offline-"));
   const config = relay.loadConfig({
     RELAY_STATIC_TOKEN: "t".repeat(64),
@@ -53,21 +53,8 @@ test("relay reports openclaw offline and fails openclaw session creation when ga
   assert.equal(createResponse.statusCode, 502);
   assert.deepEqual(createResponse.json(), { error: "provider_unreachable" });
 
-  const failedSession = runtime.db
-    .prepare(
-      `
-      SELECT provider, host_id, status, error_code
-      FROM sessions
-      ORDER BY created_at DESC
-      LIMIT 1
-      `
-    )
-    .get();
-
-  assert.deepEqual(failedSession, {
-    provider: "openclaw",
-    host_id: "relay-local",
-    status: "failed",
-    error_code: "provider_unreachable"
+  const sessionCount = runtime.db.prepare("SELECT COUNT(*) AS count FROM sessions").get();
+  assert.deepEqual(sessionCount, {
+    count: 0
   });
 });

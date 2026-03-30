@@ -73,7 +73,7 @@ THEN the response is `404` with `{ "error": "not_found" }`
 
 ### Requirement: Create Session
 
-`POST /v1/sessions` SHALL create a new session, insert it into the database with status `queued`, and dispatch the create command to the appropriate companion or bridge.
+`POST /v1/sessions` SHALL create a new session, insert it into the database with status `queued`, dispatch the create command to the appropriate companion or bridge, and return the updated session after a successful startup ack.
 
 #### Scenario: POST /sessions success
 
@@ -82,7 +82,8 @@ AND the target host is online
 AND the provider is available on that host
 THEN a new session record is inserted with `status: "queued"`
 AND a `create_session` command is dispatched to the companion (or bridge for openclaw)
-AND the response is `201` with the session object
+AND on ack ok, the session status changes to `running`
+AND the response is `201` with the updated session object
 
 #### Scenario: POST /sessions host offline
 
@@ -144,6 +145,13 @@ AND the session's host is offline
 THEN the response is `502` with `{ "error": "host_offline" }`
 AND the session status is unchanged
 
+#### Scenario: POST /sessions/:id/resume provider unavailable
+
+WHEN `POST /v1/sessions/:id/resume` is called for an OpenClaw session
+AND the OpenClaw gateway is offline or rejects the resume request
+THEN the response is `502` with `{ "error": "provider_unreachable" }`
+AND the session status is unchanged
+
 ---
 
 ### Requirement: Send Message to Session
@@ -170,11 +178,17 @@ WHEN `POST /v1/sessions/:id/message` is called
 AND the host is offline
 THEN the response is `502` with `{ "error": "host_offline" }`
 
+#### Scenario: POST /sessions/:id/message provider unavailable
+
+WHEN `POST /v1/sessions/:id/message` is called for an OpenClaw session
+AND the OpenClaw gateway is offline
+THEN the response is `502` with `{ "error": "provider_unreachable" }`
+
 ---
 
 ### Requirement: Cancel Session
 
-`POST /v1/sessions/:id/cancel` SHALL cancel a running session by sending a cancel command and transitioning to `cancelled`.
+`POST /v1/sessions/:id/cancel` SHALL send a cancel command for a running session. If the provider reports a terminal result before the cancel flow completes, the provider terminal state SHALL win over a local `cancelled` transition.
 
 #### Scenario: POST /sessions/:id/cancel success
 
@@ -183,6 +197,15 @@ AND the session is in `running` state
 THEN a `cancel_session` command is dispatched
 AND the session status changes to `cancelled`
 AND the response is `200` with the updated session object
+
+#### Scenario: POST /sessions/:id/cancel races with provider terminal event
+
+WHEN `POST /v1/sessions/:id/cancel` is called
+AND the session is in `running` state
+AND the provider emits `session_result` or `session_error` before the cancel flow completes
+THEN the response is `200` with the provider terminal session object
+AND the session status remains `completed` or `failed`
+AND the relay does not overwrite the session to `cancelled`
 
 #### Scenario: POST /sessions/:id/cancel not cancellable
 
@@ -199,6 +222,7 @@ THEN the response is `409` with `{ "error": "state_conflict" }`
 #### Scenario: DELETE /sessions/:id success
 
 WHEN `DELETE /v1/sessions/:id` is called with a valid session id
+AND the session is in `completed`, `failed`, or `cancelled` state
 THEN the session record is deleted from the database
 AND all associated `session_events` records are deleted (ON DELETE CASCADE)
 AND the response is `204` with no body
@@ -207,6 +231,13 @@ AND the response is `204` with no body
 
 WHEN `DELETE /v1/sessions/:id` is called with a non-existent id
 THEN the response is `404` with `{ "error": "not_found" }`
+
+#### Scenario: DELETE /sessions/:id active session
+
+WHEN `DELETE /v1/sessions/:id` is called
+AND the session is in `queued` or `running` state
+THEN the response is `409` with `{ "error": "state_conflict" }`
+AND the session record remains unchanged
 
 ---
 

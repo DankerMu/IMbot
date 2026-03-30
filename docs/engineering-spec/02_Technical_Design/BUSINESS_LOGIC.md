@@ -12,7 +12,7 @@
 | `queued` | 30s timeout | `failed` | — | emit `session_error` (timeout), FCM push |
 | `running` | runtime 正常结束 | `completed` | — | emit `session_result`, FCM push |
 | `running` | runtime error | `failed` | — | emit `session_error`, FCM push |
-| `running` | `POST /cancel` | `cancelled` | — | send cancel command, emit status change |
+| `running` | `POST /cancel` | `cancelled` / provider terminal (`completed` or `failed`) | — | send cancel command; if provider terminal event wins the race, preserve provider terminal state |
 | `running` | companion 断开 | `failed` | — | emit `session_error` (host_disconnected) |
 | `completed` | `POST /resume` | `running` | host online | 发送 resume command |
 | `failed` | `POST /resume` | `running` | host online + error 可恢复 | 发送 resume command |
@@ -20,6 +20,11 @@
 | `*` (inactive 30d) | purge job | 删除 | — | CASCADE 删除 events |
 
 ### Implementation Pseudocode
+
+Cancel 特殊规则：
+- relay 在 `POST /cancel` 窗口内仍然接受 provider 终态事件。
+- 如果 provider 在 cancel ack 完成前先发送 `session_result` / `session_error`，则 provider 终态胜出，API 返回该终态 session。
+- 只有 relay 实际把 session 转成 `cancelled` 时，才写入 `session.cancel` audit。
 
 ```typescript
 async function transitionSession(sessionId: string, newStatus: SessionStatus, context?: any) {

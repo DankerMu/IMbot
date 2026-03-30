@@ -133,8 +133,9 @@ These are intentionally separated from per-PR blockers because they are slower a
 | E2E-03 | 断线恢复       | 断开网络 60s → 恢复 → events 自动补拉 → UI 一致                         |
 | E2E-04 | Host offline   | 断开 companion → Android 看到 "MacBook offline" → 重连后恢复            |
 | E2E-05 | 多 provider    | 同时创建 Claude + OpenClaw session → 各自独立运行                       |
-| E2E-06 | 取消 session   | 创建 running session → 取消 → status=cancelled                          |
+| E2E-06 | 取消 session   | 创建 running session → 取消 → 正常情况下 status=cancelled               |
 | E2E-07 | Markdown 渲染  | 收到含代码块的 assistant_message → 语法高亮正确                         |
+| E2E-08 | 取消竞态       | running session 发 cancel，同时 provider 先结束 → 返回 provider 终态，且不写 `session.cancel` audit |
 
 ## Performance Tests
 
