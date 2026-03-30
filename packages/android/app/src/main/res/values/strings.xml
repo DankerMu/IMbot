@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">IMbot</string>
+    <string name="main_title">IMbot Prototype</string>
+    <string name="settings_section_title">Relay Settings</string>
+    <string name="relay_url_label">Relay URL</string>
+    <string name="token_label">Token</string>
+    <string name="save_settings">Save And Reconnect</string>
+    <string name="connection_not_configured">Not configured</string>
+    <string name="connection_connecting">Connecting</string>
+    <string name="connection_connected">Connected</string>
+    <string name="connection_disconnected">Disconnected</string>
+    <string name="prototype_inputs_title">Prototype Session Inputs</string>
+    <string name="provider_label">Provider</string>
+    <string name="provider_claude">Claude</string>
+    <string name="host_id_label">Host ID</string>
+    <string name="cwd_label">Working Directory</string>
+    <string name="prompt_label">Prompt</string>
+    <string name="create_session">Create Session</string>
+    <string name="creating_session">Creating…</string>
+    <string name="current_session">Current session: %1$s</string>
+    <string name="event_stream_title">Event Stream</string>
+    <string name="waiting_for_events">Waiting for events…</string>
+</resources>

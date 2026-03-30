@@ -1,9 +1,9 @@
 {
   "node_static": true,
   "node_integration": true,
-  "android_static": false,
+  "android_static": true,
   "android_instrumented": false,
   "nightly_system": false,
   "codeql_javascript_typescript": false,
-  "codeql_kotlin": false
+  "codeql_kotlin": true
 }
