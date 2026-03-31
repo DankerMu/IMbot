@@ -15,8 +15,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
-import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.TestCoroutineScheduler
+import kotlinx.coroutines.test.TestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -39,19 +39,20 @@ class NewSessionViewModelTest {
     val mainDispatcherRule = MainDispatcherRule()
 
     @Test
-    fun `init loads hosts automatically`() = runTest(mainDispatcherRule.dispatcher) {
-        val hosts = onlineHosts()
-        val relay = FakeRelayHttpClient().apply { hostsResult = Result.success(hosts) }
+    fun `init loads hosts automatically`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val hosts = onlineHosts()
+            val relay = FakeRelayHttpClient().apply { hostsResult = Result.success(hosts) }
 
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
 
-        advanceUntilIdle()
+            advanceUntilIdle()
 
-        assertEquals(1, relay.getHostsCalls)
-        assertEquals(hosts, viewModel.uiState.value.hosts)
-        assertFalse(viewModel.uiState.value.isLoadingHosts)
-        assertNull(viewModel.uiState.value.error)
-    }
+            assertEquals(1, relay.getHostsCalls)
+            assertEquals(hosts, viewModel.uiState.value.hosts)
+            assertFalse(viewModel.uiState.value.isLoadingHosts)
+            assertNull(viewModel.uiState.value.error)
+        }
 
     @Test
     fun `selectProvider updates provider and hostId resets directory state`() =
@@ -113,391 +114,404 @@ class NewSessionViewModelTest {
         }
 
     @Test
-    fun `loadRoots fetches and filters roots for book provider`() = runTest(mainDispatcherRule.dispatcher) {
-        val bookRoot = root(id = "book-root", provider = "book", path = "/Users/danker/novel")
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                rootsResult =
-                    Result.success(
-                        listOf(
-                            root(id = "claude-root", provider = "claude", path = "/Users/danker/projects"),
-                            bookRoot,
-                            root(
-                                id = "openclaw-root",
-                                hostId = "relay-local",
-                                provider = "openclaw",
-                                path = "/srv/openclaw",
+    fun `loadRoots fetches and filters roots for book provider`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val bookRoot = root(id = "book-root", provider = "book", path = "/Users/danker/novel")
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    rootsResult =
+                        Result.success(
+                            listOf(
+                                root(id = "claude-root", provider = "claude", path = "/Users/danker/projects"),
+                                bookRoot,
+                                root(
+                                    id = "openclaw-root",
+                                    hostId = "relay-local",
+                                    provider = "openclaw",
+                                    path = "/srv/openclaw",
+                                ),
                             ),
-                        ),
-                    )
-            }
+                        )
+                }
 
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
 
-        viewModel.selectProvider("book", "macbook-1")
-        viewModel.loadRoots()
-        advanceUntilIdle()
+            viewModel.selectProvider("book", "macbook-1")
+            viewModel.loadRoots()
+            advanceUntilIdle()
 
-        assertEquals(1, relay.getHostRootsCalls)
-        assertEquals(listOf(bookRoot), viewModel.uiState.value.roots)
-        assertEquals(listOf("macbook-1"), relay.rootRequests.map(RootRequest::hostId))
-    }
+            assertEquals(1, relay.getHostRootsCalls)
+            assertEquals(listOf(bookRoot), viewModel.uiState.value.roots)
+            assertEquals(listOf("macbook-1"), relay.rootRequests.map(RootRequest::hostId))
+        }
 
     @Test
-    fun `browseDirectory fetches entries and builds breadcrumbs`() = runTest(mainDispatcherRule.dispatcher) {
-        val entries =
-            listOf(
-                entry(name = "src", path = "/Users/danker/projects/src"),
-                entry(name = "docs", path = "/Users/danker/projects/docs"),
+    fun `browseDirectory fetches entries and builds breadcrumbs`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val entries =
+                listOf(
+                    entry(name = "src", path = "/Users/danker/projects/src"),
+                    entry(name = "docs", path = "/Users/danker/projects/docs"),
+                )
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    browseResult = Result.success(BrowseResult(path = "/Users/danker/projects", directories = entries))
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+
+            viewModel.selectProvider("claude", "macbook-1")
+            viewModel.browseDirectory("/Users/danker/projects")
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertEquals("/Users/danker/projects", state.browsePath)
+            assertEquals(entries, state.browseEntries)
+            assertEquals(
+                listOf(
+                    DirectoryBreadcrumb(label = "/", path = "/"),
+                    DirectoryBreadcrumb(label = "Users", path = "/Users"),
+                    DirectoryBreadcrumb(label = "danker", path = "/Users/danker"),
+                    DirectoryBreadcrumb(label = "projects", path = "/Users/danker/projects"),
+                ),
+                state.breadcrumbs,
             )
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                browseResult = Result.success(BrowseResult(path = "/Users/danker/projects", directories = entries))
-            }
-
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-
-        viewModel.selectProvider("claude", "macbook-1")
-        viewModel.browseDirectory("/Users/danker/projects")
-        advanceUntilIdle()
-
-        val state = viewModel.uiState.value
-        assertEquals("/Users/danker/projects", state.browsePath)
-        assertEquals(entries, state.browseEntries)
-        assertEquals(
-            listOf(
-                DirectoryBreadcrumb(label = "/", path = "/"),
-                DirectoryBreadcrumb(label = "Users", path = "/Users"),
-                DirectoryBreadcrumb(label = "danker", path = "/Users/danker"),
-                DirectoryBreadcrumb(label = "projects", path = "/Users/danker/projects"),
-            ),
-            state.breadcrumbs,
-        )
-        assertNull(state.pendingBrowsePath)
-        assertNull(state.directoryError)
-        assertEquals(listOf("/Users/danker/projects"), relay.browseRequests.map(BrowseRequest::path))
-    }
+            assertNull(state.pendingBrowsePath)
+            assertNull(state.directoryError)
+            assertEquals(listOf("/Users/danker/projects"), relay.browseRequests.map(BrowseRequest::path))
+        }
 
     @Test
-    fun `selectDirectory sets cwd`() = runTest(mainDispatcherRule.dispatcher) {
-        val viewModel = NewSessionViewModel(FakeRelayHttpClient(), FakeSettingsRepository())
-        advanceUntilIdle()
+    fun `selectDirectory sets cwd`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = NewSessionViewModel(FakeRelayHttpClient(), FakeSettingsRepository())
+            advanceUntilIdle()
 
-        viewModel.selectDirectory("/Users/danker/projects/IMbot")
+            viewModel.selectDirectory("/Users/danker/projects/IMbot")
 
-        assertEquals("/Users/danker/projects/IMbot", viewModel.uiState.value.cwd)
-    }
+            assertEquals("/Users/danker/projects/IMbot", viewModel.uiState.value.cwd)
+        }
 
     @Test
-    fun `goToStep navigates and triggers appropriate loads`() = runTest(mainDispatcherRule.dispatcher) {
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                rootsResult =
-                    Result.success(
-                        listOf(
-                            root(
-                                id = "claude-root",
-                                provider = "claude",
+    fun `goToStep navigates and triggers appropriate loads`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    rootsResult =
+                        Result.success(
+                            listOf(
+                                root(
+                                    id = "claude-root",
+                                    provider = "claude",
+                                    path = "/Users/danker/projects",
+                                ),
+                            ),
+                        )
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+
+            viewModel.goToStep(1)
+            advanceUntilIdle()
+            assertEquals(1, viewModel.uiState.value.step)
+            assertEquals(1, relay.getHostRootsCalls)
+
+            viewModel.goToStep(2)
+            advanceUntilIdle()
+            assertEquals(2, viewModel.uiState.value.step)
+            assertEquals(1, relay.getHostRootsCalls)
+
+            viewModel.goToStep(0)
+            advanceUntilIdle()
+            assertEquals(0, viewModel.uiState.value.step)
+            assertEquals(2, relay.getHostsCalls)
+        }
+
+    @Test
+    fun `createSession succeeds and emits SessionCreated event`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    createSessionResult = Result.success(SessionResponse(sessionId = "session-123", rawJson = "{}"))
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+            viewModel.selectDirectory("/Users/danker/projects")
+            viewModel.updatePrompt("  Analyze this repository  ")
+            viewModel.updateModel("opus")
+
+            val eventDeferred = backgroundScope.async { viewModel.events.first() }
+
+            viewModel.createSession()
+            advanceUntilIdle()
+
+            assertEquals(NewSessionEvent.SessionCreated("session-123"), eventDeferred.await())
+            assertEquals(
+                CreateSessionRequest(
+                    relayUrl = "https://relay.example.com",
+                    token = "test-token",
+                    provider = "claude",
+                    hostId = "macbook-1",
+                    cwd = "/Users/danker/projects",
+                    prompt = "Analyze this repository",
+                    permissionMode = "bypassPermissions",
+                    model = "opus",
+                ),
+                relay.lastCreateSessionRequest,
+            )
+            assertFalse(viewModel.uiState.value.isCreating)
+            assertNull(viewModel.uiState.value.error)
+        }
+
+    @Test
+    fun `all providers offline shows disabled state with no selection`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val offlineHosts =
+                listOf(
+                    host(id = "macbook-1", status = "offline", providers = listOf("claude", "book")),
+                    host(id = "relay-local", type = "relay", status = "offline", providers = listOf("openclaw")),
+                )
+            val relay = FakeRelayHttpClient().apply { hostsResult = Result.success(offlineHosts) }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertEquals(offlineHosts, state.hosts)
+            assertNull(state.provider)
+            assertNull(state.hostId)
+            assertFalse(canMoveNext(state))
+        }
+
+    @Test
+    fun `empty roots list renders empty state`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    rootsResult = Result.success(emptyList())
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+
+            viewModel.loadRoots()
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertTrue(state.roots.isEmpty())
+            assertTrue(state.browseEntries.isEmpty())
+            assertNull(state.directoryError)
+            assertFalse(state.isLoadingRoots)
+        }
+
+    @Test
+    fun `empty browse results renders empty state`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    browseResult = Result.success(BrowseResult(path = "/Users/danker/projects", directories = emptyList()))
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+
+            viewModel.browseDirectory("/Users/danker/projects")
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertEquals("/Users/danker/projects", state.browsePath)
+            assertTrue(state.browseEntries.isEmpty())
+            assertNull(state.directoryError)
+        }
+
+    @Test
+    fun `browse result capped at 200 entries with truncation message`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    browseResult =
+                        Result.success(
+                            BrowseResult(
                                 path = "/Users/danker/projects",
+                                directories =
+                                    (1..205).map { index ->
+                                        entry(name = "dir-$index", path = "/Users/danker/projects/dir-$index")
+                                    },
                             ),
-                        ),
-                    )
-            }
+                        )
+                }
 
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
 
-        viewModel.goToStep(1)
-        advanceUntilIdle()
-        assertEquals(1, viewModel.uiState.value.step)
-        assertEquals(1, relay.getHostRootsCalls)
+            viewModel.browseDirectory("/Users/danker/projects")
+            advanceUntilIdle()
 
-        viewModel.goToStep(2)
-        advanceUntilIdle()
-        assertEquals(2, viewModel.uiState.value.step)
-        assertEquals(1, relay.getHostRootsCalls)
-
-        viewModel.goToStep(0)
-        advanceUntilIdle()
-        assertEquals(0, viewModel.uiState.value.step)
-        assertEquals(2, relay.getHostsCalls)
-    }
+            val state = viewModel.uiState.value
+            assertEquals(200, state.browseEntries.size)
+            assertNull(state.directoryError)
+            assertEquals("目录条目过多，仅显示前 200 项", state.directoryWarning)
+            assertEquals("dir-200", state.browseEntries.last().name)
+        }
 
     @Test
-    fun `createSession succeeds and emits SessionCreated event`() = runTest(mainDispatcherRule.dispatcher) {
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                createSessionResult = Result.success(SessionResponse(sessionId = "session-123", rawJson = "{}"))
-            }
+    fun `back navigation from step 3 preserves browse state`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val roots = listOf(root(id = "claude-root", provider = "claude", path = "/Users/danker/projects"))
+            val entries = listOf(entry(name = "IMbot", path = "/Users/danker/projects/IMbot"))
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    rootsResult = Result.success(roots)
+                    browseResult = Result.success(BrowseResult(path = "/Users/danker/projects", directories = entries))
+                }
 
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
-        viewModel.selectDirectory("/Users/danker/projects")
-        viewModel.updatePrompt("  Analyze this repository  ")
-        viewModel.updateModel("opus")
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+            viewModel.goToStep(1)
+            advanceUntilIdle()
+            viewModel.browseDirectory("/Users/danker/projects")
+            advanceUntilIdle()
+            viewModel.selectDirectory("/Users/danker/projects")
+            val rootsCallsBeforeBack = relay.getHostRootsCalls
 
-        val eventDeferred = backgroundScope.async { viewModel.events.first() }
+            viewModel.goToStep(2)
+            advanceUntilIdle()
+            viewModel.goToStep(1)
+            advanceUntilIdle()
 
-        viewModel.createSession()
-        advanceUntilIdle()
-
-        assertEquals(NewSessionEvent.SessionCreated("session-123"), eventDeferred.await())
-        assertEquals(
-            CreateSessionRequest(
-                relayUrl = "https://relay.example.com",
-                token = "test-token",
-                provider = "claude",
-                hostId = "macbook-1",
-                cwd = "/Users/danker/projects",
-                prompt = "Analyze this repository",
-                permissionMode = "bypassPermissions",
-                model = "opus",
-            ),
-            relay.lastCreateSessionRequest,
-        )
-        assertFalse(viewModel.uiState.value.isCreating)
-        assertNull(viewModel.uiState.value.error)
-    }
-
-    @Test
-    fun `all providers offline shows disabled state with no selection`() = runTest(mainDispatcherRule.dispatcher) {
-        val offlineHosts =
-            listOf(
-                host(id = "macbook-1", status = "offline", providers = listOf("claude", "book")),
-                host(id = "relay-local", type = "relay", status = "offline", providers = listOf("openclaw")),
+            val state = viewModel.uiState.value
+            assertEquals(1, state.step)
+            assertEquals("/Users/danker/projects", state.browsePath)
+            assertEquals(entries, state.browseEntries)
+            assertEquals(
+                listOf(
+                    DirectoryBreadcrumb(label = "/", path = "/"),
+                    DirectoryBreadcrumb(label = "Users", path = "/Users"),
+                    DirectoryBreadcrumb(label = "danker", path = "/Users/danker"),
+                    DirectoryBreadcrumb(label = "projects", path = "/Users/danker/projects"),
+                ),
+                state.breadcrumbs,
             )
-        val relay = FakeRelayHttpClient().apply { hostsResult = Result.success(offlineHosts) }
-
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-
-        val state = viewModel.uiState.value
-        assertEquals(offlineHosts, state.hosts)
-        assertNull(state.provider)
-        assertNull(state.hostId)
-        assertFalse(canMoveNext(state))
-    }
+            assertEquals("/Users/danker/projects", state.cwd)
+            assertEquals(rootsCallsBeforeBack, relay.getHostRootsCalls)
+        }
 
     @Test
-    fun `empty roots list renders empty state`() = runTest(mainDispatcherRule.dispatcher) {
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                rootsResult = Result.success(emptyList())
-            }
-
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
-
-        viewModel.loadRoots()
-        advanceUntilIdle()
-
-        val state = viewModel.uiState.value
-        assertTrue(state.roots.isEmpty())
-        assertTrue(state.browseEntries.isEmpty())
-        assertNull(state.directoryError)
-        assertFalse(state.isLoadingRoots)
-    }
-
-    @Test
-    fun `empty browse results renders empty state`() = runTest(mainDispatcherRule.dispatcher) {
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                browseResult = Result.success(BrowseResult(path = "/Users/danker/projects", directories = emptyList()))
-            }
-
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
-
-        viewModel.browseDirectory("/Users/danker/projects")
-        advanceUntilIdle()
-
-        val state = viewModel.uiState.value
-        assertEquals("/Users/danker/projects", state.browsePath)
-        assertTrue(state.browseEntries.isEmpty())
-        assertNull(state.directoryError)
-    }
-
-    @Test
-    fun `browse result capped at 200 entries with truncation message`() = runTest(mainDispatcherRule.dispatcher) {
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                browseResult =
-                    Result.success(
-                        BrowseResult(
-                            path = "/Users/danker/projects",
-                            directories =
-                                (1..205).map { index ->
-                                    entry(name = "dir-$index", path = "/Users/danker/projects/dir-$index")
-                                },
-                        ),
-                    )
-            }
-
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
-
-        viewModel.browseDirectory("/Users/danker/projects")
-        advanceUntilIdle()
-
-        val state = viewModel.uiState.value
-        assertEquals(200, state.browseEntries.size)
-        assertNull(state.directoryError)
-        assertEquals("目录条目过多，仅显示前 200 项", state.directoryWarning)
-        assertEquals("dir-200", state.browseEntries.last().name)
-    }
-
-    @Test
-    fun `back navigation from step 3 preserves browse state`() = runTest(mainDispatcherRule.dispatcher) {
-        val roots = listOf(root(id = "claude-root", provider = "claude", path = "/Users/danker/projects"))
-        val entries = listOf(entry(name = "IMbot", path = "/Users/danker/projects/IMbot"))
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                rootsResult = Result.success(roots)
-                browseResult = Result.success(BrowseResult(path = "/Users/danker/projects", directories = entries))
-            }
-
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
-        viewModel.goToStep(1)
-        advanceUntilIdle()
-        viewModel.browseDirectory("/Users/danker/projects")
-        advanceUntilIdle()
-        viewModel.selectDirectory("/Users/danker/projects")
-        val rootsCallsBeforeBack = relay.getHostRootsCalls
-
-        viewModel.goToStep(2)
-        advanceUntilIdle()
-        viewModel.goToStep(1)
-        advanceUntilIdle()
-
-        val state = viewModel.uiState.value
-        assertEquals(1, state.step)
-        assertEquals("/Users/danker/projects", state.browsePath)
-        assertEquals(entries, state.browseEntries)
-        assertEquals(
-            listOf(
-                DirectoryBreadcrumb(label = "/", path = "/"),
-                DirectoryBreadcrumb(label = "Users", path = "/Users"),
-                DirectoryBreadcrumb(label = "danker", path = "/Users/danker"),
-                DirectoryBreadcrumb(label = "projects", path = "/Users/danker/projects"),
-            ),
-            state.breadcrumbs,
-        )
-        assertEquals("/Users/danker/projects", state.cwd)
-        assertEquals(rootsCallsBeforeBack, relay.getHostRootsCalls)
-    }
-
-    @Test
-    fun `rapid provider switch discards stale responses requestGeneration`() = runTest(mainDispatcherRule.dispatcher) {
-        val firstRoots = CompletableDeferred<Result<List<RelayWorkspaceRoot>>>()
-        val secondRoots = CompletableDeferred<Result<List<RelayWorkspaceRoot>>>()
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                getHostRootsHandler = { _, _, _ ->
-                    when (getHostRootsCalls) {
-                        1 -> firstRoots.await()
-                        2 -> secondRoots.await()
-                        else -> error("Unexpected roots call")
+    fun `rapid provider switch discards stale responses requestGeneration`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val firstRoots = CompletableDeferred<Result<List<RelayWorkspaceRoot>>>()
+            val secondRoots = CompletableDeferred<Result<List<RelayWorkspaceRoot>>>()
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    getHostRootsHandler = { _, _, _ ->
+                        when (getHostRootsCalls) {
+                            1 -> firstRoots.await()
+                            2 -> secondRoots.await()
+                            else -> error("Unexpected roots call")
+                        }
                     }
                 }
-            }
 
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
 
-        viewModel.selectProvider("claude", "macbook-1")
-        viewModel.loadRoots()
-        runCurrent()
+            viewModel.selectProvider("claude", "macbook-1")
+            viewModel.loadRoots()
+            runCurrent()
 
-        viewModel.selectProvider("openclaw", "relay-local")
-        viewModel.loadRoots()
-        runCurrent()
+            viewModel.selectProvider("openclaw", "relay-local")
+            viewModel.loadRoots()
+            runCurrent()
 
-        secondRoots.complete(
-            Result.success(
-                listOf(
-                    root(
-                        id = "openclaw-root",
-                        hostId = "relay-local",
-                        provider = "openclaw",
-                        path = "/srv/openclaw",
+            secondRoots.complete(
+                Result.success(
+                    listOf(
+                        root(
+                            id = "openclaw-root",
+                            hostId = "relay-local",
+                            provider = "openclaw",
+                            path = "/srv/openclaw",
+                        ),
                     ),
                 ),
-            ),
-        )
-        firstRoots.complete(
-            Result.success(
-                listOf(
-                    root(
-                        id = "claude-root",
-                        provider = "claude",
-                        path = "/Users/danker/projects",
+            )
+            firstRoots.complete(
+                Result.success(
+                    listOf(
+                        root(
+                            id = "claude-root",
+                            provider = "claude",
+                            path = "/Users/danker/projects",
+                        ),
                     ),
                 ),
-            ),
-        )
-        advanceUntilIdle()
+            )
+            advanceUntilIdle()
 
-        val state = viewModel.uiState.value
-        assertEquals("openclaw", state.provider)
-        assertEquals("relay-local", state.hostId)
-        assertEquals(
-            listOf(root(id = "openclaw-root", hostId = "relay-local", provider = "openclaw", path = "/srv/openclaw")),
-            state.roots,
-        )
-    }
-
-    @Test
-    fun `loadHosts failure sets error message`() = runTest(mainDispatcherRule.dispatcher) {
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.failure(IllegalStateException("加载主机失败: 网络错误"))
-            }
-
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-
-        assertEquals("加载主机失败: 网络错误", viewModel.uiState.value.error)
-        assertFalse(viewModel.uiState.value.isLoadingHosts)
-    }
+            val state = viewModel.uiState.value
+            assertEquals("openclaw", state.provider)
+            assertEquals("relay-local", state.hostId)
+            assertEquals(
+                listOf(root(id = "openclaw-root", hostId = "relay-local", provider = "openclaw", path = "/srv/openclaw")),
+                state.roots,
+            )
+        }
 
     @Test
-    fun `loadRoots failure sets directoryError message`() = runTest(mainDispatcherRule.dispatcher) {
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                rootsResult = Result.failure(IllegalStateException("目录加载失败"))
-            }
+    fun `loadHosts failure sets error message`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.failure(IllegalStateException("加载主机失败: 网络错误"))
+                }
 
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
 
-        viewModel.loadRoots()
-        advanceUntilIdle()
+            assertEquals("加载主机失败: 网络错误", viewModel.uiState.value.error)
+            assertFalse(viewModel.uiState.value.isLoadingHosts)
+        }
 
-        val state = viewModel.uiState.value
-        assertEquals("目录加载失败", state.directoryError)
-        assertFalse(state.isLoadingRoots)
-        assertNull(state.pendingBrowsePath)
-    }
+    @Test
+    fun `loadRoots failure sets directoryError message`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    rootsResult = Result.failure(IllegalStateException("目录加载失败"))
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+
+            viewModel.loadRoots()
+            advanceUntilIdle()
+
+            val state = viewModel.uiState.value
+            assertEquals("目录加载失败", state.directoryError)
+            assertFalse(state.isLoadingRoots)
+            assertNull(state.pendingBrowsePath)
+        }
 
     @Test
     fun `browseDirectory failure sets directoryError and preserves pendingBrowsePath`() =
@@ -522,195 +536,204 @@ class NewSessionViewModelTest {
         }
 
     @Test
-    fun `createSession failure sets error message`() = runTest(mainDispatcherRule.dispatcher) {
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                createSessionResult = Result.failure(IllegalStateException("创建失败"))
-            }
+    fun `createSession failure sets error message`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    createSessionResult = Result.failure(IllegalStateException("创建失败"))
+                }
 
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
-        viewModel.selectDirectory("/Users/danker/projects")
-        viewModel.updatePrompt("Start")
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+            viewModel.selectDirectory("/Users/danker/projects")
+            viewModel.updatePrompt("Start")
 
-        viewModel.createSession()
-        advanceUntilIdle()
+            viewModel.createSession()
+            advanceUntilIdle()
 
-        assertEquals("创建失败", viewModel.uiState.value.error)
-        assertFalse(viewModel.uiState.value.isCreating)
-    }
-
-    @Test
-    fun `host goes offline before submit shows offline error`() = runTest(mainDispatcherRule.dispatcher) {
-        val onlineHosts = onlineHosts()
-        val refreshedHosts =
-            listOf(
-                host(id = "macbook-1", status = "offline", providers = listOf("claude", "book")),
-                host(id = "relay-local", type = "relay", providers = listOf("openclaw")),
-            )
-        val hostResults = ArrayDeque(listOf(Result.success(onlineHosts), Result.success(refreshedHosts)))
-        val relay =
-            FakeRelayHttpClient().apply {
-                getHostsHandler = { _, _ -> hostResults.removeFirst() }
-            }
-
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
-        viewModel.selectDirectory("/Users/danker/projects")
-        viewModel.updatePrompt("Start")
-
-        viewModel.createSession()
-        advanceUntilIdle()
-
-        assertEquals(providerOfflineMessage("claude"), viewModel.uiState.value.error)
-        assertEquals(0, relay.createSessionCalls)
-    }
+            assertEquals("创建失败", viewModel.uiState.value.error)
+            assertFalse(viewModel.uiState.value.isCreating)
+        }
 
     @Test
-    fun `unconfigured relay settings shows config error`() = runTest(mainDispatcherRule.dispatcher) {
-        val settings = FakeSettingsRepository(RelaySettings(relayUrl = "", token = ""))
-        val relay = FakeRelayHttpClient()
-
-        val viewModel = NewSessionViewModel(relay, settings)
-        advanceUntilIdle()
-
-        assertEquals("请先在设置页完成 Relay 配置", viewModel.uiState.value.error)
-        assertEquals(0, relay.getHostsCalls)
-    }
-
-    @Test
-    fun `double tap createSession ignored when isCreating`() = runTest(mainDispatcherRule.dispatcher) {
-        val createGate = CompletableDeferred<Result<SessionResponse>>()
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                createSessionHandler = { _, _, _, _, _, _, _, _ -> createGate.await() }
-            }
-
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
-        viewModel.selectDirectory("/Users/danker/projects")
-        viewModel.updatePrompt("Start")
-
-        viewModel.createSession()
-        runCurrent()
-        viewModel.createSession()
-        runCurrent()
-
-        assertTrue(viewModel.uiState.value.isCreating)
-        assertEquals(1, relay.createSessionCalls)
-
-        createGate.complete(Result.success(SessionResponse(sessionId = "session-1", rawJson = "{}")))
-        advanceUntilIdle()
-    }
-
-    @Test
-    fun `double loadHosts ignored when isLoadingHosts`() = runTest(mainDispatcherRule.dispatcher) {
-        val hostsGate = CompletableDeferred<Result<List<RelayHost>>>()
-        val relay =
-            FakeRelayHttpClient().apply {
-                getHostsHandler = { _, _ -> hostsGate.await() }
-            }
-
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        runCurrent()
-
-        assertTrue(viewModel.uiState.value.isLoadingHosts)
-        viewModel.loadHosts()
-        runCurrent()
-
-        assertEquals(1, relay.getHostsCalls)
-
-        hostsGate.complete(Result.success(onlineHosts()))
-        advanceUntilIdle()
-    }
-
-    @Test
-    fun `double loadRoots ignored when isLoadingRoots`() = runTest(mainDispatcherRule.dispatcher) {
-        val rootsGate = CompletableDeferred<Result<List<RelayWorkspaceRoot>>>()
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                getHostRootsHandler = { _, _, _ -> rootsGate.await() }
-            }
-
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
-
-        viewModel.loadRoots()
-        runCurrent()
-        assertTrue(viewModel.uiState.value.isLoadingRoots)
-
-        viewModel.loadRoots()
-        runCurrent()
-
-        assertEquals(1, relay.getHostRootsCalls)
-
-        rootsGate.complete(
-            Result.success(
+    fun `host goes offline before submit shows offline error`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val onlineHosts = onlineHosts()
+            val refreshedHosts =
                 listOf(
-                    root(
-                        id = "claude-root",
-                        provider = "claude",
-                        path = "/Users/danker/projects",
+                    host(id = "macbook-1", status = "offline", providers = listOf("claude", "book")),
+                    host(id = "relay-local", type = "relay", providers = listOf("openclaw")),
+                )
+            val hostResults = ArrayDeque(listOf(Result.success(onlineHosts), Result.success(refreshedHosts)))
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getHostsHandler = { _, _ -> hostResults.removeFirst() }
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+            viewModel.selectDirectory("/Users/danker/projects")
+            viewModel.updatePrompt("Start")
+
+            viewModel.createSession()
+            advanceUntilIdle()
+
+            assertEquals(providerOfflineMessage("claude"), viewModel.uiState.value.error)
+            assertEquals(0, relay.createSessionCalls)
+        }
+
+    @Test
+    fun `unconfigured relay settings shows config error`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val settings = FakeSettingsRepository(RelaySettings(relayUrl = "", token = ""))
+            val relay = FakeRelayHttpClient()
+
+            val viewModel = NewSessionViewModel(relay, settings)
+            advanceUntilIdle()
+
+            assertEquals("请先在设置页完成 Relay 配置", viewModel.uiState.value.error)
+            assertEquals(0, relay.getHostsCalls)
+        }
+
+    @Test
+    fun `double tap createSession ignored when isCreating`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val createGate = CompletableDeferred<Result<SessionResponse>>()
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    createSessionHandler = { _, _, _, _, _, _, _, _ -> createGate.await() }
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+            viewModel.selectDirectory("/Users/danker/projects")
+            viewModel.updatePrompt("Start")
+
+            viewModel.createSession()
+            runCurrent()
+            viewModel.createSession()
+            runCurrent()
+
+            assertTrue(viewModel.uiState.value.isCreating)
+            assertEquals(1, relay.createSessionCalls)
+
+            createGate.complete(Result.success(SessionResponse(sessionId = "session-1", rawJson = "{}")))
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun `double loadHosts ignored when isLoadingHosts`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val hostsGate = CompletableDeferred<Result<List<RelayHost>>>()
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getHostsHandler = { _, _ -> hostsGate.await() }
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            runCurrent()
+
+            assertTrue(viewModel.uiState.value.isLoadingHosts)
+            viewModel.loadHosts()
+            runCurrent()
+
+            assertEquals(1, relay.getHostsCalls)
+
+            hostsGate.complete(Result.success(onlineHosts()))
+            advanceUntilIdle()
+        }
+
+    @Test
+    fun `double loadRoots ignored when isLoadingRoots`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val rootsGate = CompletableDeferred<Result<List<RelayWorkspaceRoot>>>()
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    getHostRootsHandler = { _, _, _ -> rootsGate.await() }
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+
+            viewModel.loadRoots()
+            runCurrent()
+            assertTrue(viewModel.uiState.value.isLoadingRoots)
+
+            viewModel.loadRoots()
+            runCurrent()
+
+            assertEquals(1, relay.getHostRootsCalls)
+
+            rootsGate.complete(
+                Result.success(
+                    listOf(
+                        root(
+                            id = "claude-root",
+                            provider = "claude",
+                            path = "/Users/danker/projects",
+                        ),
                     ),
                 ),
-            ),
-        )
-        advanceUntilIdle()
-    }
+            )
+            advanceUntilIdle()
+        }
 
     @Test
-    fun `double browseDirectory ignored when isLoadingBrowse`() = runTest(mainDispatcherRule.dispatcher) {
-        val browseGate = CompletableDeferred<Result<BrowseResult>>()
-        val relay =
-            FakeRelayHttpClient().apply {
-                hostsResult = Result.success(onlineHosts())
-                getBrowseDirectoryHandler = { _, _, _, _ -> browseGate.await() }
-            }
+    fun `double browseDirectory ignored when isLoadingBrowse`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val browseGate = CompletableDeferred<Result<BrowseResult>>()
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    getBrowseDirectoryHandler = { _, _, _, _ -> browseGate.await() }
+                }
 
-        val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
-        advanceUntilIdle()
-        viewModel.selectProvider("claude", "macbook-1")
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
 
-        viewModel.browseDirectory("/Users/danker/projects")
-        runCurrent()
-        assertTrue(viewModel.uiState.value.isLoadingBrowse)
+            viewModel.browseDirectory("/Users/danker/projects")
+            runCurrent()
+            assertTrue(viewModel.uiState.value.isLoadingBrowse)
 
-        viewModel.browseDirectory("/Users/danker/projects/src")
-        runCurrent()
+            viewModel.browseDirectory("/Users/danker/projects/src")
+            runCurrent()
 
-        assertEquals(1, relay.browseDirectoryCalls)
-        assertEquals("/Users/danker/projects", viewModel.uiState.value.pendingBrowsePath)
+            assertEquals(1, relay.browseDirectoryCalls)
+            assertEquals("/Users/danker/projects", viewModel.uiState.value.pendingBrowsePath)
 
-        browseGate.complete(Result.success(BrowseResult(path = "/Users/danker/projects", directories = emptyList())))
-        advanceUntilIdle()
-    }
-
-    @Test
-    fun `updateModel rejects invalid model names`() = runTest(mainDispatcherRule.dispatcher) {
-        val viewModel = NewSessionViewModel(FakeRelayHttpClient(), FakeSettingsRepository())
-        advanceUntilIdle()
-
-        viewModel.updateModel("invalid-model")
-
-        assertEquals("sonnet", viewModel.uiState.value.model)
-    }
+            browseGate.complete(Result.success(BrowseResult(path = "/Users/danker/projects", directories = emptyList())))
+            advanceUntilIdle()
+        }
 
     @Test
-    fun `selectDirectory ignores blank paths`() = runTest(mainDispatcherRule.dispatcher) {
-        val viewModel = NewSessionViewModel(FakeRelayHttpClient(), FakeSettingsRepository())
-        advanceUntilIdle()
+    fun `updateModel rejects invalid model names`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = NewSessionViewModel(FakeRelayHttpClient(), FakeSettingsRepository())
+            advanceUntilIdle()
 
-        viewModel.selectDirectory("   ")
+            viewModel.updateModel("invalid-model")
 
-        assertNull(viewModel.uiState.value.cwd)
-    }
+            assertEquals("sonnet", viewModel.uiState.value.model)
+        }
+
+    @Test
+    fun `selectDirectory ignores blank paths`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = NewSessionViewModel(FakeRelayHttpClient(), FakeSettingsRepository())
+            advanceUntilIdle()
+
+            viewModel.selectDirectory("   ")
+
+            assertNull(viewModel.uiState.value.cwd)
+        }
 
     private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
         var hostsResult: Result<List<RelayHost>> = Result.success(emptyList())
@@ -840,13 +863,9 @@ class NewSessionViewModelTest {
 
         override fun edit(): SharedPreferences.Editor = FakeEditor(values)
 
-        override fun registerOnSharedPreferenceChangeListener(
-            listener: SharedPreferences.OnSharedPreferenceChangeListener?,
-        ) = Unit
+        override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
 
-        override fun unregisterOnSharedPreferenceChangeListener(
-            listener: SharedPreferences.OnSharedPreferenceChangeListener?,
-        ) = Unit
+        override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
     }
 
     private class FakeEditor(
