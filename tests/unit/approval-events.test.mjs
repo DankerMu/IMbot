@@ -6,7 +6,11 @@ import path from "node:path";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
-const relay = require("../../packages/relay/dist/index.js");
+const { initializeDatabase } = require("../../packages/relay/dist/db/init.js");
+const { WsHub } = require("../../packages/relay/dist/ws/hub.js");
+const { CompanionManager } = require("../../packages/relay/dist/companion/manager.js");
+const { SessionOrchestrator } = require("../../packages/relay/dist/session/orchestrator.js");
+const { AuditLogger } = require("../../packages/relay/dist/audit/logger.js");
 const { mapRuntimeEvent } = require("../../packages/companion/dist/runtime/event-mapper.js");
 
 class MockAndroidSocket {
@@ -30,26 +34,43 @@ class MockAndroidSocket {
   close() {}
 }
 
-async function createRelayRuntime(t, prefix) {
+const silentLogger = {
+  debug() {},
+  info() {},
+  warn() {},
+  error() {}
+};
+
+function createTestHarness(t, prefix) {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), prefix));
-  const config = relay.loadConfig({
-    RELAY_STATIC_TOKEN: "t".repeat(64),
-    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
-    RELAY_LOG_LEVEL: "error",
-    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
-  });
-
-  const runtime = await relay.createRelayApp({
+  const db = initializeDatabase(path.join(tempDir, "imbot.db"));
+  const hub = new WsHub(600000);
+  const config = {
+    companionTimeoutMs: 2000,
+    heartbeatIntervalMs: 600000,
+    heartbeatStaleMs: 600000
+  };
+  const companionManager = new CompanionManager(config, db, hub, silentLogger);
+  const auditLogger = new AuditLogger(db, silentLogger);
+  const orchestrator = new SessionOrchestrator(
     config,
-    logger: false
-  });
+    db,
+    hub,
+    companionManager,
+    { sendMessage() {}, cancelSession() {}, isProviderSession() { return false; }, shutdown() {}, connect() {} },
+    auditLogger,
+    { notifySessionEvent() {}, notifyHostOffline() {}, init() {} },
+    silentLogger
+  );
 
-  t.after(async () => {
-    await runtime.close();
+  t.after(() => {
+    companionManager.shutdown();
+    hub.closeAll(1001, "test").catch(() => {});
+    db.close();
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  return runtime;
+  return { db, hub, orchestrator };
 }
 
 function insertRunningSession(db, sessionId) {
@@ -137,12 +158,12 @@ test("mapRuntimeEvent handles minimal approval event with only call_id", () => {
 });
 
 test("relay stores and broadcasts approval events in order without changing session status", async (t) => {
-  const runtime = await createRelayRuntime(t, "imbot-approval-events-");
-  insertRunningSession(runtime.db, "sess-approval");
+  const { db, hub, orchestrator } = createTestHarness(t, "imbot-approval-events-");
+  insertRunningSession(db, "sess-approval");
 
   const socket = new MockAndroidSocket();
-  const clientId = runtime.hub.addAndroidClient(socket);
-  runtime.hub.subscribe(clientId, "sess-approval");
+  const clientId = hub.addAndroidClient(socket);
+  hub.subscribe(clientId, "sess-approval");
 
   const approvalRequiredPayload = {
     call_id: "call-approval-1",
@@ -156,20 +177,20 @@ test("relay stores and broadcasts approval events in order without changing sess
     resolution: "approved"
   };
 
-  await runtime.orchestrator.handleEvent({
+  await orchestrator.handleEvent({
     type: "event",
     session_id: "sess-approval",
     event_type: "approval_required",
     payload: approvalRequiredPayload
   });
-  await runtime.orchestrator.handleEvent({
+  await orchestrator.handleEvent({
     type: "event",
     session_id: "sess-approval",
     event_type: "approval_resolved",
     payload: approvalResolvedPayload
   });
 
-  const storedEvents = runtime.db
+  const storedEvents = db
     .prepare(
       `
       SELECT seq, type, payload
@@ -197,7 +218,7 @@ test("relay stores and broadcasts approval events in order without changing sess
   assert.deepEqual(socket.messages[0].payload, approvalRequiredPayload);
   assert.deepEqual(socket.messages[1].payload, approvalResolvedPayload);
 
-  const session = runtime.db
+  const session = db
     .prepare("SELECT status FROM sessions WHERE id = ?")
     .get("sess-approval");
   assert.deepEqual(session, {
