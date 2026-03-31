@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.imbot.android.ui.newsession
 
 import android.content.SharedPreferences
@@ -322,7 +324,10 @@ class NewSessionViewModelTest {
             val relay =
                 FakeRelayHttpClient().apply {
                     hostsResult = Result.success(onlineHosts())
-                    browseResult = Result.success(BrowseResult(path = "/Users/danker/projects", directories = emptyList()))
+                    browseResult =
+                        Result.success(
+                            BrowseResult(path = "/Users/danker/projects", directories = emptyList()),
+                        )
                 }
 
             val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
@@ -471,7 +476,14 @@ class NewSessionViewModelTest {
             assertEquals("openclaw", state.provider)
             assertEquals("relay-local", state.hostId)
             assertEquals(
-                listOf(root(id = "openclaw-root", hostId = "relay-local", provider = "openclaw", path = "/srv/openclaw")),
+                listOf(
+                    root(
+                        id = "openclaw-root",
+                        hostId = "relay-local",
+                        provider = "openclaw",
+                        path = "/srv/openclaw",
+                    ),
+                ),
                 state.roots,
             )
         }
@@ -709,7 +721,11 @@ class NewSessionViewModelTest {
             assertEquals(1, relay.browseDirectoryCalls)
             assertEquals("/Users/danker/projects", viewModel.uiState.value.pendingBrowsePath)
 
-            browseGate.complete(Result.success(BrowseResult(path = "/Users/danker/projects", directories = emptyList())))
+            browseGate.complete(
+                Result.success(
+                    BrowseResult(path = "/Users/danker/projects", directories = emptyList()),
+                ),
+            )
             advanceUntilIdle()
         }
 
