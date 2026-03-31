@@ -4,6 +4,8 @@ export const EVENT_TYPES = [
   "assistant_message",
   "tool_call_started",
   "tool_call_completed",
+  // Reserved for future approval UI. The backend should preserve and forward them even while
+  // the default product path remains bypassPermissions and Android renders them generically.
   "approval_required",
   "approval_resolved",
   "session_status_changed",

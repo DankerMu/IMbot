@@ -218,6 +218,36 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `approval events render as generic status messages while session stays running`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "approval_required",
+                    payload =
+                        payload(
+                            "call_id" to "call-1",
+                            "tool_name" to "bash",
+                            "description" to "Run a shell command",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            assertEquals("running", viewModel.uiState.value.session?.status)
+            assertTrue(viewModel.uiState.value.canSend)
+            assertStatusChange(
+                viewModel.uiState.value.messages.single(),
+                status = "running",
+                message = "Approval required: Run a shell command",
+            )
+        }
+
+    @Test
     fun `failed status shows error and disables input`() =
         runTest(mainDispatcherRule.dispatcher) {
             val ws = FakeRelayWsClient()

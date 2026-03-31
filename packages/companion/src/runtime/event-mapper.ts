@@ -119,6 +119,15 @@ export function mapRuntimeEvent(raw: unknown): RuntimeMappedMessage | null {
     };
   }
 
+  if (type === "approval_required" || type === "approval_resolved") {
+    const { type: _ignoredType, ...payload } = record;
+    return {
+      kind: "event",
+      eventType: type,
+      payload
+    };
+  }
+
   return null;
 }
 

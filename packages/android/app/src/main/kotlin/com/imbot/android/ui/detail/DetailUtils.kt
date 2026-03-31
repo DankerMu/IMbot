@@ -101,8 +101,39 @@ internal fun messageItemKindForEventType(eventType: String): MessageItemKind? =
         "user_message" -> MessageItemKind.User
         "assistant_delta", "assistant_message" -> MessageItemKind.Agent
         "tool_call_started", "tool_call_completed" -> MessageItemKind.ToolCall
-        "session_status_changed", "session_started", "session_result", "session_error" -> MessageItemKind.StatusChange
+        "session_status_changed",
+        "session_started",
+        "session_result",
+        "session_error",
+        "approval_required",
+        "approval_resolved",
+        -> MessageItemKind.StatusChange
         else -> null
+    }
+
+internal fun approvalStatusMessage(
+    eventType: String,
+    description: String?,
+    toolName: String?,
+): String =
+    buildString {
+        append(
+            when (eventType) {
+                "approval_required" -> "Approval required"
+                "approval_resolved" -> "Approval resolved"
+                else -> eventType
+            },
+        )
+        val detail =
+            when {
+                !description.isNullOrBlank() -> description
+                !toolName.isNullOrBlank() -> toolName
+                else -> null
+            }
+        if (detail != null) {
+            append(": ")
+            append(detail)
+        }
     }
 
 internal fun formatRelativeTimestamp(

@@ -93,6 +93,8 @@ export class SessionOrchestrator {
       workspace_cwd: input.cwd,
       initial_prompt: input.prompt,
       model: input.model ?? null,
+      // FR-10 stays default-off: sessions still default to bypassPermissions, but callers may
+      // opt into a non-default mode and that value must survive intact for the reserved path.
       permission_mode: input.permission_mode ?? "bypassPermissions",
       status: "queued",
       error_message: null,
@@ -603,6 +605,8 @@ export class SessionOrchestrator {
       cwd: session.workspace_cwd,
       prompt: session.initial_prompt ?? "",
       model: session.model ?? undefined,
+      // Preserve non-default modes instead of normalizing them away so the future approval path
+      // can be exercised without changing relay orchestration behavior later.
       permission_mode: session.permission_mode
     };
 

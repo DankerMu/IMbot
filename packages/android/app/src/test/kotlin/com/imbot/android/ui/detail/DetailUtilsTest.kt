@@ -106,6 +106,24 @@ class DetailUtilsTest {
         assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_started"))
         assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_result"))
         assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_error"))
+        assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("approval_required"))
+        assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("approval_resolved"))
+    }
+
+    @Test
+    fun `approval status message stays generic and readable`() {
+        assertEquals(
+            "Approval required: Run a shell command",
+            approvalStatusMessage("approval_required", "Run a shell command", "bash"),
+        )
+        assertEquals(
+            "Approval resolved: bash",
+            approvalStatusMessage("approval_resolved", null, "bash"),
+        )
+        assertEquals(
+            "Approval required",
+            approvalStatusMessage("approval_required", null, null),
+        )
     }
 
     @Test
