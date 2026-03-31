@@ -363,6 +363,55 @@ class EventProcessorTest {
     }
 
     @Test
+    fun `approval events append generic status changes without special UI semantics`() {
+        val required =
+            processor.process(
+                event(
+                    seq = 1,
+                    eventType = "approval_required",
+                    payload =
+                        payload(
+                            "call_id" to "call-1",
+                            "tool_name" to "bash",
+                            "description" to "Run a shell command",
+                        ),
+                ),
+            )
+        val resolved =
+            processor.process(
+                event(
+                    seq = 2,
+                    eventType = "approval_resolved",
+                    payload =
+                        payload(
+                            "call_id" to "call-1",
+                            "tool_name" to "bash",
+                            "description" to "Run a shell command",
+                        ),
+                ),
+            )
+
+        assertEquals(
+            MessageItem.StatusChange(
+                id = "id-1",
+                status = "running",
+                message = "Approval required: Run a shell command",
+                seq = 1,
+            ),
+            required.single(),
+        )
+        assertEquals(
+            MessageItem.StatusChange(
+                id = "id-2",
+                status = "running",
+                message = "Approval resolved: Run a shell command",
+                seq = 2,
+            ),
+            resolved.last(),
+        )
+    }
+
+    @Test
     fun `empty assistant delta is ignored`() {
         val result =
             processor.process(

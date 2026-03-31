@@ -76,6 +76,7 @@ class EventProcessor(
                     message = event.payload.stringValue("message"),
                     seq = event.seq,
                 )
+            "approval_required", "approval_resolved" -> appendApprovalEvent(event)
             "session_error" -> appendSessionError(event)
         }
 
@@ -252,6 +253,19 @@ class EventProcessor(
         appendStatusChange(
             status = "failed",
             message = event.payload.stringValue("message"),
+            seq = event.seq,
+        )
+    }
+
+    private fun appendApprovalEvent(event: ServerMessage.Event) {
+        appendStatusChange(
+            status = "running",
+            message =
+                approvalStatusMessage(
+                    eventType = event.eventType,
+                    description = event.payload.stringValue("description"),
+                    toolName = event.payload.stringValue("tool_name"),
+                ),
             seq = event.seq,
         )
     }

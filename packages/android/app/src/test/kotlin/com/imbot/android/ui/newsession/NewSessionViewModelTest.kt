@@ -276,6 +276,27 @@ class NewSessionViewModelTest {
         }
 
     @Test
+    fun `createSession keeps bypassPermissions as the default permission mode`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    createSessionResult = Result.success(SessionResponse(sessionId = "session-guardrail", rawJson = "{}"))
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+            viewModel.selectDirectory("/Users/danker/projects")
+            viewModel.updatePrompt("Guardrail check")
+
+            viewModel.createSession()
+            advanceUntilIdle()
+
+            assertEquals("bypassPermissions", relay.lastCreateSessionRequest?.permissionMode)
+        }
+
+    @Test
     fun `all providers offline shows disabled state with no selection`() =
         runTest(mainDispatcherRule.dispatcher) {
             val offlineHosts =
