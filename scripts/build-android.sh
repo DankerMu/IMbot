@@ -49,7 +49,7 @@ build_android() {
   print_command "${ANDROID_DIR}/gradlew" assembleDebug
   (
     cd "${ANDROID_DIR}"
-    ./gradlew assembleDebug
+    ./gradlew clean assembleDebug
   )
 }
 

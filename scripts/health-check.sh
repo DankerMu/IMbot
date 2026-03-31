@@ -99,7 +99,7 @@ main() {
   health_url="${relay_url}/healthz"
 
   if [[ "${DRY_RUN}" == "true" ]]; then
-    print_command curl -fsS -H "Authorization: Bearer ${TOKEN}" "${health_url}"
+    print_command curl -fsS -H '"Authorization: Bearer ***"' "${health_url}"
     exit 0
   fi
 

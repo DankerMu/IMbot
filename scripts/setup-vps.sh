@@ -131,6 +131,10 @@ fi
 
 if ! command -v caddy >/dev/null 2>&1; then
   log "Installing Caddy"
+  sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg 2>/dev/null || true
+  curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list >/dev/null
+  sudo apt-get update
   sudo DEBIAN_FRONTEND=noninteractive apt-get install -y caddy
 else
   log "Caddy already installed"
@@ -179,7 +183,7 @@ RELAY_PURGE_DAYS=30
 # WebSocket ping interval in milliseconds.
 RELAY_WS_PING_INTERVAL_MS=30000
 EOF
-  chmod 0640 /opt/imbot/relay/.env
+  chmod 0600 /opt/imbot/relay/.env
 else
   log "/opt/imbot/relay/.env already exists; leaving it unchanged"
 fi
