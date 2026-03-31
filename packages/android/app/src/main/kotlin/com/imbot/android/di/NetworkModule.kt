@@ -1,10 +1,16 @@
 package com.imbot.android.di
 
+import android.content.Context
+import androidx.room.Room
+import com.imbot.android.data.local.AppDatabase
+import com.imbot.android.data.local.SessionDao
+import com.imbot.android.data.repository.SessionRepository
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelayWsClient
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import okhttp3.OkHttpClient
 import javax.inject.Singleton
@@ -26,4 +32,31 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideRelayHttpClient(okHttpClient: OkHttpClient): RelayHttpClient = RelayHttpClient(okHttpClient)
+
+    @Provides
+    @Singleton
+    fun provideAppDatabase(
+        @ApplicationContext context: Context,
+    ): AppDatabase =
+        Room.databaseBuilder(
+            context,
+            AppDatabase::class.java,
+            "imbot.db",
+        ).fallbackToDestructiveMigration().build()
+
+    @Provides
+    fun provideSessionDao(appDatabase: AppDatabase): SessionDao = appDatabase.sessionDao()
+
+    @Provides
+    @Singleton
+    fun provideSessionRepository(
+        sessionDao: SessionDao,
+        relayHttpClient: RelayHttpClient,
+        settingsRepository: com.imbot.android.data.SettingsRepository,
+    ): SessionRepository =
+        SessionRepository(
+            sessionDao = sessionDao,
+            relayHttpClient = relayHttpClient,
+            settingsRepository = settingsRepository,
+        )
 }

@@ -7,12 +7,14 @@ import androidx.activity.compose.setContent
 import androidx.activity.viewModels
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
-import com.imbot.android.ui.MainScreen
+import com.imbot.android.ui.home.HomeViewModel
+import com.imbot.android.ui.navigation.AppNavigation
 import com.imbot.android.viewmodel.MainViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+    private val homeViewModel: HomeViewModel by viewModels()
     private val viewModel: MainViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -20,7 +22,10 @@ class MainActivity : ComponentActivity() {
         setContent {
             MaterialTheme {
                 Surface {
-                    MainScreen(viewModel = viewModel)
+                    AppNavigation(
+                        homeViewModel = homeViewModel,
+                        mainViewModel = viewModel,
+                    )
                 }
             }
         }

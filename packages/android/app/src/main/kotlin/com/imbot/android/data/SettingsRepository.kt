@@ -34,6 +34,20 @@ class SettingsRepository
                 .apply()
         }
 
+        fun loadSessionProviderFilter(): String? =
+            preferences.getString(KEY_SESSION_PROVIDER_FILTER, null)
+                ?.takeIf { it in SUPPORTED_PROVIDER_FILTERS }
+
+        fun saveSessionProviderFilter(provider: String?) {
+            preferences.edit().apply {
+                if (provider.isNullOrBlank()) {
+                    remove(KEY_SESSION_PROVIDER_FILTER)
+                } else {
+                    putString(KEY_SESSION_PROVIDER_FILTER, provider)
+                }
+            }.apply()
+        }
+
         fun loadPendingPushToken(): String? =
             preferences.getString(KEY_PENDING_PUSH_TOKEN, null)
                 ?.takeIf { it.isNotBlank() }
@@ -65,5 +79,8 @@ class SettingsRepository
             const val KEY_RELAY_URL = "relay_url"
             const val KEY_TOKEN = "token"
             const val KEY_PENDING_PUSH_TOKEN = "pending_push_token"
+            const val KEY_SESSION_PROVIDER_FILTER = "session_provider_filter"
+
+            val SUPPORTED_PROVIDER_FILTERS = setOf("claude", "book", "openclaw")
         }
     }
