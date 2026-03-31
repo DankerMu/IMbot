@@ -63,3 +63,48 @@
 - [ ] 8.4 Implement tool call lifecycle: `tool_call_started` creates ToolCall(isRunning=true), `tool_call_completed` updates it
 - [ ] 8.5 Implement session event subscription: on screen enter, subscribe to WS events for the session; on exit, unsubscribe
 - [ ] 8.6 Implement catch-up on reconnect: after WS reconnect, call `GET /v1/sessions/:id/events?since_seq=` and merge into message list
+
+## Unit Tests: EventProcessor
+
+- [ ] 9.1 `user_message` event → generates `UserMessage` with correct text and timestamp
+- [ ] 9.2 Single `assistant_delta` → creates new `AgentMessage(isStreaming=true)` with delta content
+- [ ] 9.3 Consecutive `assistant_delta` events → aggregate into single `AgentMessage`, content accumulates
+- [ ] 9.4 `assistant_message` after deltas → replaces streaming `AgentMessage` with finalized version (isStreaming=false)
+- [ ] 9.5 `assistant_delta` after finalized message → starts a new `AgentMessage` (new agent turn)
+- [ ] 9.6 `tool_call_started` → appends `ToolCall(isRunning=true)` with toolName, args
+- [ ] 9.7 `tool_call_completed` → updates matching `ToolCall` to isRunning=false with result
+- [ ] 9.8 Mixed event sequence: user → deltas → tool_started → tool_completed → deltas → finalize → produces correct MessageItem list
+- [ ] 9.9 `session_status_changed` → appends `StatusChange` with correct status
+- [ ] 9.10 `session_error` → appends `StatusChange(failed)` with error message
+- [ ] 9.11 Empty delta text → ignored, no empty AgentMessage created
+- [ ] 9.12 Duplicate seq numbers → idempotent, no duplicate messages
+
+## Unit Tests: DetailViewModel
+
+- [ ] 10.1 init with sessionId → loads session info and subscribes to WS events
+- [ ] 10.2 WS event stream → messages list updates correctly via EventProcessor
+- [ ] 10.3 sendMessage → optimistic UserMessage added to list + API call; on failure → error + remove optimistic message
+- [ ] 10.4 cancelSession → sets cancelling state + API call; on success → status update; on failure → error
+- [ ] 10.5 deleteSession → API call + navigates back on success; on failure → error
+- [ ] 10.6 Session status transitions: running→completed disables InputBar (canSend=false)
+- [ ] 10.7 Session status transitions: running→failed shows error message and disables InputBar
+- [ ] 10.8 Network failure on loadSession → error state with retry
+- [ ] 10.9 WS disconnect → isConnected=false; reconnect → catch-up events merge without duplicates
+- [ ] 10.10 Double-tap sendMessage guard: ignore when previous send is in-flight
+- [ ] 10.11 clearError dismisses error state
+
+## Unit Tests: Auto-Scroll State Machine
+
+- [ ] 11.1 Initial state: autoScroll=true, newMsgCount=0, fabVisible=false
+- [ ] 11.2 New message while autoScroll=true → triggers scrollToBottom
+- [ ] 11.3 User scrolls >100dp from bottom → autoScroll=false, fabVisible=true
+- [ ] 11.4 New message while paused → newMsgCount increments, no auto-scroll
+- [ ] 11.5 FAB tap → scrollToBottom, autoScroll=true, newMsgCount=0, fabVisible=false
+- [ ] 11.6 Manual scroll back to within 100dp of bottom → auto-resume: autoScroll=true, fabVisible=false
+
+## Unit Tests: Pure Utility Functions
+
+- [ ] 12.1 Status-to-color mapping: running=green, completed=green, failed=red, cancelled=gray, queued=gray
+- [ ] 12.2 Session status → InputBar placeholder text mapping
+- [ ] 12.3 Event type → MessageItem type mapping (all event types)
+- [ ] 12.4 Relative timestamp formatting (just now, minutes ago, hours ago, date)
