@@ -5,6 +5,7 @@ import androidx.room.Room
 import com.imbot.android.data.local.AppDatabase
 import com.imbot.android.data.local.SessionDao
 import com.imbot.android.data.repository.SessionRepository
+import com.imbot.android.data.repository.SessionStore
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelayWsClient
 import dagger.Module
@@ -61,4 +62,8 @@ object NetworkModule {
             relayHttpClient = relayHttpClient,
             settingsRepository = settingsRepository,
         )
+
+    @Provides
+    @Singleton
+    fun provideSessionStore(sessionRepository: SessionRepository): SessionStore = sessionRepository
 }

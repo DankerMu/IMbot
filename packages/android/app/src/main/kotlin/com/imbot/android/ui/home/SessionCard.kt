@@ -56,6 +56,7 @@ fun SessionCard(
     session: SessionEntity,
     onClick: () -> Unit,
     onDelete: () -> Unit,
+    allowDelete: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
@@ -63,7 +64,7 @@ fun SessionCard(
     val dismissState =
         rememberSwipeToDismissBoxState(
             confirmValueChange = { value ->
-                if (value == SwipeToDismissBoxValue.EndToStart) {
+                if (allowDelete && value == SwipeToDismissBoxValue.EndToStart) {
                     showDeleteDialog = true
                 }
                 false
@@ -106,8 +107,11 @@ fun SessionCard(
     SwipeToDismissBox(
         state = dismissState,
         enableDismissFromStartToEnd = false,
+        enableDismissFromEndToStart = allowDelete,
         backgroundContent = {
-            DeleteBackground()
+            if (allowDelete) {
+                DeleteBackground()
+            }
         },
         modifier = modifier,
     ) {
@@ -119,7 +123,9 @@ fun SessionCard(
                         .combinedClickable(
                             onClick = onClick,
                             onLongClick = {
-                                showContextMenu = true
+                                if (allowDelete) {
+                                    showContextMenu = true
+                                }
                             },
                         ),
                 colors =
@@ -191,24 +197,26 @@ fun SessionCard(
                     showContextMenu = false
                 },
             ) {
-                DropdownMenuItem(
-                    text = {
-                        Text("归档")
-                    },
-                    onClick = {
-                        showContextMenu = false
-                        showDeleteDialog = true
-                    },
-                )
-                DropdownMenuItem(
-                    text = {
-                        Text("删除")
-                    },
-                    onClick = {
-                        showContextMenu = false
-                        showDeleteDialog = true
-                    },
-                )
+                if (allowDelete) {
+                    DropdownMenuItem(
+                        text = {
+                            Text("归档")
+                        },
+                        onClick = {
+                            showContextMenu = false
+                            showDeleteDialog = true
+                        },
+                    )
+                    DropdownMenuItem(
+                        text = {
+                            Text("删除")
+                        },
+                        onClick = {
+                            showContextMenu = false
+                            showDeleteDialog = true
+                        },
+                    )
+                }
             }
         }
     }

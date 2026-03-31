@@ -5,6 +5,7 @@ import com.imbot.android.data.SettingsRepository
 import com.imbot.android.data.local.AppDatabase
 import com.imbot.android.data.local.SessionDao
 import com.imbot.android.data.local.SessionEntity
+import com.imbot.android.data.local.escapeSqlLikePattern
 import com.imbot.android.data.relayValidationError
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelaySession
@@ -21,11 +22,20 @@ class SessionRepository
         private val sessionDao: SessionDao,
         private val relayHttpClient: RelayHttpClient,
         private val settingsRepository: SettingsRepository,
-    ) {
+    ) : SessionStore {
         fun getSessions(): Flow<List<SessionEntity>> = sessionDao.getAll()
+
+        override fun getSessionsByPathPrefix(pathPrefix: String): Flow<List<SessionEntity>> =
+            sessionDao.getByPathPrefix(
+                prefix = pathPrefix,
+                escapedPrefix = pathPrefix.escapeSqlLikePattern(),
+            )
 
         suspend fun refreshFromApi() {
             val settings = settingsRepository.load()
+            if (!settings.isConfigured()) {
+                return
+            }
             val relayValidationError = settings.relayValidationError()
             require(relayValidationError == null) { relayValidationError.orEmpty() }
 
@@ -78,6 +88,12 @@ class SessionRepository
                 sessionId = sessionId,
             ).getOrThrow()
             sessionDao.deleteById(sessionId)
+        }
+
+        override suspend fun clearLocalCache() {
+            database.withTransaction {
+                sessionDao.deleteAll()
+            }
         }
     }
 

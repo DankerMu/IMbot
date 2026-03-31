@@ -13,6 +13,7 @@ import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import org.json.JSONObject
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.coroutines.resume
@@ -56,6 +57,7 @@ data class RelayWorkspaceRoot(
     val provider: String,
     val path: String,
     val label: String?,
+    val createdAt: String,
 )
 
 data class BrowseResult(
@@ -67,6 +69,24 @@ data class BrowseEntry(
     val name: String,
     val path: String,
 )
+
+data class HealthzResponse(
+    val version: String,
+    val hosts: List<HealthzHost>,
+)
+
+data class HealthzHost(
+    val id: String,
+    val name: String,
+    val type: String,
+    val status: String,
+)
+
+class RelayApiException(
+    val statusCode: Int,
+    val code: String?,
+    override val message: String,
+) : IllegalStateException(message)
 
 private data class RelayErrorResponse(
     val code: String,
@@ -80,6 +100,15 @@ open class RelayHttpClient
     constructor(
         private val okHttpClient: OkHttpClient,
     ) {
+        private val healthCheckClient: OkHttpClient by lazy {
+            okHttpClient.newBuilder()
+                .callTimeout(10, TimeUnit.SECONDS)
+                .connectTimeout(10, TimeUnit.SECONDS)
+                .readTimeout(10, TimeUnit.SECONDS)
+                .writeTimeout(10, TimeUnit.SECONDS)
+                .build()
+        }
+
         open suspend fun getHosts(
             relayUrl: String,
             token: String,
@@ -101,7 +130,7 @@ open class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            error(buildRelayErrorMessage(response, bodyText, "Load hosts"))
+                            throw relayFailure(response, bodyText, "Load hosts")
                         }
 
                         val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
@@ -143,7 +172,7 @@ open class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            error(buildRelayErrorMessage(response, bodyText, "Load workspace roots"))
+                            throw relayFailure(response, bodyText, "Load workspace roots")
                         }
 
                         val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
@@ -187,7 +216,7 @@ open class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            error(buildRelayErrorMessage(response, bodyText, "Browse directory"))
+                            throw relayFailure(response, bodyText, "Browse directory")
                         }
 
                         val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
@@ -217,7 +246,7 @@ open class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            error(buildRelayErrorMessage(response, bodyText, "Load sessions"))
+                            throw relayFailure(response, bodyText, "Load sessions")
                         }
 
                         val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
@@ -259,7 +288,7 @@ open class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            error(buildRelayErrorMessage(response, bodyText, "Load session"))
+                            throw relayFailure(response, bodyText, "Load session")
                         }
 
                         val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
@@ -297,7 +326,7 @@ open class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            error(buildRelayErrorMessage(response, bodyText, "Load session events"))
+                            throw relayFailure(response, bodyText, "Load session events")
                         }
 
                         val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
@@ -315,6 +344,117 @@ open class RelayHttpClient
                                 },
                             hasMore = root.optBoolean("has_more"),
                         )
+                    }
+                }
+            }
+
+        open suspend fun addRoot(
+            relayUrl: String,
+            token: String,
+            hostId: String,
+            provider: String,
+            path: String,
+            label: String?,
+        ): Result<RelayWorkspaceRoot> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val requestBody =
+                        JSONObject()
+                            .put("provider", provider)
+                            .put("path", path)
+                            .also { payload ->
+                                if (!label.isNullOrBlank()) {
+                                    payload.put("label", label)
+                                }
+                            }
+                            .toString()
+                            .toRequestBody(JSON_MEDIA_TYPE)
+
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .addPathSegments("v1/hosts")
+                                    .addPathSegment(hostId)
+                                    .addPathSegment("roots")
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .post(requestBody)
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            throw relayFailure(response, bodyText, "Add workspace root")
+                        }
+
+                        val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
+                        val rootObject = root.optJSONObject("root") ?: error("Relay response is missing root")
+                        rootObject.toRelayWorkspaceRoot()
+                    }
+                }
+            }
+
+        open suspend fun removeRoot(
+            relayUrl: String,
+            token: String,
+            hostId: String,
+            rootId: String,
+        ): Result<Unit> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .addPathSegments("v1/hosts")
+                                    .addPathSegment(hostId)
+                                    .addPathSegment("roots")
+                                    .addPathSegment(rootId)
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .delete()
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            throw relayFailure(response, bodyText, "Remove workspace root")
+                        }
+                    }
+                }
+            }
+
+        open suspend fun testConnection(
+            relayUrl: String,
+            token: String,
+        ): Result<HealthzResponse> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .encodedPath("/healthz")
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .get()
+                            .build()
+
+                    healthCheckClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            throw relayFailure(response, bodyText, "Test relay connection")
+                        }
+
+                        val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
+                        root.toHealthzResponse()
                     }
                 }
             }
@@ -361,7 +501,7 @@ open class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            error(buildRelayErrorMessage(response, bodyText, "Create session"))
+                            throw relayFailure(response, bodyText, "Create session")
                         }
 
                         val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
@@ -408,7 +548,7 @@ open class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            error(buildRelayErrorMessage(response, bodyText, "Send message"))
+                            throw relayFailure(response, bodyText, "Send message")
                         }
                     }
                 }
@@ -438,7 +578,7 @@ open class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            error(buildRelayErrorMessage(response, bodyText, "Cancel session"))
+                            throw relayFailure(response, bodyText, "Cancel session")
                         }
 
                         val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
@@ -475,7 +615,7 @@ open class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            error(buildRelayErrorMessage(response, bodyText, "Delete session"))
+                            throw relayFailure(response, bodyText, "Delete session")
                         }
                     }
                 }
@@ -509,7 +649,7 @@ open class RelayHttpClient
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
-                            error(buildRelayErrorMessage(response, bodyText, "Register push token"))
+                            throw relayFailure(response, bodyText, "Register push token")
                         }
                     }
                 }
@@ -586,6 +726,19 @@ private fun buildRelayErrorMessage(
             }
         }
     }
+}
+
+private fun relayFailure(
+    response: Response,
+    bodyText: String,
+    action: String,
+): RelayApiException {
+    val errorResponse = bodyText.toRelayErrorResponse()
+    return RelayApiException(
+        statusCode = response.code,
+        code = errorResponse?.code?.ifBlank { null },
+        message = buildRelayErrorMessage(response, bodyText, action),
+    )
 }
 
 private fun JSONObject.toRelaySession(): RelaySession {
@@ -666,6 +819,7 @@ private fun JSONObject.toRelayWorkspaceRoot(): RelayWorkspaceRoot {
         provider = optString("provider"),
         path = optString("path"),
         label = optString("label").ifBlank { null },
+        createdAt = optString("created_at"),
     )
 }
 
@@ -695,5 +849,62 @@ private fun JSONObject.toBrowseEntry(): BrowseEntry {
     return BrowseEntry(
         name = optString("name"),
         path = path,
+    )
+}
+
+private fun JSONObject.toHealthzResponse(): HealthzResponse {
+    val hostsArray = optJSONArray("hosts")
+    val hosts =
+        if (hostsArray != null) {
+            buildList {
+                for (index in 0 until hostsArray.length()) {
+                    val hostObject =
+                        hostsArray.optJSONObject(index)
+                            ?: error("Relay returned malformed health host payload")
+                    add(hostObject.toHealthzHost())
+                }
+            }
+        } else {
+            buildList {
+                val companionStatus = optString("companion")
+                if (companionStatus.isNotBlank()) {
+                    add(
+                        HealthzHost(
+                            id = "macbook-1",
+                            name = "MacBook",
+                            type = "macbook",
+                            status = companionStatus,
+                        ),
+                    )
+                }
+                val openclawStatus = optString("openclaw")
+                if (openclawStatus.isNotBlank()) {
+                    add(
+                        HealthzHost(
+                            id = "relay-local",
+                            name = "OpenClaw",
+                            type = "relay_local",
+                            status = openclawStatus,
+                        ),
+                    )
+                }
+            }
+        }
+
+    return HealthzResponse(
+        version = optString("version").ifBlank { optString("status").ifBlank { "unknown" } },
+        hosts = hosts,
+    )
+}
+
+private fun JSONObject.toHealthzHost(): HealthzHost {
+    val id = optString("id")
+    require(id.isNotBlank()) { "Relay response is missing health host id" }
+
+    return HealthzHost(
+        id = id,
+        name = optString("name"),
+        type = optString("type"),
+        status = optString("status"),
     )
 }

@@ -24,9 +24,17 @@ class RelayUrlParsingTest {
     }
 
     @Test
-    fun `rejects insecure relay urls`() {
+    fun `rejects http relay urls`() {
         assertNull("http://relay.example.com".toRelayBaseHttpUrl())
+    }
+
+    @Test
+    fun `rejects ws relay urls`() {
         assertNull("ws://relay.example.com".toRelayBaseHttpUrl())
+    }
+
+    @Test
+    fun `rejects malformed relay urls`() {
         assertNull("relay.example.com".toRelayBaseHttpUrl())
     }
 }

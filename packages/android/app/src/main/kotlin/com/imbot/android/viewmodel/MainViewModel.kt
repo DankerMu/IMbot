@@ -74,16 +74,12 @@ class MainViewModel
             _relayUrl.value = savedSettings.relayUrl
             _token.value = savedSettings.token
 
-            if (savedSettings.isConfigured()) {
-                val validationError = savedSettings.relayValidationError()
-                if (validationError == null) {
-                    relayWsClient.connect(savedSettings.relayUrl, savedSettings.token)
-                } else {
-                    updateNotice(
-                        message = validationError,
-                        isError = true,
-                    )
-                }
+            val validationError = savedSettings.relayValidationError()
+            if (savedSettings.isConfigured() && validationError != null) {
+                updateNotice(
+                    message = validationError,
+                    isError = true,
+                )
             }
 
             viewModelScope.launch {
@@ -104,6 +100,24 @@ class MainViewModel
                     }
                 }
             }
+        }
+
+        fun connectConfiguredRelayIfNeeded() {
+            val settings = settingsRepository.load()
+            if (!settings.isConfigured()) {
+                return
+            }
+
+            val validationError = settings.relayValidationError()
+            if (validationError != null) {
+                updateNotice(
+                    message = validationError,
+                    isError = true,
+                )
+                return
+            }
+
+            relayWsClient.connect(settings.relayUrl, settings.token)
         }
 
         fun onRelayUrlChanged(value: String) {
