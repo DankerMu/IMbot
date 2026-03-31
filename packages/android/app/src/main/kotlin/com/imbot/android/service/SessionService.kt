@@ -112,6 +112,25 @@ internal class ForegroundServiceLifecycleController(
     }
 }
 
+internal class ServiceLifecycleReconnectController(
+    private val reconnectControllable: ReconnectControllable,
+) {
+    fun onStateChanged(state: ForegroundServiceState) {
+        when (state) {
+            ForegroundServiceState.ACTIVE -> {
+                reconnectControllable.resumeReconnection()
+                if (!reconnectControllable.isConnected()) {
+                    reconnectControllable.forceReconnect()
+                }
+            }
+
+            ForegroundServiceState.COOLING_DOWN -> Unit
+
+            ForegroundServiceState.STOPPED -> reconnectControllable.pauseReconnection()
+        }
+    }
+}
+
 internal class NetworkReconnectController(
     private val scope: CoroutineScope,
     private val reconnectControllable: ReconnectControllable,
@@ -121,17 +140,11 @@ internal class NetworkReconnectController(
 
     fun onAvailable() {
         reconnectControllable.resumeReconnection()
-        if (reconnectControllable.isConnected()) {
-            return
-        }
-
         reconnectJob?.cancel()
         reconnectJob =
             scope.launch {
                 delay(debounceMs)
-                if (!reconnectControllable.isConnected()) {
-                    reconnectControllable.forceReconnect()
-                }
+                reconnectControllable.forceReconnect()
             }
     }
 
@@ -168,6 +181,26 @@ class SessionService : Service() {
     private val networkController =
         NetworkReconnectController(
             scope = serviceScope,
+            reconnectControllable =
+                object : ReconnectControllable {
+                    override fun pauseReconnection() {
+                        relayWsClient.pauseReconnection()
+                    }
+
+                    override fun resumeReconnection() {
+                        relayWsClient.resumeReconnection()
+                    }
+
+                    override fun forceReconnect() {
+                        relayWsClient.forceReconnect()
+                    }
+
+                    override fun isConnected(): Boolean = relayWsClient.isConnected()
+                },
+        )
+
+    private val lifecycleReconnectController =
+        ServiceLifecycleReconnectController(
             reconnectControllable =
                 object : ReconnectControllable {
                     override fun pauseReconnection() {
@@ -277,6 +310,7 @@ class SessionService : Service() {
     private fun observeLifecycleState() {
         serviceScope.launch {
             lifecycleController.state.collectLatest { state ->
+                lifecycleReconnectController.onStateChanged(state)
                 if (state == ForegroundServiceState.STOPPED) {
                     stopForeground(STOP_FOREGROUND_REMOVE)
                 } else {

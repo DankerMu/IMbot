@@ -32,7 +32,19 @@ object NetworkModule {
     fun provideRelayWsClient(
         okHttpClient: OkHttpClient,
         errorStateManager: ErrorStateManager,
-    ): RelayWsClient = RelayWsClient(okHttpClient, errorStateManager)
+        relayHttpClient: RelayHttpClient,
+    ): RelayWsClient =
+        RelayWsClient(okHttpClient, errorStateManager) { relayUrl, token ->
+            relayHttpClient.getHosts(relayUrl, token)
+                .onSuccess { hosts ->
+                    hosts.forEach { host ->
+                        errorStateManager.setHostStatus(
+                            hostId = host.id,
+                            online = host.status == "online",
+                        )
+                    }
+                }
+        }
 
     @Provides
     @Singleton

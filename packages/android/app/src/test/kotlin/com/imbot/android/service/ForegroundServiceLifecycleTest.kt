@@ -104,4 +104,64 @@ class ForegroundServiceLifecycleTest {
 
             assertEquals(ForegroundServiceState.ACTIVE, controller.state.value)
         }
+
+    @Test
+    fun `stopped state pauses websocket reconnection`() {
+        val fake = FakeLifecycleReconnectControllable(connected = true)
+        val controller = ServiceLifecycleReconnectController(fake)
+
+        controller.onStateChanged(ForegroundServiceState.STOPPED)
+
+        assertEquals(1, fake.pauseReconnectionCalls)
+        assertEquals(0, fake.resumeReconnectionCalls)
+        assertEquals(0, fake.forceReconnectCalls)
+    }
+
+    @Test
+    fun `active state resumes websocket and forces reconnect when disconnected`() {
+        val fake = FakeLifecycleReconnectControllable(connected = false)
+        val controller = ServiceLifecycleReconnectController(fake)
+
+        controller.onStateChanged(ForegroundServiceState.ACTIVE)
+
+        assertEquals(0, fake.pauseReconnectionCalls)
+        assertEquals(1, fake.resumeReconnectionCalls)
+        assertEquals(1, fake.forceReconnectCalls)
+    }
+
+    @Test
+    fun `active state does not force reconnect when already connected`() {
+        val fake = FakeLifecycleReconnectControllable(connected = true)
+        val controller = ServiceLifecycleReconnectController(fake)
+
+        controller.onStateChanged(ForegroundServiceState.ACTIVE)
+
+        assertEquals(0, fake.pauseReconnectionCalls)
+        assertEquals(1, fake.resumeReconnectionCalls)
+        assertEquals(0, fake.forceReconnectCalls)
+    }
+}
+
+private class FakeLifecycleReconnectControllable(
+    private var connected: Boolean,
+) : ReconnectControllable {
+    var pauseReconnectionCalls = 0
+    var resumeReconnectionCalls = 0
+    var forceReconnectCalls = 0
+
+    override fun pauseReconnection() {
+        pauseReconnectionCalls++
+        connected = false
+    }
+
+    override fun resumeReconnection() {
+        resumeReconnectionCalls++
+    }
+
+    override fun forceReconnect() {
+        forceReconnectCalls++
+        connected = true
+    }
+
+    override fun isConnected(): Boolean = connected
 }

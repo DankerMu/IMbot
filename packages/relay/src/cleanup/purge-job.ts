@@ -69,7 +69,7 @@ export class RelayPurgeJob {
         SELECT id
         FROM sessions
         WHERE status IN ('completed', 'failed', 'cancelled')
-          AND last_active_at < ?
+          AND julianday(last_active_at) < julianday(?)
         LIMIT ${PURGE_BATCH_SIZE}
       )
       `
@@ -83,6 +83,8 @@ export class RelayPurgeJob {
       if (result.changes === 0) {
         break;
       }
+
+      await yieldToEventLoop();
     }
 
     this.logger.info?.(`[purge] ${now.toISOString()} - purged ${purgedCount} sessions`);
@@ -99,3 +101,9 @@ export class RelayPurgeJob {
 }
 
 export { DAILY_PURGE_CRON, PURGE_BATCH_SIZE };
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}

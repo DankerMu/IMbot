@@ -69,7 +69,7 @@ class NetworkChangeReconnectTest {
         }
 
     @Test
-    fun `onAvailable while already connected is a no-op`() =
+    fun `onAvailable while already connected force reconnects after debounce`() =
         runTest {
             val fake = FakeReconnectControllable(connected = true)
             val controller = NetworkReconnectController(scope = this, reconnectControllable = fake)
@@ -78,7 +78,7 @@ class NetworkChangeReconnectTest {
             advanceTimeBy(1_000L)
             runCurrent()
 
-            assertEquals(0, fake.forceReconnectCalls)
+            assertEquals(1, fake.forceReconnectCalls)
         }
 }
 

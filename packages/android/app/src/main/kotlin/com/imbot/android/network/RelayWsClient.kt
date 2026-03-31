@@ -30,6 +30,7 @@ open class RelayWsClient
     constructor(
         private val okHttpClient: OkHttpClient,
         private val errorStateManager: ErrorStateManager,
+        private val onConnected: suspend (relayUrl: String, token: String) -> Unit = { _, _ -> },
     ) {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val reconnectDelaysMs = listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L)
@@ -223,6 +224,7 @@ open class RelayWsClient
                             errorStateManager.setRelayConnected(true)
                             startHeartbeat(webSocket)
                             currentSubscriptionIds().forEach(::sendSubscribe)
+                            notifyConnected(relayUrl, token)
                         }
 
                         override fun onMessage(
@@ -345,7 +347,8 @@ open class RelayWsClient
                     if (event.payload.stringValue("error_code") == ERROR_CODE_PROVIDER_UNREACHABLE) {
                         errorStateManager.setSessionError(
                             event.sessionId,
-                            providerUnavailableMessage(event.payload.stringValue("message")),
+                            event.payload.stringValue("message")
+                                ?: GENERIC_PROVIDER_UNAVAILABLE_MESSAGE,
                         )
                     }
                 }
@@ -395,18 +398,18 @@ open class RelayWsClient
             previousSubscriptions.subtract(nextSubscriptions).forEach(::sendUnsubscribe)
             nextSubscriptions.subtract(previousSubscriptions).forEach(::sendSubscribe)
         }
-    }
 
-private fun providerUnavailableMessage(message: String?): String {
-    val normalizedMessage = message.orEmpty().lowercase()
-    return when {
-        normalizedMessage.contains("openclaw") || normalizedMessage.contains("gateway") ->
-            "OpenClaw 不可用，请稍后重试"
-
-        normalizedMessage.contains("book") -> "book upstream 不可用，请稍后重试"
-        else -> "Claude upstream 不可用，请稍后重试"
+        private fun notifyConnected(
+            relayUrl: String,
+            token: String,
+        ) {
+            scope.launch {
+                runCatching {
+                    onConnected(relayUrl, token)
+                }
+            }
+        }
     }
-}
 
 private fun JSONObject?.stringValue(key: String): String? {
     val payload = this ?: return null
@@ -432,6 +435,7 @@ private fun String.toRelayWebSocketUrl(token: String): String? {
 
 private const val PING_INTERVAL_MS = 30_000L
 private const val PONG_TIMEOUT_MS = 60_000L
+private const val GENERIC_PROVIDER_UNAVAILABLE_MESSAGE = "Provider 不可用，请稍后重试"
 private const val STATUS_FAILED = "failed"
 private const val STATUS_ONLINE = "online"
 private const val ERROR_CODE_PROVIDER_UNREACHABLE = "provider_unreachable"

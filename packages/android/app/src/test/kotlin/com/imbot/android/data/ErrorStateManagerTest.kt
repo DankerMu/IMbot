@@ -52,6 +52,22 @@ class ErrorStateManagerTest {
     }
 
     @Test
+    fun `cold start seeded offline host shows layer 2 banner before first websocket delta`() {
+        val manager = ErrorStateManager()
+
+        manager.setHostStatus("macbook-1", false)
+
+        assertEquals(
+            ResolvedErrorBanner.HostOffline("MacBook 离线，请检查 companion 是否运行"),
+            resolveErrorBanner(
+                errorState = manager.errorState.value,
+                scope = ErrorScope.WORKSPACE,
+                hostId = "macbook-1",
+            ),
+        )
+    }
+
+    @Test
     fun `setSessionError and clearSessionError manage session banners`() {
         val manager = ErrorStateManager()
 
