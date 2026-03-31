@@ -140,11 +140,13 @@ fun NewSessionScreen(
                             state = uiState,
                             onBrowse = viewModel::browseDirectory,
                             onRetry = {
-                                val browsePath = uiState.browsePath
-                                if (browsePath.isNullOrBlank()) {
+                                val pending = uiState.pendingBrowsePath
+                                if (!pending.isNullOrBlank()) {
+                                    viewModel.browseDirectory(pending)
+                                } else if (uiState.browsePath.isNullOrBlank()) {
                                     viewModel.loadRoots()
                                 } else {
-                                    viewModel.browseDirectory(browsePath)
+                                    viewModel.browseDirectory(uiState.browsePath!!)
                                 }
                             },
                             onSelectDirectory = viewModel::selectDirectory,

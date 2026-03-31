@@ -34,6 +34,7 @@ data class NewSessionUiState(
     val roots: List<RelayWorkspaceRoot> = emptyList(),
     val browseEntries: List<BrowseEntry> = emptyList(),
     val browsePath: String? = null,
+    val pendingBrowsePath: String? = null,
     val breadcrumbs: List<DirectoryBreadcrumb> = emptyList(),
     val cwd: String? = null,
     val prompt: String = "",
@@ -65,6 +66,7 @@ class NewSessionViewModel
 
         private val _events = MutableSharedFlow<NewSessionEvent>()
         val events: SharedFlow<NewSessionEvent> = _events.asSharedFlow()
+        private var requestGeneration = 0
 
         init {
             loadHosts()
@@ -102,8 +104,12 @@ class NewSessionViewModel
                             roots = if (keepSelection) current.roots else emptyList(),
                             browseEntries = if (keepSelection) current.browseEntries else emptyList(),
                             browsePath = if (keepSelection) current.browsePath else null,
+                            pendingBrowsePath = if (keepSelection) current.pendingBrowsePath else null,
                             breadcrumbs = if (keepSelection) current.breadcrumbs else emptyList(),
                             cwd = if (keepSelection) current.cwd else null,
+                            directoryError = if (keepSelection) current.directoryError else null,
+                            isLoadingRoots = if (keepSelection) current.isLoadingRoots else false,
+                            isLoadingBrowse = if (keepSelection) current.isLoadingBrowse else false,
                             isLoadingHosts = false,
                         )
                     }
@@ -127,6 +133,7 @@ class NewSessionViewModel
                 return
             }
 
+            requestGeneration++
             _uiState.update { state ->
                 state.copy(
                     provider = provider,
@@ -134,9 +141,12 @@ class NewSessionViewModel
                     roots = emptyList(),
                     browseEntries = emptyList(),
                     browsePath = null,
+                    pendingBrowsePath = null,
                     breadcrumbs = emptyList(),
                     cwd = null,
                     directoryError = null,
+                    isLoadingRoots = false,
+                    isLoadingBrowse = false,
                     model = DEFAULT_MODEL,
                 )
             }
@@ -150,13 +160,18 @@ class NewSessionViewModel
 
             val hostId = state.hostId ?: return
             val provider = state.provider ?: return
+            val gen = requestGeneration
 
             viewModelScope.launch {
                 val settings = requireValidSettings() ?: return@launch
+                if (gen != requestGeneration) {
+                    return@launch
+                }
                 _uiState.update { current ->
                     current.copy(
                         isLoadingRoots = true,
                         directoryError = null,
+                        pendingBrowsePath = null,
                     )
                 }
 
@@ -165,12 +180,16 @@ class NewSessionViewModel
                     token = settings.token,
                     hostId = hostId,
                 ).onSuccess { roots ->
+                    if (gen != requestGeneration) {
+                        return@onSuccess
+                    }
                     val filteredRoots = filterRootsForProvider(provider, roots)
                     _uiState.update { current ->
                         current.copy(
                             roots = filteredRoots,
                             browseEntries = emptyList(),
                             browsePath = null,
+                            pendingBrowsePath = null,
                             breadcrumbs = emptyList(),
                             cwd =
                                 current.cwd?.takeIf { selectedPath ->
@@ -182,9 +201,13 @@ class NewSessionViewModel
                         )
                     }
                 }.onFailure { error ->
+                    if (gen != requestGeneration) {
+                        return@onFailure
+                    }
                     _uiState.update { current ->
                         current.copy(
                             isLoadingRoots = false,
+                            pendingBrowsePath = null,
                             directoryError = error.message ?: "加载目录失败",
                         )
                     }
@@ -193,17 +216,23 @@ class NewSessionViewModel
         }
 
         fun browseDirectory(path: String) {
-            val hostId = _uiState.value.hostId ?: return
-            if (_uiState.value.isLoadingBrowse) {
+            val state = _uiState.value
+            val hostId = state.hostId ?: return
+            if (state.isLoadingBrowse) {
                 return
             }
+            val gen = requestGeneration
 
             viewModelScope.launch {
                 val settings = requireValidSettings() ?: return@launch
+                if (gen != requestGeneration) {
+                    return@launch
+                }
                 _uiState.update { current ->
                     current.copy(
                         isLoadingBrowse = true,
                         directoryError = null,
+                        pendingBrowsePath = path,
                     )
                 }
 
@@ -213,15 +242,26 @@ class NewSessionViewModel
                     hostId = hostId,
                     path = path,
                 ).onSuccess { result ->
+                    if (gen != requestGeneration) {
+                        return@onSuccess
+                    }
+                    val maxEntries = 200
+                    val truncated = result.directories.size > maxEntries
+                    val cappedEntries = result.directories.take(maxEntries)
                     _uiState.update { current ->
                         current.copy(
                             browsePath = result.path,
-                            browseEntries = result.directories,
+                            browseEntries = cappedEntries,
                             breadcrumbs = result.path.toBreadcrumbs(),
+                            pendingBrowsePath = null,
                             isLoadingBrowse = false,
+                            directoryError = if (truncated) "目录条目过多，仅显示前 $maxEntries 项" else null,
                         )
                     }
                 }.onFailure { error ->
+                    if (gen != requestGeneration) {
+                        return@onFailure
+                    }
                     _uiState.update { current ->
                         current.copy(
                             isLoadingBrowse = false,
@@ -364,13 +404,15 @@ class NewSessionViewModel
 
         fun goToStep(step: Int) {
             val normalizedStep = step.coerceIn(FIRST_STEP, LAST_STEP)
-            _uiState.update { current ->
-                current.copy(step = normalizedStep)
-            }
-
+            _uiState.update { current -> current.copy(step = normalizedStep) }
             when (normalizedStep) {
                 STEP_PROVIDER -> loadHosts()
-                STEP_DIRECTORY -> loadRoots()
+                STEP_DIRECTORY -> {
+                    val current = _uiState.value
+                    if (current.roots.isEmpty()) {
+                        loadRoots()
+                    }
+                }
             }
         }
 
