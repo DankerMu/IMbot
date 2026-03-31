@@ -73,6 +73,7 @@ class NewSessionViewModel
             loadHosts()
         }
 
+        @Suppress("CyclomaticComplexMethod")
         fun loadHosts() {
             if (_uiState.value.isLoadingHosts) {
                 return
@@ -100,7 +101,12 @@ class NewSessionViewModel
 
                         current.copy(
                             hosts = hosts,
-                            provider = if (keepSelection) current.provider else current.provider?.takeIf { resolvedHost != null },
+                            provider =
+                                if (keepSelection) {
+                                    current.provider
+                                } else {
+                                    current.provider?.takeIf { resolvedHost != null }
+                                },
                             hostId = resolvedHost?.id,
                             roots = if (keepSelection) current.roots else emptyList(),
                             browseEntries = if (keepSelection) current.browseEntries else emptyList(),
@@ -156,12 +162,11 @@ class NewSessionViewModel
 
         fun loadRoots() {
             val state = _uiState.value
-            if (state.isLoadingRoots) {
+            val hostId = state.hostId
+            val provider = state.provider
+            if (state.isLoadingRoots || hostId == null || provider == null) {
                 return
             }
-
-            val hostId = state.hostId ?: return
-            val provider = state.provider ?: return
             val gen = requestGeneration
 
             viewModelScope.launch {
@@ -301,6 +306,7 @@ class NewSessionViewModel
             }
         }
 
+        @Suppress("CyclomaticComplexMethod")
         fun createSession() {
             val current = _uiState.value
             if (current.isCreating) {
@@ -312,28 +318,22 @@ class NewSessionViewModel
             val cwd = current.cwd
             val prompt = current.prompt.trim()
 
-            when {
-                provider.isNullOrBlank() -> {
-                    publishError("请先选择 Provider")
-                    return
+            val validationError =
+                when {
+                    provider.isNullOrBlank() -> "请先选择 Provider"
+                    hostId.isNullOrBlank() -> "当前 Provider 未关联可用主机"
+                    cwd.isNullOrBlank() -> "请先选择目录"
+                    prompt.isBlank() -> "请输入 prompt"
+                    else -> null
                 }
-                hostId.isNullOrBlank() -> {
-                    publishError("当前 Provider 未关联可用主机")
-                    return
-                }
-                cwd.isNullOrBlank() -> {
-                    publishError("请先选择目录")
-                    return
-                }
-                prompt.isBlank() -> {
-                    publishError("请输入 prompt")
-                    return
-                }
+            if (validationError != null) {
+                publishError(validationError)
+                return
             }
 
-            val selectedProvider = provider ?: return
-            val selectedHostId = hostId ?: return
-            val selectedCwd = cwd ?: return
+            val selectedProvider = provider.orEmpty()
+            val selectedHostId = hostId.orEmpty()
+            val selectedCwd = cwd.orEmpty()
 
             viewModelScope.launch {
                 val settings = requireValidSettings() ?: return@launch
@@ -433,16 +433,17 @@ class NewSessionViewModel
 
         private fun requireValidSettings(): com.imbot.android.data.RelaySettings? {
             val settings = settingsRepository.load()
-            when {
-                !settings.isConfigured() -> {
-                    publishError("请先在设置页完成 Relay 配置")
-                    return null
+            val errorMessage =
+                when {
+                    !settings.isConfigured() -> "请先在设置页完成 Relay 配置"
+                    else -> settings.relayValidationError()
                 }
-                settings.relayValidationError() != null -> {
-                    publishError(settings.relayValidationError().orEmpty())
-                    return null
-                }
-                else -> return settings
+
+            return if (errorMessage != null) {
+                publishError(errorMessage)
+                null
+            } else {
+                settings
             }
         }
 
@@ -486,26 +487,24 @@ internal fun providerOfflineMessage(provider: String): String =
     }
 
 internal fun String.toBreadcrumbs(): List<DirectoryBreadcrumb> {
-    if (isBlank()) {
-        return emptyList()
-    }
-
     val segments = split("/").filter(String::isNotBlank)
-    if (segments.isEmpty()) {
-        return listOf(DirectoryBreadcrumb(label = "/", path = "/"))
-    }
-
-    var currentPath = ""
-    return buildList {
-        add(DirectoryBreadcrumb(label = "/", path = "/"))
-        segments.forEach { segment ->
-            currentPath = if (currentPath.isEmpty()) "/$segment" else "$currentPath/$segment"
-            add(
-                DirectoryBreadcrumb(
-                    label = segment,
-                    path = currentPath,
-                ),
-            )
+    return when {
+        isBlank() -> emptyList()
+        segments.isEmpty() -> listOf(DirectoryBreadcrumb(label = "/", path = "/"))
+        else -> {
+            var currentPath = ""
+            buildList {
+                add(DirectoryBreadcrumb(label = "/", path = "/"))
+                segments.forEach { segment ->
+                    currentPath = if (currentPath.isEmpty()) "/$segment" else "$currentPath/$segment"
+                    add(
+                        DirectoryBreadcrumb(
+                            label = segment,
+                            path = currentPath,
+                        ),
+                    )
+                }
+            }
         }
     }
 }

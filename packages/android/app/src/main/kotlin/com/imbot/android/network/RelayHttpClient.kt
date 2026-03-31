@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions")
+
 package com.imbot.android.network
 
 import kotlinx.coroutines.Dispatchers
@@ -66,6 +68,7 @@ private data class RelayErrorResponse(
     val message: String,
 )
 
+@Suppress("TooManyFunctions")
 @Singleton
 open class RelayHttpClient
     @Inject

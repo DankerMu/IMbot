@@ -46,6 +46,7 @@ import com.imbot.android.network.BrowseEntry
 import com.imbot.android.network.RelayWorkspaceRoot
 import com.imbot.android.ui.newsession.DirectoryBreadcrumb
 
+@Suppress("CyclomaticComplexMethod")
 @Composable
 fun DirectoryBrowser(
     hostId: String,

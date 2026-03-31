@@ -33,6 +33,7 @@ import org.junit.rules.TestWatcher
 import org.junit.runner.Description
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@Suppress("LargeClass")
 class NewSessionViewModelTest {
     @get:Rule
     val mainDispatcherRule = MainDispatcherRule()
@@ -58,12 +59,27 @@ class NewSessionViewModelTest {
             val relay =
                 FakeRelayHttpClient().apply {
                     hostsResult = Result.success(onlineHosts())
-                    rootsResult = Result.success(listOf(root(id = "claude-root", provider = "claude", path = "/Users/danker/projects")))
+                    rootsResult =
+                        Result.success(
+                            listOf(
+                                root(
+                                    id = "claude-root",
+                                    provider = "claude",
+                                    path = "/Users/danker/projects",
+                                ),
+                            ),
+                        )
                     browseResult =
                         Result.success(
                             BrowseResult(
                                 path = "/Users/danker/projects",
-                                directories = listOf(entry(name = "IMbot", path = "/Users/danker/projects/IMbot")),
+                                directories =
+                                    listOf(
+                                        entry(
+                                            name = "IMbot",
+                                            path = "/Users/danker/projects/IMbot",
+                                        ),
+                                    ),
                             ),
                         )
                 }
@@ -107,7 +123,12 @@ class NewSessionViewModelTest {
                         listOf(
                             root(id = "claude-root", provider = "claude", path = "/Users/danker/projects"),
                             bookRoot,
-                            root(id = "openclaw-root", hostId = "relay-local", provider = "openclaw", path = "/srv/openclaw"),
+                            root(
+                                id = "openclaw-root",
+                                hostId = "relay-local",
+                                provider = "openclaw",
+                                path = "/srv/openclaw",
+                            ),
                         ),
                     )
             }
@@ -176,7 +197,16 @@ class NewSessionViewModelTest {
         val relay =
             FakeRelayHttpClient().apply {
                 hostsResult = Result.success(onlineHosts())
-                rootsResult = Result.success(listOf(root(id = "claude-root", provider = "claude", path = "/Users/danker/projects")))
+                rootsResult =
+                    Result.success(
+                        listOf(
+                            root(
+                                id = "claude-root",
+                                provider = "claude",
+                                path = "/Users/danker/projects",
+                            ),
+                        ),
+                    )
             }
 
         val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
@@ -400,8 +430,29 @@ class NewSessionViewModelTest {
         viewModel.loadRoots()
         runCurrent()
 
-        secondRoots.complete(Result.success(listOf(root(id = "openclaw-root", hostId = "relay-local", provider = "openclaw", path = "/srv/openclaw"))))
-        firstRoots.complete(Result.success(listOf(root(id = "claude-root", provider = "claude", path = "/Users/danker/projects"))))
+        secondRoots.complete(
+            Result.success(
+                listOf(
+                    root(
+                        id = "openclaw-root",
+                        hostId = "relay-local",
+                        provider = "openclaw",
+                        path = "/srv/openclaw",
+                    ),
+                ),
+            ),
+        )
+        firstRoots.complete(
+            Result.success(
+                listOf(
+                    root(
+                        id = "claude-root",
+                        provider = "claude",
+                        path = "/Users/danker/projects",
+                    ),
+                ),
+            ),
+        )
         advanceUntilIdle()
 
         val state = viewModel.uiState.value
@@ -600,7 +651,17 @@ class NewSessionViewModelTest {
 
         assertEquals(1, relay.getHostRootsCalls)
 
-        rootsGate.complete(Result.success(listOf(root(id = "claude-root", provider = "claude", path = "/Users/danker/projects"))))
+        rootsGate.complete(
+            Result.success(
+                listOf(
+                    root(
+                        id = "claude-root",
+                        provider = "claude",
+                        path = "/Users/danker/projects",
+                    ),
+                ),
+            ),
+        )
         advanceUntilIdle()
     }
 
@@ -654,8 +715,10 @@ class NewSessionViewModelTest {
     private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
         var hostsResult: Result<List<RelayHost>> = Result.success(emptyList())
         var rootsResult: Result<List<RelayWorkspaceRoot>> = Result.success(emptyList())
-        var browseResult: Result<BrowseResult> = Result.success(BrowseResult(path = "/", directories = emptyList()))
-        var createSessionResult: Result<SessionResponse> = Result.success(SessionResponse(sessionId = "test-id", rawJson = "{}"))
+        var browseResult: Result<BrowseResult> =
+            Result.success(BrowseResult(path = "/", directories = emptyList()))
+        var createSessionResult: Result<SessionResponse> =
+            Result.success(SessionResponse(sessionId = "test-id", rawJson = "{}"))
 
         var getHostsCalls = 0
         var getHostRootsCalls = 0
@@ -667,7 +730,8 @@ class NewSessionViewModelTest {
             { _, _, _ -> rootsResult }
         var getBrowseDirectoryHandler: suspend (String, String, String, String) -> Result<BrowseResult> =
             { _, _, _, _ -> browseResult }
-        var createSessionHandler: suspend (String, String, String, String, String, String, String, String?) -> Result<SessionResponse> =
+        var createSessionHandler:
+            suspend (String, String, String, String, String, String, String, String?) -> Result<SessionResponse> =
             { _, _, _, _, _, _, _, _ -> createSessionResult }
 
         val rootRequests = mutableListOf<RootRequest>()
@@ -776,9 +840,13 @@ class NewSessionViewModelTest {
 
         override fun edit(): SharedPreferences.Editor = FakeEditor(values)
 
-        override fun registerOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
+        override fun registerOnSharedPreferenceChangeListener(
+            listener: SharedPreferences.OnSharedPreferenceChangeListener?,
+        ) = Unit
 
-        override fun unregisterOnSharedPreferenceChangeListener(listener: SharedPreferences.OnSharedPreferenceChangeListener?) = Unit
+        override fun unregisterOnSharedPreferenceChangeListener(
+            listener: SharedPreferences.OnSharedPreferenceChangeListener?,
+        ) = Unit
     }
 
     private class FakeEditor(

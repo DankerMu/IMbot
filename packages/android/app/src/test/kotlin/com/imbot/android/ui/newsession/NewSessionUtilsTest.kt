@@ -79,7 +79,11 @@ class NewSessionUtilsTest {
 
     @Test
     fun `findHostForProvider returns null when provider has no host`() {
-        val result = findHostForProvider("openclaw", listOf(host(id = "macbook-1", providers = listOf("claude", "book"))))
+        val result =
+            findHostForProvider(
+                "openclaw",
+                listOf(host(id = "macbook-1", providers = listOf("claude", "book"))),
+            )
 
         assertNull(result)
     }

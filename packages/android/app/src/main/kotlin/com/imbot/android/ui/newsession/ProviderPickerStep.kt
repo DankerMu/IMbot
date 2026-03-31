@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.imbot.android.network.RelayHost
 
+@Suppress("CyclomaticComplexMethod")
 @Composable
 fun ProviderPickerStep(
     hosts: List<RelayHost>,
