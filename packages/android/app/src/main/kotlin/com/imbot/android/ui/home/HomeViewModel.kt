@@ -4,12 +4,12 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.imbot.android.data.SettingsRepository
 import com.imbot.android.data.local.SessionEntity
-import com.imbot.android.data.relayValidationError
 import com.imbot.android.data.repository.SessionRepository
 import com.imbot.android.network.ConnectionState
 import com.imbot.android.network.RelayWsClient
 import com.imbot.android.network.ServerMessage
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,9 +47,9 @@ class HomeViewModel
 
         private var allSessions: List<SessionEntity> = emptyList()
         private var initialRefreshFinished = false
+        private var refreshJob: Job? = null
 
         init {
-            ensureRelayConnection()
             observeSessions()
             observeConnectionState()
             observeServerMessages()
@@ -85,14 +85,6 @@ class HomeViewModel
         fun clearError() {
             _uiState.update { current ->
                 current.copy(error = null)
-            }
-        }
-
-        private fun ensureRelayConnection() {
-            val settings = settingsRepository.load()
-            val validationError = settings.relayValidationError()
-            if (settings.isConfigured() && validationError == null) {
-                relayWsClient.connect(settings.relayUrl, settings.token)
             }
         }
 
@@ -133,31 +125,36 @@ class HomeViewModel
         }
 
         private fun refresh(initialLoad: Boolean) {
-            if (_uiState.value.isRefreshing) {
+            if (refreshJob?.isActive == true) {
                 return
             }
 
-            viewModelScope.launch {
-                _uiState.update { current ->
-                    current.copy(
-                        isRefreshing = !initialLoad,
-                        error = if (initialLoad) current.error else null,
-                    )
-                }
+            refreshJob =
+                viewModelScope.launch {
+                    _uiState.update { current ->
+                        current.copy(
+                            isRefreshing = !initialLoad,
+                            error = if (initialLoad) current.error else null,
+                        )
+                    }
 
-                runCatching {
-                    sessionRepository.refreshFromApi()
-                }.onFailure { error ->
-                    if (!initialLoad) {
-                        _uiState.update { current ->
-                            current.copy(error = error.message ?: "刷新失败，请检查网络")
+                    runCatching {
+                        sessionRepository.refreshFromApi()
+                    }.onFailure { error ->
+                        if (!initialLoad) {
+                            _uiState.update { current ->
+                                current.copy(error = error.message ?: "刷新失败，请检查网络")
+                            }
+                        } else if (allSessions.isEmpty()) {
+                            _uiState.update { current ->
+                                current.copy(error = error.message ?: "加载失败，请检查网络")
+                            }
                         }
                     }
-                }
 
-                initialRefreshFinished = true
-                publishState(isRefreshing = false)
-            }
+                    initialRefreshFinished = true
+                    publishState(isRefreshing = false)
+                }
         }
 
         private fun publishState(isRefreshing: Boolean = _uiState.value.isRefreshing) {

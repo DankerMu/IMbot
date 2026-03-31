@@ -64,7 +64,7 @@ class MainViewModel
         private val _noticeIsError = MutableStateFlow(false)
         val noticeIsError: StateFlow<Boolean> = _noticeIsError.asStateFlow()
 
-        private val _navigationEvents = MutableSharedFlow<MainNavigationEvent>(extraBufferCapacity = 1)
+        private val _navigationEvents = MutableSharedFlow<MainNavigationEvent>(replay = 1)
         val navigationEvents: SharedFlow<MainNavigationEvent> = _navigationEvents.asSharedFlow()
 
         val connectionState: StateFlow<ConnectionState> = relayWsClient.connectionState

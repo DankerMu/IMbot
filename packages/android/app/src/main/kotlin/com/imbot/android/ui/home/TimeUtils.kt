@@ -15,7 +15,7 @@ internal fun formatRelativeTime(
         runCatching {
             Instant.parse(isoString)
         }.getOrElse {
-            return ""
+            return "未知"
         }
     val duration = Duration.between(instant, now)
     val minutes = duration.toMinutes().coerceAtLeast(0)

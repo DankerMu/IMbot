@@ -1,6 +1,8 @@
 package com.imbot.android.data.repository
 
+import androidx.room.withTransaction
 import com.imbot.android.data.SettingsRepository
+import com.imbot.android.data.local.AppDatabase
 import com.imbot.android.data.local.SessionDao
 import com.imbot.android.data.local.SessionEntity
 import com.imbot.android.data.relayValidationError
@@ -15,6 +17,7 @@ import javax.inject.Singleton
 class SessionRepository
     @Inject
     constructor(
+        private val database: AppDatabase,
         private val sessionDao: SessionDao,
         private val relayHttpClient: RelayHttpClient,
         private val settingsRepository: SettingsRepository,
@@ -33,11 +36,13 @@ class SessionRepository
                 ).getOrThrow()
                     .map(RelaySession::toEntity)
 
-            sessionDao.insertAll(sessions)
-            if (sessions.isEmpty()) {
-                sessionDao.deleteAll()
-            } else {
-                sessionDao.deleteNotIn(sessions.map(SessionEntity::id))
+            database.withTransaction {
+                sessionDao.insertAll(sessions)
+                if (sessions.isEmpty()) {
+                    sessionDao.deleteAll()
+                } else {
+                    sessionDao.deleteNotIn(sessions.map(SessionEntity::id))
+                }
             }
         }
 
@@ -46,6 +51,9 @@ class SessionRepository
             status: String,
         ) {
             val existing = sessionDao.getById(sessionId) ?: return
+            if (existing.status == status) {
+                return
+            }
             val now = Instant.now().toString()
 
             sessionDao.insertAll(

@@ -43,6 +43,15 @@ class TimeUtilsTest {
     }
 
     @Test
+    fun `returns unknown for malformed timestamp`() {
+        val malformed = formatRelativeTime("", now)
+        val invalid = formatRelativeTime("not-an-iso-timestamp", now)
+
+        assertEquals("未知", malformed)
+        assertEquals("未知", invalid)
+    }
+
+    @Test
     fun `summarizes workspace path to last two segments`() {
         val summary = summarizeWorkspacePath("/Users/danker/Desktop/AI-vault/IMbot/packages/relay")
 

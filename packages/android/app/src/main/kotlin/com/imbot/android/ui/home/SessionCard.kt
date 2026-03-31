@@ -258,19 +258,25 @@ private fun ProviderBadge(provider: String) {
 
 @Composable
 private fun StatusDot(status: String) {
-    val infiniteTransition = rememberInfiniteTransition(label = "status-pulse")
-    val alpha by
-        infiniteTransition.animateFloat(
-            initialValue = 0.45f,
-            targetValue = 1f,
-            animationSpec =
-                infiniteRepeatable(
-                    animation = tween(durationMillis = 750, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-            label = "status-alpha",
-        )
-    val dotAlpha = if (isRunningStatus(status)) alpha else 1f
+    val isRunning = isRunningStatus(status)
+    val dotAlpha =
+        if (isRunning) {
+            val infiniteTransition = rememberInfiniteTransition(label = "status-pulse")
+            val alpha by
+                infiniteTransition.animateFloat(
+                    initialValue = 0.45f,
+                    targetValue = 1f,
+                    animationSpec =
+                        infiniteRepeatable(
+                            animation = tween(durationMillis = 750, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse,
+                        ),
+                    label = "status-alpha",
+                )
+            alpha
+        } else {
+            1f
+        }
 
     Box(
         modifier =

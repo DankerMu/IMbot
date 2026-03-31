@@ -154,7 +154,8 @@ class RelayHttpClient
                             .url(
                                 requireRelayBaseUrl(relayUrl)
                                     .newBuilder()
-                                    .encodedPath("/v1/sessions/$sessionId")
+                                    .addPathSegments("v1/sessions")
+                                    .addPathSegment(sessionId)
                                     .build(),
                             )
                             .header("Authorization", "Bearer $token")

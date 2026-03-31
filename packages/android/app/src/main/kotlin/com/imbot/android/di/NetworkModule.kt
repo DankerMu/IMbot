@@ -50,11 +50,13 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideSessionRepository(
+        appDatabase: AppDatabase,
         sessionDao: SessionDao,
         relayHttpClient: RelayHttpClient,
         settingsRepository: com.imbot.android.data.SettingsRepository,
     ): SessionRepository =
         SessionRepository(
+            database = appDatabase,
             sessionDao = sessionDao,
             relayHttpClient = relayHttpClient,
             settingsRepository = settingsRepository,
