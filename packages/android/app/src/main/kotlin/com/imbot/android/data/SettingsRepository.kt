@@ -34,9 +34,36 @@ class SettingsRepository
                 .apply()
         }
 
+        fun loadPendingPushToken(): String? =
+            preferences.getString(KEY_PENDING_PUSH_TOKEN, null)
+                ?.takeIf { it.isNotBlank() }
+
+        fun savePendingPushToken(token: String) {
+            val normalizedToken = token.trim()
+            if (normalizedToken.isBlank()) {
+                return
+            }
+
+            preferences.edit()
+                .putString(KEY_PENDING_PUSH_TOKEN, normalizedToken)
+                .apply()
+        }
+
+        fun clearPendingPushToken(token: String? = null) {
+            val currentToken = loadPendingPushToken()
+            if (token != null && currentToken != token) {
+                return
+            }
+
+            preferences.edit()
+                .remove(KEY_PENDING_PUSH_TOKEN)
+                .apply()
+        }
+
         private companion object {
             const val PREFS_NAME = "imbot_settings"
             const val KEY_RELAY_URL = "relay_url"
             const val KEY_TOKEN = "token"
+            const val KEY_PENDING_PUSH_TOKEN = "pending_push_token"
         }
     }

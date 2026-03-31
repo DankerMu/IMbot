@@ -1,5 +1,6 @@
 package com.imbot.android.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.imbot.android.data.RelaySettings
@@ -9,7 +10,9 @@ import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelayWsClient
 import com.imbot.android.network.ServerMessage
 import com.imbot.android.network.toRelayBaseHttpUrl
+import com.imbot.android.worker.PushTokenWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -19,12 +22,14 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
+@Suppress("TooManyFunctions")
 class MainViewModel
     @Inject
     constructor(
         private val relayWsClient: RelayWsClient,
         private val relayHttpClient: RelayHttpClient,
         private val settingsRepository: SettingsRepository,
+        @ApplicationContext private val appContext: Context,
     ) : ViewModel() {
         private val _relayUrl = MutableStateFlow("")
         val relayUrl: StateFlow<String> = _relayUrl.asStateFlow()
@@ -201,6 +206,28 @@ class MainViewModel
             }
             updateNotice()
             relayWsClient.connect(settings.relayUrl, settings.token)
+            PushTokenWorker.enqueueImmediate(appContext)
+        }
+
+        fun openSessionFromNotification(sessionId: String) {
+            val normalizedSessionId = sessionId.trim()
+            if (normalizedSessionId.isBlank()) {
+                return
+            }
+
+            if (_sessionId.value != normalizedSessionId) {
+                _events.value = emptyList()
+            }
+
+            _sessionId.value = normalizedSessionId
+            relayWsClient.subscribe(normalizedSessionId)
+            updateNotice(message = "Opened session from push notification")
+        }
+
+        fun openHomeFromNotification() {
+            relayWsClient.clearSubscription()
+            _sessionId.value = null
+            updateNotice(message = "Opened home from push notification")
         }
 
         private fun resetPrototypeSession() {

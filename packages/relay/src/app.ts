@@ -13,7 +13,9 @@ import { isRelayError } from "./errors";
 import { registerEventRoutes } from "./routes/events";
 import { registerHealthRoutes } from "./routes/health";
 import { registerHostRoutes } from "./routes/hosts";
+import { registerPushRoutes } from "./routes/push";
 import { registerSessionRoutes } from "./routes/sessions";
+import { PushAdapter } from "./push/fcm-adapter";
 import { OpenClawBridge } from "./openclaw/bridge";
 import { SessionOrchestrator } from "./session/orchestrator";
 import { registerAndroidWebSocketRoute } from "./ws/android";
@@ -48,13 +50,16 @@ export async function createRelayApp(options?: {
 
   const hub = new WsHub(config.wsPingIntervalMs);
   const auditLogger = new AuditLogger(db, app.log);
+  const pushAdapter = new PushAdapter(config, db, app.log);
+  await pushAdapter.init();
   let companionManager!: CompanionManager;
   let orchestrator!: SessionOrchestrator;
   companionManager = new CompanionManager(config, db, hub, app.log, {
     auditLogger,
     onHostDisconnected: async (hostId) => {
       await orchestrator.handleHostDisconnected(hostId);
-    }
+    },
+    pushAdapter
   });
   const openClawBridge = new OpenClawBridge(config, {
     hub,
@@ -70,6 +75,7 @@ export async function createRelayApp(options?: {
     companionManager,
     openClawBridge,
     auditLogger,
+    pushAdapter,
     app.log
   );
   let shutdownComplete = false;
@@ -143,6 +149,9 @@ export async function createRelayApp(options?: {
         auditLogger
       });
       registerEventRoutes(securedApp, {
+        db
+      });
+      registerPushRoutes(securedApp, {
         db
       });
     },

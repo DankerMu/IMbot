@@ -12,6 +12,7 @@ import type WebSocket from "ws";
 import type { RelayConfig } from "../config";
 import type { RelayDatabase } from "../db/init";
 import { RelayError } from "../errors";
+import type { PushAdapter } from "../push/fcm-adapter";
 import { WsHub } from "../ws/hub";
 import { AuditLogger } from "../audit/logger";
 
@@ -43,6 +44,7 @@ export class CompanionManager {
     private readonly options?: {
       readonly auditLogger?: AuditLogger;
       readonly onHostDisconnected?: (hostId: string) => Promise<void> | void;
+      readonly pushAdapter?: PushAdapter;
     }
   ) {
     this.staleHeartbeatTimer = setInterval(() => {
@@ -300,6 +302,14 @@ export class CompanionManager {
     return row?.status ?? null;
   }
 
+  private getStoredHostName(hostId: string): string | null {
+    const row = this.db.prepare("SELECT name FROM hosts WHERE id = ?").get(hostId) as
+      | { name: string }
+      | undefined;
+
+    return row?.name ?? null;
+  }
+
   private async markHostOffline(hostId: string, reason: "disconnect" | "heartbeat_timeout"): Promise<void> {
     const previousStatus = this.getStoredHostStatus(hostId);
     this.awaitingOnlineAudit.delete(hostId);
@@ -329,6 +339,8 @@ export class CompanionManager {
         }
       });
       this.hub.broadcastHostStatus(hostId, "offline");
+      const hostName = this.getStoredHostName(hostId) ?? hostId;
+      void this.options?.pushAdapter?.notifyHostOffline(hostId, hostName);
       const disconnectResult = this.options?.onHostDisconnected?.(hostId);
       if (disconnectResult && typeof (disconnectResult as Promise<void>).catch === "function") {
         void (disconnectResult as Promise<void>).catch((error) => {
