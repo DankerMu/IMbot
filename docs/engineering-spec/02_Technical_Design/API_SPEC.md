@@ -296,7 +296,7 @@
 注册 FCM token。
 
 **Request**: `{ "fcm_token": "..." }`
-**Response 200**: `{ "ok": true }`
+**Response 200**: `{ "status": "ok" }`
 
 ### GET /healthz
 

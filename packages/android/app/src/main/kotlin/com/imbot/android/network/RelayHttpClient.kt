@@ -101,6 +101,54 @@ class RelayHttpClient
         private companion object {
             val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         }
+
+        suspend fun registerPushToken(
+            relayUrl: String,
+            token: String,
+            fcmToken: String,
+        ): Result<Unit> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val baseUrl =
+                        relayUrl.toRelayBaseHttpUrl()
+                            ?: error("Relay URL is invalid: $relayUrl")
+                    val requestBody =
+                        JSONObject()
+                            .put("fcm_token", fcmToken)
+                            .toString()
+                            .toRequestBody(JSON_MEDIA_TYPE)
+
+                    val request =
+                        Request.Builder()
+                            .url(
+                                baseUrl.newBuilder()
+                                    .encodedPath("/v1/push/register")
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .post(requestBody)
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            val errorResponse = bodyText.toRelayErrorResponse()
+                            val message =
+                                buildString {
+                                    if (errorResponse?.message?.isNotBlank() == true) {
+                                        append(errorResponse.message)
+                                    } else {
+                                        append("Register push token failed with HTTP ${response.code}")
+                                        if (errorResponse?.code?.isNotBlank() == true) {
+                                            append(" (${errorResponse.code})")
+                                        }
+                                    }
+                                }
+                            error(message)
+                        }
+                    }
+                }
+            }
     }
 
 private suspend fun Call.await(): Response =

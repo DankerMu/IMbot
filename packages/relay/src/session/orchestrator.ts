@@ -12,6 +12,7 @@ import { AuditLogger } from "../audit/logger";
 import type { RelayConfig } from "../config";
 import type { RelayDatabase } from "../db/init";
 import { RelayError } from "../errors";
+import type { PushAdapter } from "../push/fcm-adapter";
 import { allocateSeq } from "./seq";
 import { WsHub } from "../ws/hub";
 import { CompanionManager } from "../companion/manager";
@@ -55,6 +56,7 @@ export class SessionOrchestrator {
     private readonly companionManager: CompanionManager,
     private readonly openClawBridge: OpenClawBridge,
     private readonly auditLogger: AuditLogger,
+    private readonly pushAdapter: PushAdapter,
     private readonly logger: LoggerLike
   ) {}
 
@@ -417,6 +419,10 @@ export class SessionOrchestrator {
       session_id: sessionId,
       status: newStatus
     });
+
+    if (newStatus === "completed" || newStatus === "failed") {
+      void this.pushAdapter.notify(sessionId, newStatus, context?.error_message);
+    }
   }
 
   private getSession(sessionId: string): Session | null {
