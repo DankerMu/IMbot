@@ -11,6 +11,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import com.imbot.android.ui.onboarding.isValidRelayUrl
 
 @Composable
 fun EditRelayDialog(
@@ -49,10 +50,10 @@ fun EditRelayDialog(
             TextButton(
                 onClick = {
                     val normalized = url.trim()
-                    if (normalized.isBlank()) {
-                        error = "URL 不能为空"
-                    } else {
-                        onSave(normalized)
+                    when {
+                        normalized.isBlank() -> error = "URL 不能为空"
+                        !isValidRelayUrl(normalized) -> error = "请输入 https:// 开头的 URL"
+                        else -> onSave(normalized)
                     }
                 },
             ) {
