@@ -42,6 +42,7 @@ data class NewSessionUiState(
     val isCreating: Boolean = false,
     val error: String? = null,
     val directoryError: String? = null,
+    val directoryWarning: String? = null,
     val isLoadingHosts: Boolean = false,
     val isLoadingRoots: Boolean = false,
     val isLoadingBrowse: Boolean = false,
@@ -145,6 +146,7 @@ class NewSessionViewModel
                     breadcrumbs = emptyList(),
                     cwd = null,
                     directoryError = null,
+                    directoryWarning = null,
                     isLoadingRoots = false,
                     isLoadingBrowse = false,
                     model = DEFAULT_MODEL,
@@ -255,7 +257,8 @@ class NewSessionViewModel
                             breadcrumbs = result.path.toBreadcrumbs(),
                             pendingBrowsePath = null,
                             isLoadingBrowse = false,
-                            directoryError = if (truncated) "目录条目过多，仅显示前 $maxEntries 项" else null,
+                            directoryError = null,
+                            directoryWarning = if (truncated) "目录条目过多，仅显示前 $maxEntries 项" else null,
                         )
                     }
                 }.onFailure { error ->

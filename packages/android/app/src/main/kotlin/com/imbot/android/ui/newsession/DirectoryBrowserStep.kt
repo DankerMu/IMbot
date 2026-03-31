@@ -76,6 +76,14 @@ fun DirectoryBrowserStep(
                     .weight(1f),
         )
 
+        if (state.directoryWarning != null) {
+            Text(
+                text = state.directoryWarning,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
         if (state.cwd != null) {
             Text(
                 text = "当前选择: ${state.cwd}",

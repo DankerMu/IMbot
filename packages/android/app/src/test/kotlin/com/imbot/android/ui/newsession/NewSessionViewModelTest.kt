@@ -325,7 +325,8 @@ class NewSessionViewModelTest {
 
         val state = viewModel.uiState.value
         assertEquals(200, state.browseEntries.size)
-        assertEquals("目录条目过多，仅显示前 200 项", state.directoryError)
+        assertNull(state.directoryError)
+        assertEquals("目录条目过多，仅显示前 200 项", state.directoryWarning)
         assertEquals("dir-200", state.browseEntries.last().name)
     }
 
