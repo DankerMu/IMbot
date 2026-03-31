@@ -441,7 +441,7 @@ class DetailViewModel
                     }
                 }.isSuccess
 
-            finishCatchUp(processBufferedEvents = true)
+            finishCatchUp(processBufferedEvents = catchUpSucceeded)
 
             if (catchUpSucceeded) {
                 if (showRecoveryBanner) {
