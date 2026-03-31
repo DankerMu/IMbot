@@ -22,6 +22,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 @Singleton
+@Suppress("TooManyFunctions")
 class RelayWsClient
     @Inject
     constructor(
@@ -36,12 +37,16 @@ class RelayWsClient
         private val _messages = MutableSharedFlow<ServerMessage>(extraBufferCapacity = 64)
         val messages: SharedFlow<ServerMessage> = _messages.asSharedFlow()
 
+        private val _events = MutableSharedFlow<ServerMessage.Event>(extraBufferCapacity = 64)
+        val events: SharedFlow<ServerMessage.Event> = _events.asSharedFlow()
+
         private val _rawMessages = MutableSharedFlow<String>(extraBufferCapacity = 64)
         val rawMessages: SharedFlow<String> = _rawMessages.asSharedFlow()
 
         private var configuredRelayUrl: String? = null
         private var configuredToken: String? = null
         private var activeSessionId: String? = null
+        private var trackedSessionIds: Set<String> = emptySet()
         private var currentSocket: WebSocket? = null
         private var reconnectJob: Job? = null
         private var shouldReconnect = false
@@ -92,22 +97,26 @@ class RelayWsClient
                 return
             }
 
-            if (previousSessionId != null && _connectionState.value is ConnectionState.Connected) {
-                sendUnsubscribe(previousSessionId)
-            }
-
+            val previousSubscriptions = currentSubscriptionIds()
             activeSessionId = normalizedSessionId
-            if (_connectionState.value is ConnectionState.Connected) {
-                sendSubscribe(normalizedSessionId)
-            }
+            syncSubscriptions(previousSubscriptions, currentSubscriptionIds())
         }
 
         fun clearSubscription() {
-            val previousSessionId = activeSessionId
+            val previousSubscriptions = currentSubscriptionIds()
             activeSessionId = null
-            if (previousSessionId != null && _connectionState.value is ConnectionState.Connected) {
-                sendUnsubscribe(previousSessionId)
+            syncSubscriptions(previousSubscriptions, currentSubscriptionIds())
+        }
+
+        fun setTrackedSessionIds(sessionIds: Set<String>) {
+            val normalizedSessionIds = sessionIds.map(String::trim).filter(String::isNotBlank).toSet()
+            if (trackedSessionIds == normalizedSessionIds) {
+                return
             }
+
+            val previousSubscriptions = currentSubscriptionIds()
+            trackedSessionIds = normalizedSessionIds
+            syncSubscriptions(previousSubscriptions, currentSubscriptionIds())
         }
 
         private fun openSocket() {
@@ -143,7 +152,7 @@ class RelayWsClient
 
                             reconnectAttempt = 0
                             _connectionState.value = ConnectionState.Connected
-                            activeSessionId?.let(::sendSubscribe)
+                            currentSubscriptionIds().forEach(::sendSubscribe)
                         }
 
                         override fun onMessage(
@@ -158,6 +167,7 @@ class RelayWsClient
                                 val parsedMessage = parseServerMessage(text)
                                 if (parsedMessage != null) {
                                     if (parsedMessage is ServerMessage.Event) {
+                                        _events.emit(parsedMessage)
                                         _rawMessages.emit(text)
                                     }
                                     _messages.emit(parsedMessage)
@@ -234,6 +244,24 @@ class RelayWsClient
                     .put("session_id", sessionId)
                     .toString()
             send(payload)
+        }
+
+        private fun currentSubscriptionIds(): Set<String> =
+            buildSet {
+                addAll(trackedSessionIds)
+                activeSessionId?.let(::add)
+            }
+
+        private fun syncSubscriptions(
+            previousSubscriptions: Set<String>,
+            nextSubscriptions: Set<String>,
+        ) {
+            if (_connectionState.value !is ConnectionState.Connected) {
+                return
+            }
+
+            previousSubscriptions.subtract(nextSubscriptions).forEach(::sendUnsubscribe)
+            nextSubscriptions.subtract(previousSubscriptions).forEach(::sendSubscribe)
         }
     }
 

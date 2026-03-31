@@ -5,16 +5,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.imbot.android.data.RelaySettings
 import com.imbot.android.data.SettingsRepository
+import com.imbot.android.data.relayValidationError
 import com.imbot.android.network.ConnectionState
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelayWsClient
 import com.imbot.android.network.ServerMessage
-import com.imbot.android.network.toRelayBaseHttpUrl
 import com.imbot.android.worker.PushTokenWorker
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
@@ -61,6 +64,9 @@ class MainViewModel
         private val _noticeIsError = MutableStateFlow(false)
         val noticeIsError: StateFlow<Boolean> = _noticeIsError.asStateFlow()
 
+        private val _navigationEvents = MutableSharedFlow<MainNavigationEvent>(replay = 1)
+        val navigationEvents: SharedFlow<MainNavigationEvent> = _navigationEvents.asSharedFlow()
+
         val connectionState: StateFlow<ConnectionState> = relayWsClient.connectionState
 
         init {
@@ -81,8 +87,10 @@ class MainViewModel
             }
 
             viewModelScope.launch {
-                relayWsClient.rawMessages.collect { rawMessage ->
-                    appendEvent(rawMessage)
+                relayWsClient.events.collect { event ->
+                    if (event.sessionId == _sessionId.value) {
+                        appendEvent(event.toDebugString())
+                    }
                 }
             }
 
@@ -210,6 +218,10 @@ class MainViewModel
         }
 
         fun openSessionFromNotification(sessionId: String) {
+            openSession(sessionId)
+        }
+
+        fun openSession(sessionId: String) {
             val normalizedSessionId = sessionId.trim()
             if (normalizedSessionId.isBlank()) {
                 return
@@ -222,12 +234,21 @@ class MainViewModel
             _sessionId.value = normalizedSessionId
             relayWsClient.subscribe(normalizedSessionId)
             updateNotice(message = "Opened session from push notification")
+            _navigationEvents.tryEmit(MainNavigationEvent.OpenPrototype)
         }
 
         fun openHomeFromNotification() {
             relayWsClient.clearSubscription()
             _sessionId.value = null
             updateNotice(message = "Opened home from push notification")
+            _navigationEvents.tryEmit(MainNavigationEvent.OpenHome)
+        }
+
+        fun openPrototypeComposer() {
+            relayWsClient.clearSubscription()
+            resetPrototypeSession()
+            updateNotice()
+            _navigationEvents.tryEmit(MainNavigationEvent.OpenPrototype)
         }
 
         private fun resetPrototypeSession() {
@@ -260,6 +281,24 @@ class MainViewModel
         }
     }
 
+sealed interface MainNavigationEvent {
+    data object OpenHome : MainNavigationEvent
+
+    data object OpenPrototype : MainNavigationEvent
+}
+
+private fun ServerMessage.Event.toDebugString(): String =
+    buildString {
+        append("seq=")
+        append(seq)
+        append(" type=")
+        append(eventType)
+        payload?.let { jsonPayload ->
+            append(" payload=")
+            append(jsonPayload.toString())
+        }
+    }
+
 private data class NoticeState(
     val message: String,
     val isError: Boolean,
@@ -270,15 +309,6 @@ enum class PrototypeInputField {
     Cwd,
     Prompt,
 }
-
-private const val SECURE_RELAY_URL_ERROR = "Relay URL must use https:// or wss://."
-
-private fun RelaySettings.relayValidationError(): String? =
-    when {
-        relayUrl.isBlank() -> null
-        relayUrl.toRelayBaseHttpUrl() == null -> SECURE_RELAY_URL_ERROR
-        else -> null
-    }
 
 private fun ServerMessage.toNoticeState(): NoticeState? =
     when (this) {
