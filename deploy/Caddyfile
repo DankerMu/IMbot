@@ -1,0 +1,6 @@
+# Replace __IMBOT_DOMAIN__ with the public relay domain before installing.
+# Caddy's reverse_proxy handles WebSocket upgrades automatically.
+__IMBOT_DOMAIN__ {
+  encode zstd gzip
+  reverse_proxy 127.0.0.1:3000
+}

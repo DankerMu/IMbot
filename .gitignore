@@ -7,4 +7,5 @@ build/
 *.db-shm
 .env
 .env.*
+!packages/relay/.env.example
 .DS_Store
