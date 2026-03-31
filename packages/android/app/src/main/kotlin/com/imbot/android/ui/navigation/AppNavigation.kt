@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -28,6 +29,8 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.imbot.android.ui.home.HomeScreen
 import com.imbot.android.ui.home.HomeViewModel
+import com.imbot.android.ui.newsession.NewSessionScreen
+import com.imbot.android.ui.newsession.NewSessionViewModel
 import com.imbot.android.ui.prototype.PrototypeScreen
 import com.imbot.android.ui.settings.SettingsScreen
 import com.imbot.android.ui.workspace.WorkspaceScreen
@@ -56,6 +59,10 @@ fun AppNavigation(
         mainViewModel.navigationEvents.collectLatest { event ->
             when (event) {
                 MainNavigationEvent.OpenHome -> navigateToTopLevel(navController, AppRoute.HOME)
+                MainNavigationEvent.OpenNewSession ->
+                    navController.navigate(AppRoute.NEW_SESSION) {
+                        launchSingleTop = true
+                    }
                 MainNavigationEvent.OpenPrototype ->
                     navController.navigate(AppRoute.PROTOTYPE) {
                         launchSingleTop = true
@@ -121,7 +128,7 @@ fun AppNavigation(
             composable(AppRoute.HOME) {
                 HomeScreen(
                     viewModel = homeViewModel,
-                    onCreateSession = mainViewModel::openPrototypeComposer,
+                    onCreateSession = mainViewModel::openNewSession,
                     onOpenSession = mainViewModel::openSession,
                 )
             }
@@ -139,6 +146,19 @@ fun AppNavigation(
                     viewModel = mainViewModel,
                     onNavigateBack = {
                         navController.popBackStack()
+                    },
+                )
+            }
+            composable(AppRoute.NEW_SESSION) {
+                val viewModel: NewSessionViewModel = hiltViewModel()
+                NewSessionScreen(
+                    viewModel = viewModel,
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    },
+                    onSessionCreated = {
+                        homeViewModel.refresh()
+                        navigateToTopLevel(navController, AppRoute.HOME)
                     },
                 )
             }
@@ -164,6 +184,7 @@ private object AppRoute {
     const val WORKSPACE = "workspace"
     const val SETTINGS = "settings"
     const val PROTOTYPE = "prototype"
+    const val NEW_SESSION = "new_session"
 }
 
 private data class TopLevelDestination(

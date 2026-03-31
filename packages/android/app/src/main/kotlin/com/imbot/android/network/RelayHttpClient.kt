@@ -35,6 +35,32 @@ data class SessionResponse(
     val rawJson: String,
 )
 
+data class RelayHost(
+    val id: String,
+    val name: String,
+    val type: String,
+    val status: String,
+    val providers: List<String>,
+)
+
+data class RelayWorkspaceRoot(
+    val id: String,
+    val hostId: String,
+    val provider: String,
+    val path: String,
+    val label: String?,
+)
+
+data class BrowseResult(
+    val path: String,
+    val directories: List<BrowseEntry>,
+)
+
+data class BrowseEntry(
+    val name: String,
+    val path: String,
+)
+
 private data class RelayErrorResponse(
     val code: String,
     val message: String,
@@ -46,6 +72,122 @@ class RelayHttpClient
     constructor(
         private val okHttpClient: OkHttpClient,
     ) {
+        suspend fun getHosts(
+            relayUrl: String,
+            token: String,
+        ): Result<List<RelayHost>> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .encodedPath("/v1/hosts")
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .get()
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            error(buildRelayErrorMessage(response, bodyText, "Load hosts"))
+                        }
+
+                        val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
+                        val hostsArray = root.optJSONArray("hosts") ?: error("Relay response is missing hosts")
+
+                        buildList {
+                            for (index in 0 until hostsArray.length()) {
+                                val hostObject =
+                                    hostsArray.optJSONObject(index)
+                                        ?: error("Relay returned malformed host payload")
+                                add(hostObject.toRelayHost())
+                            }
+                        }
+                    }
+                }
+            }
+
+        suspend fun getHostRoots(
+            relayUrl: String,
+            token: String,
+            hostId: String,
+        ): Result<List<RelayWorkspaceRoot>> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .addPathSegments("v1/hosts")
+                                    .addPathSegment(hostId)
+                                    .addPathSegment("roots")
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .get()
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            error(buildRelayErrorMessage(response, bodyText, "Load workspace roots"))
+                        }
+
+                        val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
+                        val rootsArray = root.optJSONArray("roots") ?: error("Relay response is missing roots")
+
+                        buildList {
+                            for (index in 0 until rootsArray.length()) {
+                                val rootObject =
+                                    rootsArray.optJSONObject(index)
+                                        ?: error("Relay returned malformed workspace root payload")
+                                add(rootObject.toRelayWorkspaceRoot())
+                            }
+                        }
+                    }
+                }
+            }
+
+        suspend fun browseDirectory(
+            relayUrl: String,
+            token: String,
+            hostId: String,
+            path: String,
+        ): Result<BrowseResult> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .addPathSegments("v1/hosts")
+                                    .addPathSegment(hostId)
+                                    .addPathSegment("browse")
+                                    .addQueryParameter("path", path)
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .get()
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            error(buildRelayErrorMessage(response, bodyText, "Browse directory"))
+                        }
+
+                        val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
+                        root.toBrowseResult()
+                    }
+                }
+            }
+
         suspend fun getSessions(
             relayUrl: String,
             token: String,
@@ -94,6 +236,7 @@ class RelayHttpClient
             cwd: String,
             prompt: String,
             permissionMode: String,
+            model: String? = null,
         ): Result<SessionResponse> =
             runCatching {
                 withContext(Dispatchers.IO) {
@@ -105,6 +248,11 @@ class RelayHttpClient
                             .put("cwd", cwd)
                             .put("prompt", prompt)
                             .put("permission_mode", permissionMode)
+                            .also { payload ->
+                                if (!model.isNullOrBlank()) {
+                                    payload.put("model", model)
+                                }
+                            }
                             .toString()
                             .toRequestBody(JSON_MEDIA_TYPE)
 
@@ -294,5 +442,73 @@ private fun JSONObject.toRelaySession(): RelaySession {
         createdAt = optString("created_at"),
         updatedAt = optString("updated_at").ifBlank { optString("created_at") },
         lastActiveAt = optString("last_active_at").ifBlank { optString("updated_at") },
+    )
+}
+
+private fun JSONObject.toRelayHost(): RelayHost {
+    val id = optString("id")
+    require(id.isNotBlank()) { "Relay response is missing host.id" }
+
+    val providersArray = optJSONArray("providers")
+    val providers =
+        buildList {
+            if (providersArray != null) {
+                for (index in 0 until providersArray.length()) {
+                    val provider = providersArray.optString(index)
+                    if (provider.isNotBlank()) {
+                        add(provider)
+                    }
+                }
+            }
+        }
+
+    return RelayHost(
+        id = id,
+        name = optString("name"),
+        type = optString("type"),
+        status = optString("status"),
+        providers = providers,
+    )
+}
+
+private fun JSONObject.toRelayWorkspaceRoot(): RelayWorkspaceRoot {
+    val id = optString("id")
+    require(id.isNotBlank()) { "Relay response is missing root.id" }
+
+    return RelayWorkspaceRoot(
+        id = id,
+        hostId = optString("host_id"),
+        provider = optString("provider"),
+        path = optString("path"),
+        label = optString("label").ifBlank { null },
+    )
+}
+
+private fun JSONObject.toBrowseResult(): BrowseResult {
+    val path = optString("path")
+    require(path.isNotBlank()) { "Relay response is missing browse path" }
+    val directoriesArray = optJSONArray("directories") ?: error("Relay response is missing directories")
+
+    return BrowseResult(
+        path = path,
+        directories =
+            buildList {
+                for (index in 0 until directoriesArray.length()) {
+                    val directoryObject =
+                        directoriesArray.optJSONObject(index)
+                            ?: error("Relay returned malformed browse directory payload")
+                    add(directoryObject.toBrowseEntry())
+                }
+            },
+    )
+}
+
+private fun JSONObject.toBrowseEntry(): BrowseEntry {
+    val path = optString("path")
+    require(path.isNotBlank()) { "Relay response is missing directory path" }
+
+    return BrowseEntry(
+        name = optString("name"),
+        path = path,
     )
 }
