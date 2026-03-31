@@ -43,6 +43,7 @@ data class AddRootUiState(
     val isLoading: Boolean = false,
     val isSubmitting: Boolean = false,
     val error: String? = null,
+    val warning: String? = null,
     val isLabelDirty: Boolean = false,
 )
 
@@ -66,6 +67,7 @@ class WorkspaceViewModel
         private val workspaceRepository: WorkspaceRepository,
         private val relayWsClient: RelayWsClient,
     ) : ViewModel() {
+        private var browseGeneration = 0
         private val _uiState = MutableStateFlow(WorkspaceUiState())
         val uiState: StateFlow<WorkspaceUiState> = _uiState.asStateFlow()
 
@@ -85,10 +87,12 @@ class WorkspaceViewModel
         }
 
         fun showAddRootSheet() {
+            browseGeneration++
             _addRootState.value = AddRootUiState(isVisible = true)
         }
 
         fun dismissAddRootSheet() {
+            browseGeneration++
             _addRootState.value = AddRootUiState()
         }
 
@@ -97,8 +101,10 @@ class WorkspaceViewModel
             val resolvedHost = resolveWorkspaceHost(provider, hosts)
             val hostName = resolvedHost?.name
             val hostId = resolvedHost?.id
-            val initialPath = resolvedHost?.let { defaultBrowsePath(provider, it) }.orEmpty()
+            val canBrowse = resolvedHost != null && resolvedHost.status == STATUS_ONLINE
+            val initialPath = resolvedHost?.takeIf { canBrowse }?.let { defaultBrowsePath(provider, it) }.orEmpty()
 
+            browseGeneration++
             _addRootState.update { current ->
                 current.copy(
                     provider = provider,
@@ -107,13 +113,14 @@ class WorkspaceViewModel
                     currentPath = initialPath,
                     breadcrumbs = initialPath.toBreadcrumbs(),
                     directories = emptyList(),
-                    label = initialPath.defaultRootLabel(),
+                    label = initialPath.takeIf(String::isNotBlank)?.defaultRootLabel().orEmpty(),
                     error =
                         when {
                             resolvedHost == null -> "未找到可用主机"
                             resolvedHost.status != STATUS_ONLINE -> "${resolvedHost.name} 离线，无法浏览目录"
                             else -> null
                         },
+                    warning = null,
                     isLoading = false,
                     isSubmitting = false,
                     isLabelDirty = false,
@@ -131,12 +138,17 @@ class WorkspaceViewModel
             if (state.isLoading) {
                 return
             }
+            val generation = ++browseGeneration
 
             viewModelScope.launch {
+                if (generation != browseGeneration) {
+                    return@launch
+                }
                 _addRootState.update { current ->
                     current.copy(
                         isLoading = true,
                         error = null,
+                        warning = null,
                     )
                 }
 
@@ -146,11 +158,16 @@ class WorkspaceViewModel
                         path = path,
                     )
                 }.onSuccess { result ->
+                    if (generation != browseGeneration) {
+                        return@onSuccess
+                    }
+                    val sortedDirectories = result.directories.sortedBy(BrowseEntry::name)
+                    val truncated = sortedDirectories.size > MAX_BROWSE_ENTRIES
                     _addRootState.update { current ->
                         current.copy(
                             currentPath = result.path,
                             breadcrumbs = result.path.toBreadcrumbs(),
-                            directories = result.directories.sortedBy(BrowseEntry::name),
+                            directories = sortedDirectories.take(MAX_BROWSE_ENTRIES),
                             label =
                                 if (current.isLabelDirty) {
                                     current.label
@@ -159,13 +176,18 @@ class WorkspaceViewModel
                                 },
                             isLoading = false,
                             error = null,
+                            warning = if (truncated) "目录条目过多，仅显示前 $MAX_BROWSE_ENTRIES 项" else null,
                         )
                     }
                 }.onFailure { error ->
+                    if (generation != browseGeneration) {
+                        return@onFailure
+                    }
                     _addRootState.update { current ->
                         current.copy(
                             isLoading = false,
                             error = error.message ?: "浏览目录失败",
+                            warning = null,
                         )
                     }
                 }
@@ -390,7 +412,15 @@ class WorkspaceViewModel
                         }
                         _addRootState.update { current ->
                             if (current.hostId == message.hostId && message.status != STATUS_ONLINE) {
-                                current.copy(error = "${current.hostName ?: "主机"} 离线，无法浏览目录")
+                                browseGeneration++
+                                current.copy(
+                                    currentPath = "",
+                                    breadcrumbs = emptyList(),
+                                    directories = emptyList(),
+                                    isLoading = false,
+                                    error = "${current.hostName ?: "主机"} 离线，无法浏览目录",
+                                    warning = null,
+                                )
                             } else {
                                 current
                             }
@@ -444,3 +474,4 @@ private fun mapAddRootError(error: Throwable): String =
 internal fun String.defaultRootLabel(): String = trimEnd('/').substringAfterLast('/').ifBlank { this }
 
 private const val STATUS_ONLINE = "online"
+private const val MAX_BROWSE_ENTRIES = 200

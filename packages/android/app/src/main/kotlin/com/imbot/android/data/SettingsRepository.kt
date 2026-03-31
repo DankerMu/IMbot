@@ -39,7 +39,7 @@ open class SettingsRepository
         open fun load(): RelaySettings =
             RelaySettings(
                 relayUrl = preferences.getString(KEY_RELAY_URL, BuildConfig.DEFAULT_RELAY_URL).orEmpty(),
-                token = securePreferences.getString(KEY_TOKEN, "").orEmpty(),
+                token = loadToken(),
             )
 
         open fun save(settings: RelaySettings) {
@@ -49,6 +49,7 @@ open class SettingsRepository
             securePreferences.edit()
                 .putString(KEY_TOKEN, settings.token)
                 .apply()
+            clearLegacyTokenIfNeeded()
         }
 
         open fun observeRelayUrl(): Flow<String> =
@@ -130,6 +131,29 @@ open class SettingsRepository
                     preferences.unregisterOnSharedPreferenceChangeListener(listener)
                 }
             }.conflate().distinctUntilChanged()
+
+        private fun loadToken(): String {
+            val secureToken = securePreferences.getString(KEY_TOKEN, "").orEmpty()
+            val legacyToken = preferences.getString(KEY_TOKEN, "").orEmpty()
+            return secureToken.takeIf { it.isNotBlank() }
+                ?: legacyToken.takeIf { it.isNotBlank() }?.also { token ->
+                    securePreferences.edit()
+                        .putString(KEY_TOKEN, token)
+                        .apply()
+                    clearLegacyTokenIfNeeded()
+                }
+                ?: ""
+        }
+
+        private fun clearLegacyTokenIfNeeded() {
+            if (preferences === securePreferences) {
+                return
+            }
+
+            preferences.edit()
+                .remove(KEY_TOKEN)
+                .apply()
+        }
 
         companion object {
             const val THEME_MODE_SYSTEM = "system"

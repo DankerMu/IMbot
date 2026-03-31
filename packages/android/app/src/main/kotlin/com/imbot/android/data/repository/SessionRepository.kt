@@ -5,6 +5,7 @@ import com.imbot.android.data.SettingsRepository
 import com.imbot.android.data.local.AppDatabase
 import com.imbot.android.data.local.SessionDao
 import com.imbot.android.data.local.SessionEntity
+import com.imbot.android.data.local.escapeSqlLikePattern
 import com.imbot.android.data.relayValidationError
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelaySession
@@ -24,8 +25,11 @@ class SessionRepository
     ) : SessionStore {
         fun getSessions(): Flow<List<SessionEntity>> = sessionDao.getAll()
 
-        @Suppress("MaxLineLength")
-        override fun getSessionsByPathPrefix(pathPrefix: String): Flow<List<SessionEntity>> = sessionDao.getByPathPrefix(pathPrefix)
+        override fun getSessionsByPathPrefix(pathPrefix: String): Flow<List<SessionEntity>> =
+            sessionDao.getByPathPrefix(
+                prefix = pathPrefix,
+                escapedPrefix = pathPrefix.escapeSqlLikePattern(),
+            )
 
         suspend fun refreshFromApi() {
             val settings = settingsRepository.load()

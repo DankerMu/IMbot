@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -32,6 +33,31 @@ class AddRootStateTest {
             advanceUntilIdle()
 
             assertEquals("macbook-1", viewModel.addRootState.value.hostId)
+        }
+
+    @Test
+    fun `offline host selection keeps submit disabled by clearing current path`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repo =
+                FakeWorkspaceRepository().apply {
+                    getHostsWithRootsResult =
+                        Result.success(
+                            listOf(
+                                hostWithRoots(workspaceHost(id = "macbook-1", type = "macbook", status = "offline")),
+                                hostWithRoots(workspaceHost(id = "relay-local", type = "relay_local")),
+                            ),
+                        )
+                }
+            val viewModel = WorkspaceViewModel(repo, FakeRelayWsClient())
+            advanceUntilIdle()
+
+            viewModel.showAddRootSheet()
+            viewModel.selectProvider("claude")
+            advanceUntilIdle()
+
+            assertEquals("", viewModel.addRootState.value.currentPath)
+            assertEquals("macbook-1 离线，无法浏览目录", viewModel.addRootState.value.error)
+            assertTrue(repo.browseRequests.isEmpty())
         }
 
     @Test
@@ -60,6 +86,61 @@ class AddRootStateTest {
 
             assertEquals("/Users/danker/projects", viewModel.addRootState.value.currentPath)
             assertEquals(2, viewModel.addRootState.value.directories.size)
+        }
+
+    @Test
+    fun `stale browse responses are ignored after provider switch`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val claudeBrowseGate = CompletableDeferred<Result<BrowseResult>>()
+            val openClawBrowseGate = CompletableDeferred<Result<BrowseResult>>()
+            val repo =
+                configuredRepository().apply {
+                    browseDirectoryHandler =
+                        { hostId, path ->
+                            when (hostId to path) {
+                                "macbook-1" to "/Users" -> claudeBrowseGate.await()
+                                "relay-local" to "/" -> openClawBrowseGate.await()
+                                else -> Result.failure(IllegalStateException("unexpected browse request"))
+                            }
+                        }
+                }
+            val viewModel = WorkspaceViewModel(repo, FakeRelayWsClient())
+            advanceUntilIdle()
+
+            viewModel.showAddRootSheet()
+            viewModel.selectProvider("claude")
+            runCurrent()
+            viewModel.selectProvider("openclaw")
+            runCurrent()
+
+            claudeBrowseGate.complete(
+                Result.success(
+                    browseResult(
+                        "/Users",
+                        browseEntry(name = "claude-only", path = "/Users/claude-only"),
+                    ),
+                ),
+            )
+            runCurrent()
+
+            assertEquals("openclaw", viewModel.addRootState.value.provider)
+            assertEquals("/", viewModel.addRootState.value.currentPath)
+            assertTrue(viewModel.addRootState.value.directories.isEmpty())
+
+            openClawBrowseGate.complete(
+                Result.success(
+                    browseResult(
+                        "/",
+                        browseEntry(name = "relay-dir", path = "/relay-dir"),
+                    ),
+                ),
+            )
+            advanceUntilIdle()
+
+            assertEquals("openclaw", viewModel.addRootState.value.provider)
+            assertEquals("relay-local", viewModel.addRootState.value.hostId)
+            assertEquals("/", viewModel.addRootState.value.currentPath)
+            assertEquals(listOf("relay-dir"), viewModel.addRootState.value.directories.map { it.name })
         }
 
     @Test
@@ -94,6 +175,41 @@ class AddRootStateTest {
                 ),
                 repo.browseRequests,
             )
+        }
+
+    @Test
+    fun `browse caps large directory listings at two hundred entries`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repo = configuredRepository()
+            repo.browseDirectoryHandler =
+                { _, path ->
+                    Result.success(
+                        BrowseResult(
+                            path = path,
+                            directories =
+                                (250 downTo 1).map { index ->
+                                    val directoryName = "dir-${index.toString().padStart(3, '0')}"
+                                    browseEntry(
+                                        name = directoryName,
+                                        path = "$path/$directoryName",
+                                    )
+                                },
+                        ),
+                    )
+                }
+            val viewModel = WorkspaceViewModel(repo, FakeRelayWsClient())
+            advanceUntilIdle()
+            viewModel.showAddRootSheet()
+            viewModel.selectProvider("claude")
+            advanceUntilIdle()
+
+            viewModel.browseAddRootDirectory("/Users/danker/projects")
+            advanceUntilIdle()
+
+            assertEquals(200, viewModel.addRootState.value.directories.size)
+            assertEquals("dir-001", viewModel.addRootState.value.directories.first().name)
+            assertEquals("dir-200", viewModel.addRootState.value.directories.last().name)
+            assertEquals("目录条目过多，仅显示前 200 项", viewModel.addRootState.value.warning)
         }
 
     @Test

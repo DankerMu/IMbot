@@ -169,7 +169,7 @@ class OnboardingViewModel
 
 internal fun isValidRelayUrl(value: String): Boolean {
     val parsed = value.toHttpUrlOrNull() ?: return false
-    return parsed.scheme == "http" || parsed.scheme == "https"
+    return parsed.scheme == "https"
 }
 
 internal fun HealthzResponse.macbookHost(): HealthzHost? =

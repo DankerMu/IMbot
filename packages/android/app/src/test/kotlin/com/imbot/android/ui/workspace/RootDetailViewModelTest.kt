@@ -79,6 +79,41 @@ class RootDetailViewModelTest {
         }
 
     @Test
+    fun `navigateUp from root path is a no-op`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repo = configuredRepository()
+            val viewModel = createViewModel(repo = repo)
+            advanceUntilIdle()
+
+            viewModel.navigateUp()
+            advanceUntilIdle()
+
+            assertEquals(1, repo.browseRequests.size)
+            assertEquals("/Users/danker/projects", viewModel.uiState.value.currentPath)
+        }
+
+    @Test
+    fun `paths above root clamp back to root and breadcrumbs start at root`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val repo = configuredRepository()
+            val sessionStore = FakeSessionStore()
+            val viewModel = createViewModel(repo = repo, sessionStore = sessionStore)
+            advanceUntilIdle()
+
+            viewModel.navigateToSubdirectory("/Users/danker/projects/IMbot")
+            advanceUntilIdle()
+            assertEquals(listOf("projects", "IMbot"), viewModel.uiState.value.breadcrumbs.map { it.label })
+
+            viewModel.navigateToSubdirectory("/Users")
+            advanceUntilIdle()
+
+            assertEquals("/Users/danker/projects", viewModel.uiState.value.currentPath)
+            assertEquals(listOf("projects"), viewModel.uiState.value.breadcrumbs.map { it.label })
+            assertEquals("/Users/danker/projects", repo.browseRequests.last().second)
+            assertEquals("/Users/danker/projects", sessionStore.requestedPrefixes.last())
+        }
+
+    @Test
     fun `empty directory shows empty list`() =
         runTest(mainDispatcherRule.dispatcher) {
             val repo =

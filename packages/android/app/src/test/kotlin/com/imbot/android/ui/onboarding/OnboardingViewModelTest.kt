@@ -246,6 +246,20 @@ class OnboardingViewModelTest {
             assertEquals(TestResult.Error("请输入有效的 Relay URL"), viewModel.uiState.value.testResult)
         }
 
+    @Test
+    fun `http relay url returns validation error without API call`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay = FakeRelayHttpClient()
+            val viewModel = createViewModel(relay = relay)
+            viewModel.updateUrl("http://relay.example.com")
+            viewModel.updateToken("secret-token")
+
+            viewModel.testConnection()
+
+            assertEquals(0, relay.testConnectionCalls)
+            assertEquals(TestResult.Error("请输入有效的 Relay URL"), viewModel.uiState.value.testResult)
+        }
+
     private fun createConfiguredViewModel(
         relay: FakeRelayHttpClient = FakeRelayHttpClient(),
         settingsRepository: FakeSettingsRepository = FakeSettingsRepository(RelaySettings("", "")),

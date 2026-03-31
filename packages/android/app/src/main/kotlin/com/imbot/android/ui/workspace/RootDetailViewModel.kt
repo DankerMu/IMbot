@@ -38,7 +38,7 @@ class RootDetailViewModel
     ) : ViewModel() {
         private val rootId = savedStateHandle.get<String>(ROOT_ID_ARG).orEmpty()
         private val hostId = savedStateHandle.get<String>(HOST_ID_ARG).orEmpty()
-        private val rootPath = savedStateHandle.get<String>(PATH_ARG).orEmpty()
+        private val rootPath = savedStateHandle.get<String>(PATH_ARG).orEmpty().normalizeWorkspacePath()
         private var sessionsJob: Job? = null
 
         private val _uiState =
@@ -46,7 +46,7 @@ class RootDetailViewModel
                 RootDetailUiState(
                     rootLabel = rootPath.defaultRootLabel(),
                     currentPath = rootPath,
-                    breadcrumbs = rootPath.toBreadcrumbs(),
+                    breadcrumbs = rootPath.toRootBreadcrumbs(rootPath),
                 ),
             )
         val uiState: StateFlow<RootDetailUiState> = _uiState.asStateFlow()
@@ -66,10 +66,11 @@ class RootDetailViewModel
         }
 
         fun navigateToSubdirectory(path: String) {
-            if (path.isBlank() || path == _uiState.value.currentPath) {
+            val targetPath = clampToRoot(path)
+            if (targetPath == _uiState.value.currentPath) {
                 return
             }
-            loadPath(path)
+            loadPath(targetPath)
         }
 
         fun navigateUp() {
@@ -82,15 +83,7 @@ class RootDetailViewModel
             val parentPath =
                 normalized.substringBeforeLast('/', missingDelimiterValue = rootPath)
                     .ifBlank { "/" }
-                    .let { candidate ->
-                        if (candidate.length < rootPath.length) {
-                            rootPath
-                        } else {
-                            candidate
-                        }
-                    }
-
-            loadPath(parentPath)
+            loadPath(clampToRoot(parentPath))
         }
 
         fun retry() {
@@ -120,13 +113,14 @@ class RootDetailViewModel
         }
 
         private fun loadPath(path: String) {
-            observeSessions(path)
+            val targetPath = clampToRoot(path)
+            observeSessions(targetPath)
 
             viewModelScope.launch {
                 _uiState.update { current ->
                     current.copy(
-                        currentPath = path,
-                        breadcrumbs = path.toBreadcrumbs(),
+                        currentPath = targetPath,
+                        breadcrumbs = targetPath.toRootBreadcrumbs(rootPath),
                         isLoading = true,
                         error = null,
                     )
@@ -135,13 +129,14 @@ class RootDetailViewModel
                 runCatching {
                     workspaceRepository.browseDirectory(
                         hostId = hostId,
-                        path = path,
+                        path = targetPath,
                     )
                 }.onSuccess { result ->
+                    val resolvedPath = clampToRoot(result.path)
                     _uiState.update { current ->
                         current.copy(
-                            currentPath = result.path,
-                            breadcrumbs = result.path.toBreadcrumbs(),
+                            currentPath = resolvedPath,
+                            breadcrumbs = resolvedPath.toRootBreadcrumbs(rootPath),
                             directories = result.directories.sortedBy(BrowseEntry::name),
                             isLoading = false,
                             error = null,
@@ -155,6 +150,16 @@ class RootDetailViewModel
                         )
                     }
                 }
+            }
+        }
+
+        private fun clampToRoot(path: String): String {
+            val candidate = path.normalizeWorkspacePath()
+            return when {
+                candidate.isBlank() -> rootPath
+                rootPath == "/" -> candidate
+                candidate == rootPath || candidate.startsWith("$rootPath/") -> candidate
+                else -> rootPath
             }
         }
 
@@ -175,4 +180,46 @@ class RootDetailViewModel
             const val HOST_ID_ARG = "hostId"
             const val PATH_ARG = "path"
         }
+    }
+
+internal fun String.toRootBreadcrumbs(rootPath: String): List<DirectoryBreadcrumb> {
+    val normalizedRoot = rootPath.normalizeWorkspacePath()
+    val normalizedCurrent = normalizeWorkspacePath()
+    return when {
+        normalizedRoot.isBlank() || normalizedCurrent.isBlank() -> emptyList()
+        normalizedRoot == "/" -> normalizedCurrent.toBreadcrumbs()
+        else -> {
+            var currentPath = normalizedRoot
+            val relativeSegments =
+                normalizedCurrent.removePrefix(normalizedRoot)
+                    .trimStart('/')
+                    .split('/')
+                    .filter(String::isNotBlank)
+
+            buildList {
+                add(
+                    DirectoryBreadcrumb(
+                        label = normalizedRoot.defaultRootLabel(),
+                        path = normalizedRoot,
+                    ),
+                )
+                relativeSegments.forEach { segment ->
+                    currentPath = "$currentPath/$segment"
+                    add(
+                        DirectoryBreadcrumb(
+                            label = segment,
+                            path = currentPath,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun String.normalizeWorkspacePath(): String =
+    when {
+        isBlank() -> ""
+        this == "/" -> "/"
+        else -> trimEnd('/').ifBlank { "/" }
     }

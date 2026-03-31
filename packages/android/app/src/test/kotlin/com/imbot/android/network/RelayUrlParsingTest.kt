@@ -24,21 +24,13 @@ class RelayUrlParsingTest {
     }
 
     @Test
-    fun `accepts http relay urls`() {
-        val parsed = "http://relay.example.com".toRelayBaseHttpUrl()
-
-        requireNotNull(parsed)
-        assertEquals("http", parsed.scheme)
-        assertEquals("relay.example.com", parsed.host)
+    fun `rejects http relay urls`() {
+        assertNull("http://relay.example.com".toRelayBaseHttpUrl())
     }
 
     @Test
-    fun `converts ws relay urls to http base urls`() {
-        val parsed = "ws://relay.example.com".toRelayBaseHttpUrl()
-
-        requireNotNull(parsed)
-        assertEquals("http", parsed.scheme)
-        assertEquals("relay.example.com", parsed.host)
+    fun `rejects ws relay urls`() {
+        assertNull("ws://relay.example.com".toRelayBaseHttpUrl())
     }
 
     @Test

@@ -686,9 +686,7 @@ private suspend fun Call.await(): Response =
 
 internal fun String.toRelayBaseHttpUrl() =
     when {
-        startsWith("ws://") -> replaceFirst("ws://", "http://")
         startsWith("wss://") -> replaceFirst("wss://", "https://")
-        startsWith("http://") -> this
         startsWith("https://") -> this
         else -> null
     }?.toHttpUrlOrNull()
