@@ -3,6 +3,8 @@ package com.imbot.android.viewmodel
 import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.imbot.android.data.ErrorState
+import com.imbot.android.data.ErrorStateManager
 import com.imbot.android.data.RelaySettings
 import com.imbot.android.data.SettingsRepository
 import com.imbot.android.data.relayValidationError
@@ -32,6 +34,7 @@ class MainViewModel
         private val relayWsClient: RelayWsClient,
         private val relayHttpClient: RelayHttpClient,
         private val settingsRepository: SettingsRepository,
+        private val errorStateManager: ErrorStateManager,
         @ApplicationContext private val appContext: Context,
     ) : ViewModel() {
         private val _relayUrl = MutableStateFlow("")
@@ -68,6 +71,7 @@ class MainViewModel
         val navigationEvents: SharedFlow<MainNavigationEvent> = _navigationEvents.asSharedFlow()
 
         val connectionState: StateFlow<ConnectionState> = relayWsClient.connectionState
+        val errorState: StateFlow<ErrorState> = errorStateManager.errorState
 
         init {
             val savedSettings = settingsRepository.load()

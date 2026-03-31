@@ -24,6 +24,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -37,12 +38,16 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.imbot.android.data.ErrorState
+import com.imbot.android.ui.components.ErrorBannerHost
+import com.imbot.android.ui.components.ErrorScope
 import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun NewSessionScreen(
     viewModel: NewSessionViewModel,
+    errorState: ErrorState,
     onNavigateBack: () -> Unit,
     onSessionCreated: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -53,7 +58,7 @@ fun NewSessionScreen(
 
     LaunchedEffect(uiState.error) {
         val message = uiState.error ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(message)
+        snackbarHostState.showSnackbar(message = message, duration = SnackbarDuration.Short)
         viewModel.clearError()
     }
 
@@ -111,6 +116,12 @@ fun NewSessionScreen(
                     .fillMaxSize()
                     .padding(innerPadding),
         ) {
+            ErrorBannerHost(
+                errorState = errorState,
+                scope = ErrorScope.WORKSPACE,
+                modifier = Modifier.padding(horizontal = 16.dp),
+                hostId = newSessionBannerHostId(uiState),
+            )
             StepIndicator(
                 currentStep = uiState.step,
                 modifier =
@@ -324,3 +335,10 @@ internal fun canCreate(state: NewSessionUiState): Boolean =
         state.prompt.trim().isNotBlank()
 
 private val STEP_TITLES = listOf("Provider", "目录", "开始")
+
+private fun newSessionBannerHostId(state: NewSessionUiState): String? =
+    if (state.provider == "claude" || state.provider == "book") {
+        state.hostId
+    } else {
+        null
+    }

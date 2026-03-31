@@ -9,6 +9,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.imbot.android.data.SettingsRepository
+import com.imbot.android.service.SessionService
 import com.imbot.android.ui.home.HomeViewModel
 import com.imbot.android.ui.navigation.AppNavigation
 import com.imbot.android.ui.navigation.resolveStartDestination
@@ -52,6 +53,13 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleIntent(intent)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (settingsRepository.load().isConfigured()) {
+            SessionService.start(this)
+        }
     }
 
     private fun handleIntent(intent: Intent?) {

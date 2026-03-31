@@ -2,6 +2,7 @@ package com.imbot.android.di
 
 import android.content.Context
 import androidx.room.Room
+import com.imbot.android.data.ErrorStateManager
 import com.imbot.android.data.local.AppDatabase
 import com.imbot.android.data.local.SessionDao
 import com.imbot.android.data.repository.SessionRepository
@@ -28,7 +29,10 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun provideRelayWsClient(okHttpClient: OkHttpClient): RelayWsClient = RelayWsClient(okHttpClient)
+    fun provideRelayWsClient(
+        okHttpClient: OkHttpClient,
+        errorStateManager: ErrorStateManager,
+    ): RelayWsClient = RelayWsClient(okHttpClient, errorStateManager)
 
     @Provides
     @Singleton

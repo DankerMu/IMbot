@@ -37,6 +37,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.imbot.android.data.ErrorState
+import com.imbot.android.ui.components.EmptyState
+import com.imbot.android.ui.components.ErrorBannerHost
+import com.imbot.android.ui.components.ErrorScope
+import com.imbot.android.ui.components.InlineRetry
 import com.imbot.android.ui.home.SessionCard
 import com.imbot.android.ui.newsession.DirectoryBreadcrumb
 
@@ -44,6 +49,7 @@ import com.imbot.android.ui.newsession.DirectoryBreadcrumb
 @Composable
 fun RootDetailScreen(
     viewModel: RootDetailViewModel,
+    errorState: ErrorState,
     onNavigateBack: () -> Unit,
     onOpenSession: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -68,101 +74,103 @@ fun RootDetailScreen(
             )
         },
     ) { innerPadding ->
-        LazyColumn(
+        Column(
             modifier =
                 Modifier
                     .fillMaxSize()
                     .padding(innerPadding),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            item(key = "path") {
-                Column(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    BreadcrumbRow(
-                        breadcrumbs = uiState.breadcrumbs,
-                        onBrowseDirectory = viewModel::navigateToSubdirectory,
-                    )
-                    TextButton(
-                        onClick = viewModel::navigateUp,
-                        enabled = uiState.currentPath.isNotBlank(),
+            ErrorBannerHost(
+                errorState = errorState,
+                scope = ErrorScope.GLOBAL,
+                modifier = Modifier.padding(horizontal = 16.dp),
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+            ) {
+                item(key = "path") {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = null,
+                        BreadcrumbRow(
+                            breadcrumbs = uiState.breadcrumbs,
+                            onBrowseDirectory = viewModel::navigateToSubdirectory,
                         )
-                        Text("上一级")
-                    }
-                }
-            }
-
-            item(key = "directories-header") {
-                SectionHeader("子目录")
-            }
-
-            when {
-                uiState.error != null -> {
-                    item(key = "error") {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        TextButton(
+                            onClick = viewModel::navigateUp,
+                            enabled = uiState.currentPath.isNotBlank(),
                         ) {
-                            Text(
-                                text = uiState.error!!,
-                                color = MaterialTheme.colorScheme.error,
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = null,
                             )
-                            TextButton(onClick = viewModel::retry) {
-                                Text("重试")
-                            }
+                            Text("上一级")
                         }
                     }
                 }
 
-                uiState.directories.isEmpty() -> {
-                    item(key = "directories-empty") {
-                        EmptySection("此目录为空")
+                item(key = "directories-header") {
+                    SectionHeader("子目录")
+                }
+
+                when {
+                    uiState.error != null -> {
+                        item(key = "error") {
+                            InlineRetry(
+                                errorMessage = uiState.error!!,
+                                onRetry = viewModel::retry,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                        }
+                    }
+
+                    uiState.directories.isEmpty() -> {
+                        item(key = "directories-empty") {
+                            EmptySection("此目录为空")
+                        }
+                    }
+
+                    else -> {
+                        items(
+                            items = uiState.directories,
+                            key = { entry -> entry.path },
+                        ) { entry ->
+                            DirectoryRow(
+                                name = entry.name,
+                                path = entry.path,
+                                onClick = {
+                                    viewModel.navigateToSubdirectory(entry.path)
+                                },
+                            )
+                        }
                     }
                 }
 
-                else -> {
+                item(key = "sessions-header") {
+                    SectionHeader("该目录下的会话")
+                }
+
+                if (uiState.sessions.isEmpty()) {
+                    item(key = "sessions-empty") {
+                        EmptySection("暂无会话")
+                    }
+                } else {
                     items(
-                        items = uiState.directories,
-                        key = { entry -> entry.path },
-                    ) { entry ->
-                        DirectoryRow(
-                            name = entry.name,
-                            path = entry.path,
+                        items = uiState.sessions,
+                        key = { session -> session.id },
+                    ) { session ->
+                        SessionCard(
+                            session = session,
                             onClick = {
-                                viewModel.navigateToSubdirectory(entry.path)
+                                onOpenSession(session.id)
                             },
+                            onDelete = {},
+                            allowDelete = false,
+                            modifier = Modifier.padding(horizontal = 16.dp),
                         )
                     }
-                }
-            }
-
-            item(key = "sessions-header") {
-                SectionHeader("该目录下的会话")
-            }
-
-            if (uiState.sessions.isEmpty()) {
-                item(key = "sessions-empty") {
-                    EmptySection("暂无会话")
-                }
-            } else {
-                items(
-                    items = uiState.sessions,
-                    key = { session -> session.id },
-                ) { session ->
-                    SessionCard(
-                        session = session,
-                        onClick = {
-                            onOpenSession(session.id)
-                        },
-                        onDelete = {},
-                        allowDelete = false,
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                    )
                 }
             }
         }
@@ -268,9 +276,22 @@ private fun SectionHeader(title: String) {
 
 @Composable
 private fun EmptySection(message: String) {
-    Text(
-        text = message,
-        modifier = Modifier.padding(horizontal = 16.dp),
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    EmptyState(
+        illustration = { EmptySectionIllustration() },
+        title = message,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+    )
+}
+
+@Composable
+private fun EmptySectionIllustration() {
+    Box(
+        modifier =
+            Modifier
+                .size(48.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    shape = RoundedCornerShape(16.dp),
+                ),
     )
 }

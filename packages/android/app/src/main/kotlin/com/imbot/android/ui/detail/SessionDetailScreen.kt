@@ -61,6 +61,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.imbot.android.data.ErrorState
+import com.imbot.android.ui.components.ErrorBannerHost
+import com.imbot.android.ui.components.ErrorScope
 import com.imbot.android.ui.components.LocalSnackbarHostState
 import com.imbot.android.ui.components.StatusIndicator
 import com.imbot.android.ui.components.StatusIndicatorVariant
@@ -77,6 +80,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun SessionDetailScreen(
     viewModel: DetailViewModel,
+    errorState: ErrorState,
     sessionId: String,
     onNavigateBack: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
@@ -96,7 +100,10 @@ fun SessionDetailScreen(
 
     LaunchedEffect(uiState.error) {
         val message = uiState.error ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(message)
+        snackbarHostState.showSnackbar(
+            message = message,
+            duration = androidx.compose.material3.SnackbarDuration.Short,
+        )
         viewModel.clearError()
     }
 
@@ -332,6 +339,12 @@ fun SessionDetailScreen(
                 Column(
                     modifier = Modifier.fillMaxSize(),
                 ) {
+                    ErrorBannerHost(
+                        errorState = errorState,
+                        scope = ErrorScope.SESSION(sessionId),
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                        hostId = uiState.session?.hostId,
+                    )
                     StatusIndicator(
                         status = uiState.session?.status.orEmpty(),
                         variant = StatusIndicatorVariant.Bar,

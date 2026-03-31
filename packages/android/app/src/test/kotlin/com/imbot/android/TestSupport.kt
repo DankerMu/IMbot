@@ -3,6 +3,7 @@
 package com.imbot.android
 
 import android.content.SharedPreferences
+import com.imbot.android.data.ErrorStateManager
 import com.imbot.android.data.RelaySettings
 import com.imbot.android.data.SettingsRepository
 import com.imbot.android.data.local.SessionEntity
@@ -186,7 +187,7 @@ class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
     }
 }
 
-class FakeRelayWsClient : RelayWsClient(OkHttpClient()) {
+class FakeRelayWsClient : RelayWsClient(OkHttpClient(), ErrorStateManager()) {
     private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.NotConfigured)
     override val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
@@ -198,6 +199,9 @@ class FakeRelayWsClient : RelayWsClient(OkHttpClient()) {
 
     val connectRequests = mutableListOf<Pair<String, String>>()
     val subscriptions = mutableListOf<String>()
+    var pauseReconnectionCalls = 0
+    var resumeReconnectionCalls = 0
+    var forceReconnectCalls = 0
 
     override fun connect(
         relayUrl: String,
@@ -215,6 +219,22 @@ class FakeRelayWsClient : RelayWsClient(OkHttpClient()) {
     override fun subscribe(sessionId: String) {
         subscriptions += sessionId
     }
+
+    override fun pauseReconnection() {
+        pauseReconnectionCalls++
+        _connectionState.value = ConnectionState.Disconnected("Network unavailable")
+    }
+
+    override fun resumeReconnection() {
+        resumeReconnectionCalls++
+    }
+
+    override fun forceReconnect() {
+        forceReconnectCalls++
+        _connectionState.value = ConnectionState.Connected
+    }
+
+    override fun isConnected(): Boolean = _connectionState.value is ConnectionState.Connected
 
     fun emitConnectionState(connectionState: ConnectionState) {
         _connectionState.value = connectionState

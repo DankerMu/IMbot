@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -43,7 +45,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.imbot.android.data.ErrorState
+import com.imbot.android.data.repository.HostWithRoots
 import com.imbot.android.network.RelayWorkspaceRoot
+import com.imbot.android.ui.components.EmptyState
+import com.imbot.android.ui.components.ErrorBannerHost
+import com.imbot.android.ui.components.ErrorScope
+import com.imbot.android.ui.components.ShimmerSkeleton
 import com.imbot.android.ui.theme.LocalProviderColors
 import com.imbot.android.ui.theme.providerColorFor
 import kotlinx.coroutines.flow.collectLatest
@@ -52,6 +60,7 @@ import kotlinx.coroutines.flow.collectLatest
 @Composable
 fun WorkspaceScreen(
     viewModel: WorkspaceViewModel,
+    errorState: ErrorState,
     onOpenRoot: (RelayWorkspaceRoot) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -67,7 +76,10 @@ fun WorkspaceScreen(
     LaunchedEffect(viewModel) {
         viewModel.events.collectLatest { event ->
             if (event is WorkspaceEvent.ShowMessage) {
-                snackbarHostState.showSnackbar(event.message)
+                snackbarHostState.showSnackbar(
+                    message = event.message,
+                    duration = SnackbarDuration.Short,
+                )
             }
         }
     }
@@ -127,82 +139,89 @@ fun WorkspaceScreen(
             SnackbarHost(hostState = snackbarHostState)
         },
     ) { innerPadding ->
-        Box(
+        Column(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
-                    .pullRefresh(pullRefreshState),
+                    .padding(innerPadding),
         ) {
-            when {
-                uiState.isLoading -> {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text("正在加载目录…")
+            ErrorBannerHost(
+                errorState = errorState,
+                scope = ErrorScope.WORKSPACE,
+                modifier = Modifier.padding(horizontal = 16.dp),
+                hostId = workspaceBannerHostId(uiState.hosts),
+            )
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .pullRefresh(pullRefreshState),
+            ) {
+                when {
+                    uiState.isLoading -> {
+                        WorkspaceLoadingState(modifier = Modifier.fillMaxSize())
                     }
-                }
 
-                uiState.error != null && uiState.hosts.isEmpty() -> {
-                    WorkspaceEmptyState(
-                        title = "加载失败",
-                        description = uiState.error!!,
-                        buttonLabel = "重试",
-                        onAction = viewModel::refresh,
-                    )
-                }
+                    uiState.error != null && uiState.hosts.isEmpty() -> {
+                        WorkspaceEmptyState(
+                            title = "加载失败",
+                            description = uiState.error!!,
+                            buttonLabel = "重试",
+                            onAction = viewModel::refresh,
+                        )
+                    }
 
-                uiState.hosts.all { host -> host.roots.isEmpty() } -> {
-                    WorkspaceEmptyState(
-                        title = "暂无根目录",
-                        description = "添加一个根目录后，就能直接按目录恢复会话。",
-                        buttonLabel = "添加根目录",
-                        onAction = viewModel::showAddRootSheet,
-                    )
-                }
+                    uiState.hosts.all { host -> host.roots.isEmpty() } -> {
+                        WorkspaceEmptyState(
+                            title = "暂无根目录",
+                            description = "添加一个根目录后，就能直接按目录恢复会话。",
+                            buttonLabel = "添加根目录",
+                            onAction = viewModel::showAddRootSheet,
+                        )
+                    }
 
-                else -> {
-                    LazyColumn(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalArrangement = Arrangement.spacedBy(20.dp),
-                    ) {
-                        uiState.hosts.forEach { hostWithRoots ->
-                            item(key = "host-${hostWithRoots.host.id}") {
-                                HostHeader(
-                                    name = hostWithRoots.host.name,
-                                    status = hostWithRoots.host.status,
-                                )
-                            }
+                    else -> {
+                        LazyColumn(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalArrangement = Arrangement.spacedBy(20.dp),
+                        ) {
+                            uiState.hosts.forEach { hostWithRoots ->
+                                item(key = "host-${hostWithRoots.host.id}") {
+                                    HostHeader(
+                                        name = hostWithRoots.host.name,
+                                        status = hostWithRoots.host.status,
+                                    )
+                                }
 
-                            items(
-                                items = hostWithRoots.roots,
-                                key = { root -> root.id },
-                            ) { root ->
-                                WorkspaceRootRow(
-                                    root = root,
-                                    onClick = {
-                                        onOpenRoot(root)
-                                    },
-                                    onRemove = {
-                                        viewModel.requestRemoveRoot(
-                                            hostId = hostWithRoots.host.id,
-                                            rootId = root.id,
-                                            label = root.label ?: root.path.defaultRootLabel(),
-                                        )
-                                    },
-                                )
+                                items(
+                                    items = hostWithRoots.roots,
+                                    key = { root -> root.id },
+                                ) { root ->
+                                    WorkspaceRootRow(
+                                        root = root,
+                                        onClick = {
+                                            onOpenRoot(root)
+                                        },
+                                        onRemove = {
+                                            viewModel.requestRemoveRoot(
+                                                hostId = hostWithRoots.host.id,
+                                                rootId = root.id,
+                                                label = root.label ?: root.path.defaultRootLabel(),
+                                            )
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            PullRefreshIndicator(
-                refreshing = uiState.isRefreshing,
-                state = pullRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter),
-            )
+                PullRefreshIndicator(
+                    refreshing = uiState.isRefreshing,
+                    state = pullRefreshState,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            }
         }
     }
 }
@@ -311,27 +330,58 @@ private fun WorkspaceEmptyState(
     buttonLabel: String,
     onAction: () -> Unit,
 ) {
-    Box(
+    EmptyState(
+        illustration = { WorkspaceEmptyIllustration() },
+        title = title,
+        subtitle = description,
+        ctaText = buttonLabel,
+        onCta = onAction,
         modifier = Modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
+    )
+}
+
+@Composable
+private fun WorkspaceLoadingState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
     ) {
-        Column(
-            modifier = Modifier.padding(horizontal = 24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text = description,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TextButton(onClick = onAction) {
-                Text(buttonLabel)
+        repeat(2) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                ShimmerSkeleton(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth(0.35f)
+                            .size(width = 120.dp, height = 20.dp),
+                )
+                repeat(2) {
+                    ShimmerSkeleton(
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .height(72.dp),
+                    )
+                }
             }
         }
     }
 }
+
+@Composable
+private fun WorkspaceEmptyIllustration() {
+    Box(
+        modifier =
+            Modifier
+                .size(72.dp)
+                .background(
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+                    shape = androidx.compose.foundation.shape.CircleShape,
+                ),
+    )
+}
+
+private fun workspaceBannerHostId(hosts: List<HostWithRoots>): String? =
+    hosts
+        .firstOrNull { hostWithRoots ->
+            hostWithRoots.host.type == "macbook" || hostWithRoots.host.type == "companion"
+        }?.host?.id

@@ -2,11 +2,6 @@
 
 package com.imbot.android.ui.home
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -34,6 +29,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -47,15 +43,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.imbot.android.data.ErrorState
+import com.imbot.android.ui.components.EmptyState
+import com.imbot.android.ui.components.ErrorBannerHost
+import com.imbot.android.ui.components.ErrorScope
+import com.imbot.android.ui.components.ShimmerSkeleton
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
 fun HomeScreen(
     viewModel: HomeViewModel,
+    errorState: ErrorState,
     onCreateSession: () -> Unit,
     onOpenSession: (String) -> Unit,
     modifier: Modifier = Modifier,
@@ -70,7 +70,7 @@ fun HomeScreen(
 
     LaunchedEffect(uiState.error) {
         val message = uiState.error ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(message)
+        snackbarHostState.showSnackbar(message = message, duration = SnackbarDuration.Short)
         viewModel.clearError()
     }
 
@@ -94,40 +94,51 @@ fun HomeScreen(
             SnackbarHost(hostState = snackbarHostState)
         },
     ) { innerPadding ->
-        Box(
+        Column(
             modifier =
                 Modifier
                     .fillMaxSize()
-                    .padding(innerPadding)
-                    .pullRefresh(pullRefreshState),
+                    .padding(innerPadding),
         ) {
-            when {
-                uiState.isLoading -> {
-                    SessionListSkeleton(modifier = Modifier.fillMaxSize())
-                }
-
-                uiState.sessions.isEmpty() -> {
-                    EmptyState(
-                        isConnected = uiState.isConnected,
-                        onCreateSession = onCreateSession,
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
-
-                else -> {
-                    SessionListContent(
-                        state = uiState,
-                        onDeleteSession = viewModel::deleteSession,
-                        onOpenSession = onOpenSession,
-                    )
-                }
-            }
-
-            PullRefreshIndicator(
-                refreshing = uiState.isRefreshing,
-                state = pullRefreshState,
-                modifier = Modifier.align(Alignment.TopCenter),
+            ErrorBannerHost(
+                errorState = errorState,
+                scope = ErrorScope.GLOBAL,
+                modifier = Modifier.padding(horizontal = 16.dp),
             )
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .pullRefresh(pullRefreshState),
+            ) {
+                when {
+                    uiState.isLoading -> {
+                        SessionListSkeleton(modifier = Modifier.fillMaxSize())
+                    }
+
+                    uiState.sessions.isEmpty() -> {
+                        HomeEmptyState(
+                            isConnected = uiState.isConnected,
+                            onCreateSession = onCreateSession,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    else -> {
+                        SessionListContent(
+                            state = uiState,
+                            onDeleteSession = viewModel::deleteSession,
+                            onOpenSession = onOpenSession,
+                        )
+                    }
+                }
+
+                PullRefreshIndicator(
+                    refreshing = uiState.isRefreshing,
+                    state = pullRefreshState,
+                    modifier = Modifier.align(Alignment.TopCenter),
+                )
+            }
         }
     }
 }
@@ -233,56 +244,28 @@ private fun HomeTopAppBar(
 }
 
 @Composable
-private fun EmptyState(
+private fun HomeEmptyState(
     isConnected: Boolean,
     onCreateSession: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Box(
-        modifier = modifier.padding(horizontal = 24.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = "暂无会话",
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Text(
-                text =
-                    if (isConnected) {
-                        "通过下方入口创建新会话，或等待后台刷新缓存。"
-                    } else {
-                        "当前离线，可先查看本地缓存，连接恢复后会自动刷新。"
-                    },
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            TextButton(onClick = onCreateSession) {
-                Text("新建会话")
-            }
-        }
-    }
+    EmptyState(
+        illustration = { SessionEmptyIllustration() },
+        title = "暂无会话",
+        subtitle =
+            if (isConnected) {
+                "通过下方入口创建新会话，或等待后台刷新缓存。"
+            } else {
+                "当前离线，可先查看本地缓存，连接恢复后会自动刷新。"
+            },
+        ctaText = "新建会话",
+        onCta = onCreateSession,
+        modifier = modifier,
+    )
 }
 
 @Composable
 private fun SessionListSkeleton(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "session-skeleton")
-    val alpha by
-        transition.animateFloat(
-            initialValue = 0.35f,
-            targetValue = 0.9f,
-            animationSpec =
-                infiniteRepeatable(
-                    animation = tween(durationMillis = 900),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-            label = "skeleton-alpha",
-        )
-
     Column(
         modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -301,32 +284,14 @@ private fun SessionListSkeleton(modifier: Modifier = Modifier) {
                             .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    SkeletonLine(
-                        modifier = Modifier.fillMaxWidth(0.4f),
-                        alpha = alpha,
-                    )
-                    SkeletonLine(
-                        modifier = Modifier.fillMaxWidth(0.6f),
-                        alpha = alpha,
-                    )
+                    ShimmerSkeleton(modifier = Modifier.fillMaxWidth(0.4f).height(14.dp))
+                    ShimmerSkeleton(modifier = Modifier.fillMaxWidth(0.6f).height(14.dp))
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(12.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        SkeletonLine(
-                            modifier = Modifier.weight(1f),
-                            alpha = alpha,
-                        )
-                        Box(
-                            modifier =
-                                Modifier
-                                    .size(12.dp)
-                                    .alpha(alpha)
-                                    .background(
-                                        color = MaterialTheme.colorScheme.surfaceVariant,
-                                        shape = MaterialTheme.shapes.small,
-                                    ),
-                        )
+                        ShimmerSkeleton(modifier = Modifier.weight(1f).height(14.dp))
+                        ShimmerSkeleton(modifier = Modifier.size(12.dp), shape = MaterialTheme.shapes.small)
                     }
                 }
             }
@@ -335,18 +300,14 @@ private fun SessionListSkeleton(modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun SkeletonLine(
-    modifier: Modifier,
-    alpha: Float,
-) {
+private fun SessionEmptyIllustration(modifier: Modifier = Modifier) {
     Box(
         modifier =
             modifier
-                .height(14.dp)
-                .alpha(alpha)
+                .size(72.dp)
                 .background(
-                    color = MaterialTheme.colorScheme.surfaceVariant,
-                    shape = MaterialTheme.shapes.small,
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                    shape = MaterialTheme.shapes.extraLarge,
                 ),
     )
 }

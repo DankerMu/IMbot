@@ -17,6 +17,18 @@ interface SessionDao {
     @Query(
         """
         SELECT * FROM sessions
+        ORDER BY created_at DESC
+        LIMIT :limit OFFSET :offset
+        """,
+    )
+    suspend fun getPage(
+        offset: Int,
+        limit: Int,
+    ): List<SessionEntity>
+
+    @Query(
+        """
+        SELECT * FROM sessions
         WHERE workspace_cwd = :prefix OR workspace_cwd LIKE :escapedPrefix || '/%' ESCAPE '\'
         ORDER BY last_active_at DESC
         """,
@@ -34,6 +46,9 @@ interface SessionDao {
 
     @Query("DELETE FROM sessions WHERE id NOT IN (:ids)")
     suspend fun deleteNotIn(ids: List<String>)
+
+    @Query("DELETE FROM sessions WHERE id IN (:ids)")
+    suspend fun deleteByIds(ids: List<String>)
 
     @Query("DELETE FROM sessions")
     suspend fun deleteAll()
