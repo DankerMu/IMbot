@@ -2,6 +2,7 @@
 
 package com.imbot.android.ui.theme
 
+import android.annotation.SuppressLint
 import android.os.Build
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
@@ -76,6 +77,7 @@ fun IMbotTheme(
         animationSpec = tween(durationMillis = IMbotAnimations.THEME_CROSSFADE_MS),
         label = "imbot-theme",
     ) { resolvedTheme ->
+        @SuppressLint("NewApi") // guarded by resolvedTheme.useDynamicColor (sdkInt >= S)
         val colorScheme =
             when {
                 resolvedTheme.useDynamicColor && resolvedTheme.useDarkTheme -> dynamicDarkColorScheme(context)
