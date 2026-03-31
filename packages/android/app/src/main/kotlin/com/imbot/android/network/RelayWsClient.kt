@@ -406,6 +406,8 @@ open class RelayWsClient
             scope.launch {
                 runCatching {
                     onConnected(relayUrl, token)
+                }.onFailure { error ->
+                    android.util.Log.w("RelayWsClient", "Host status seeding failed", error)
                 }
             }
         }

@@ -59,6 +59,17 @@ class StaleSessionSyncTest {
 
         assertEquals(listOf("B"), staleIds)
     }
+
+    @Test
+    fun `queued sessions are protected from stale deletion`() {
+        val staleIds =
+            computeStaleSessionIds(
+                localPage = listOf(session("A", status = "queued"), session("B")),
+                remoteSessionIds = emptySet(),
+            )
+
+        assertEquals(listOf("B"), staleIds)
+    }
 }
 
 private fun session(
