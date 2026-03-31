@@ -34,7 +34,9 @@ class SettingsRepository
                 .apply()
         }
 
-        fun loadPendingPushToken(): String? = preferences.getString(KEY_PENDING_PUSH_TOKEN, null)?.takeIf { it.isNotBlank() }
+        fun loadPendingPushToken(): String? =
+            preferences.getString(KEY_PENDING_PUSH_TOKEN, null)
+                ?.takeIf { it.isNotBlank() }
 
         fun savePendingPushToken(token: String) {
             val normalizedToken = token.trim()
