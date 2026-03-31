@@ -81,6 +81,8 @@ jobs:
 
       - name: Dependency review
         uses: actions/dependency-review-action@v4
+        with:
+          fail-on-severity: moderate
 
   codeql-javascript-typescript:
     name: CodeQL JavaScript/TypeScript
