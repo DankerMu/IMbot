@@ -2,12 +2,6 @@
 
 package com.imbot.android.ui.detail
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,10 +23,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.imbot.android.ui.components.StreamingCursor
+import com.imbot.android.ui.theme.LocalProviderColors
+import com.imbot.android.ui.theme.LocalStatusColors
 
 @Composable
 fun MessageBubble(
@@ -83,31 +79,13 @@ private fun AgentMessageBubble(
     provider: String,
     modifier: Modifier = Modifier,
 ) {
-    val badgeColor = providerColor(provider)
+    val badgeColor = providerColor(provider, LocalProviderColors.current)
     var expanded by rememberSaveable(item.id) { mutableStateOf(item.content.length <= 5_000) }
     val content =
         if (expanded) {
             item.content
         } else {
             item.content.take(5_000).trimEnd() + "\n\n..."
-        }
-    val cursorAlpha =
-        if (item.isStreaming) {
-            val transition = rememberInfiniteTransition(label = "streaming-cursor")
-            val alpha by
-                transition.animateFloat(
-                    initialValue = 0.25f,
-                    targetValue = 1f,
-                    animationSpec =
-                        infiniteRepeatable(
-                            animation = tween(durationMillis = 500, easing = LinearEasing),
-                            repeatMode = RepeatMode.Reverse,
-                        ),
-                    label = "streaming-alpha",
-                )
-            alpha
-        } else {
-            0f
         }
 
     Column(
@@ -159,13 +137,7 @@ private fun AgentMessageBubble(
                             Text("展开更多")
                         }
                     }
-                    if (item.isStreaming) {
-                        Text(
-                            text = "▊",
-                            modifier = Modifier.alpha(cursorAlpha),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                    }
+                    StreamingCursor(isStreaming = item.isStreaming)
                 }
             }
         }
@@ -183,19 +155,20 @@ private fun StatusChangeBubble(
     item: MessageItem.StatusChange,
     modifier: Modifier = Modifier,
 ) {
+    val statusColor = detailStatusColor(item.status, LocalStatusColors.current)
     Box(
         modifier = modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center,
     ) {
         Surface(
-            color = detailStatusColor(item.status).copy(alpha = 0.12f),
+            color = statusColor.copy(alpha = 0.12f),
             shape = RoundedCornerShape(18.dp),
         ) {
             Text(
                 text = item.message?.takeIf(String::isNotBlank) ?: statusLabel(item.status),
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.labelMedium,
-                color = detailStatusColor(item.status),
+                color = statusColor,
                 textAlign = TextAlign.Center,
             )
         }

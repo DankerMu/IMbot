@@ -39,12 +39,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.imbot.android.network.RelayWorkspaceRoot
+import com.imbot.android.ui.theme.LocalProviderColors
+import com.imbot.android.ui.theme.providerColorFor
 import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
@@ -223,7 +224,7 @@ private fun HostHeader(
                     .background(
                         color =
                             if (status == "online") {
-                                Color(0xFF2E7D32)
+                                MaterialTheme.colorScheme.secondary
                             } else {
                                 MaterialTheme.colorScheme.outline
                             },
@@ -248,6 +249,8 @@ private fun WorkspaceRootRow(
     onClick: () -> Unit,
     onRemove: () -> Unit,
 ) {
+    val providerColor = providerColorFor(root.provider, LocalProviderColors.current)
+
     Row(
         modifier =
             Modifier
@@ -262,14 +265,14 @@ private fun WorkspaceRootRow(
                 Modifier
                     .size(42.dp)
                     .background(
-                        color = rootProviderColor(root.provider).copy(alpha = 0.18f),
+                        color = providerColor.copy(alpha = 0.18f),
                         shape = androidx.compose.foundation.shape.CircleShape,
                     ),
             contentAlignment = Alignment.Center,
         ) {
             Text(
                 text = root.provider.uppercase().take(2),
-                color = rootProviderColor(root.provider),
+                color = providerColor,
                 fontWeight = FontWeight.Bold,
             )
         }
@@ -332,11 +335,3 @@ private fun WorkspaceEmptyState(
         }
     }
 }
-
-private fun rootProviderColor(provider: String): Color =
-    when (provider) {
-        "claude" -> Color(0xFFFFB74D)
-        "book" -> Color(0xFF8E6AD9)
-        "openclaw" -> Color(0xFFE57373)
-        else -> Color.Gray
-    }

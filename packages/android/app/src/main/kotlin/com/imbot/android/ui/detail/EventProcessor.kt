@@ -13,6 +13,7 @@ sealed class MessageItem {
         val id: String,
         val text: String,
         val timestamp: String,
+        val seq: Int? = null,
     ) : MessageItem()
 
     data class AgentMessage(
@@ -20,6 +21,7 @@ sealed class MessageItem {
         val content: String,
         val isStreaming: Boolean,
         val timestamp: String,
+        val seq: Int? = null,
     ) : MessageItem()
 
     data class ToolCall(
@@ -29,12 +31,14 @@ sealed class MessageItem {
         val args: String?,
         val result: String?,
         val isRunning: Boolean,
+        val seq: Int? = null,
     ) : MessageItem()
 
     data class StatusChange(
         val id: String,
         val status: String,
         val message: String?,
+        val seq: Int? = null,
     ) : MessageItem()
 }
 
@@ -60,11 +64,17 @@ class EventProcessor(
             "tool_call_started" -> appendToolCallStarted(event)
             "tool_call_completed" -> appendToolCallCompleted(event)
             "session_status_changed" -> appendStatusChange(event)
-            "session_started" -> appendStatusChange(status = "running", message = null)
+            "session_started" ->
+                appendStatusChange(
+                    status = "running",
+                    message = null,
+                    seq = event.seq,
+                )
             "session_result" ->
                 appendStatusChange(
                     status = event.payload.stringValue("status").orEmpty(),
                     message = event.payload.stringValue("message"),
+                    seq = event.seq,
                 )
             "session_error" -> appendSessionError(event)
         }
@@ -94,6 +104,7 @@ class EventProcessor(
                 id = idGenerator(),
                 text = text,
                 timestamp = event.timestamp,
+                seq = event.seq,
             )
     }
 
@@ -110,6 +121,7 @@ class EventProcessor(
                 lastMessage.copy(
                     content = lastMessage.content + deltaText,
                     timestamp = event.timestamp.ifBlank { lastMessage.timestamp },
+                    seq = event.seq,
                 )
             return
         }
@@ -120,6 +132,7 @@ class EventProcessor(
                 content = deltaText,
                 isStreaming = true,
                 timestamp = event.timestamp,
+                seq = event.seq,
             )
     }
 
@@ -134,6 +147,7 @@ class EventProcessor(
                     content = finalText.ifBlank { lastMessage.content },
                     isStreaming = false,
                     timestamp = event.timestamp.ifBlank { lastMessage.timestamp },
+                    seq = event.seq,
                 )
             return
         }
@@ -148,6 +162,7 @@ class EventProcessor(
                 content = finalText,
                 isStreaming = false,
                 timestamp = event.timestamp,
+                seq = event.seq,
             )
     }
 
@@ -167,6 +182,7 @@ class EventProcessor(
                 args = truncatePayload(payload.compactValue("args")),
                 result = null,
                 isRunning = true,
+                seq = event.seq,
             )
     }
 
@@ -188,6 +204,7 @@ class EventProcessor(
                 item.copy(
                     result = truncatePayload(payload.compactValue("result")),
                     isRunning = false,
+                    seq = event.seq,
                 )
         } else {
             messages +=
@@ -198,6 +215,7 @@ class EventProcessor(
                     args = truncatePayload(payload.compactValue("args")),
                     result = truncatePayload(payload.compactValue("result")),
                     isRunning = false,
+                    seq = event.seq,
                 )
         }
     }
@@ -207,12 +225,14 @@ class EventProcessor(
         appendStatusChange(
             status = payload.stringValue("status").orEmpty(),
             message = payload.stringValue("message"),
+            seq = event.seq,
         )
     }
 
     private fun appendStatusChange(
         status: String,
         message: String?,
+        seq: Int? = null,
     ) {
         if (status.isBlank()) {
             return
@@ -224,6 +244,7 @@ class EventProcessor(
                 status = status,
                 id = idGenerator(),
                 message = message,
+                seq = seq,
             )
     }
 
@@ -231,6 +252,7 @@ class EventProcessor(
         appendStatusChange(
             status = "failed",
             message = event.payload.stringValue("message"),
+            seq = event.seq,
         )
     }
 

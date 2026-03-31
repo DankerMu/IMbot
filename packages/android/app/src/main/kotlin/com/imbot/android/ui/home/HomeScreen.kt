@@ -146,12 +146,6 @@ private fun SessionListContent(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (!state.isConnected) {
-            item(key = "connection-banner") {
-                ConnectionBanner()
-            }
-        }
-
         items(
             items = runningSessions,
             key = { session -> session.id },
@@ -239,26 +233,6 @@ private fun HomeTopAppBar(
 }
 
 @Composable
-private fun ConnectionBanner() {
-    Box(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    shape = MaterialTheme.shapes.medium,
-                )
-                .padding(12.dp),
-    ) {
-        Text(
-            text = "WebSocket 已断开，当前显示的是缓存数据。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onErrorContainer,
-        )
-    }
-}
-
-@Composable
 private fun EmptyState(
     isConnected: Boolean,
     onCreateSession: () -> Unit,
@@ -272,16 +246,18 @@ private fun EmptyState(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (!isConnected) {
-                ConnectionBanner()
-            }
             Text(
                 text = "暂无会话",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "通过下方入口创建新会话，或等待后台刷新缓存。",
+                text =
+                    if (isConnected) {
+                        "通过下方入口创建新会话，或等待后台刷新缓存。"
+                    } else {
+                        "当前离线，可先查看本地缓存，连接恢复后会自动刷新。"
+                    },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

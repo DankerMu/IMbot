@@ -4,6 +4,11 @@ package com.imbot.android.ui.detail
 
 import androidx.compose.ui.graphics.Color
 import com.imbot.android.network.RelaySession
+import com.imbot.android.ui.theme.LightStatusColors
+import com.imbot.android.ui.theme.ProviderColors
+import com.imbot.android.ui.theme.StatusColors
+import com.imbot.android.ui.theme.providerColorFor
+import com.imbot.android.ui.theme.statusColorFor
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -76,13 +81,10 @@ internal fun resumeAutoScroll(current: DetailScrollState): ScrollMutation =
 
 internal fun canSendToSession(status: String?): Boolean = status == "running"
 
-internal fun detailStatusColor(status: String): Color =
-    when (status) {
-        "running", "completed" -> Color(0xFF1B873F)
-        "failed" -> Color(0xFFB3261E)
-        "queued", "cancelled" -> Color(0xFF7A7A7A)
-        else -> Color(0xFF7A7A7A)
-    }
+internal fun detailStatusColor(
+    status: String,
+    colors: StatusColors = LightStatusColors,
+): Color = statusColorFor(status = status, colors = colors)
 
 internal fun inputPlaceholderForStatus(status: String?): String =
     when (status) {
@@ -148,13 +150,10 @@ internal fun providerShortLabel(provider: String): String =
         else -> provider.take(2).uppercase()
     }
 
-internal fun providerColor(provider: String): Color =
-    when (provider) {
-        "claude" -> Color(0xFFB45C1D)
-        "book" -> Color(0xFF1E6F5C)
-        "openclaw" -> Color(0xFFB3261E)
-        else -> Color(0xFF7A7A7A)
-    }
+internal fun providerColor(
+    provider: String,
+    colors: ProviderColors = ProviderColors(),
+): Color = providerColorFor(provider = provider, colors = colors)
 
 internal fun statusLabel(status: String): String =
     when (status) {
