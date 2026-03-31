@@ -320,6 +320,7 @@ class SessionService : Service() {
         }
     }
 
+    @android.annotation.SuppressLint("MissingPermission")
     private fun updateNotification() {
         NotificationManagerCompat.from(this).notify(
             SERVICE_NOTIFICATION_ID,
