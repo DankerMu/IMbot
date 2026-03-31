@@ -49,7 +49,9 @@ data class DetailUiState(
 )
 
 sealed interface DetailEvent {
-    data object ScrollToBottom : DetailEvent
+    data class ScrollToBottom(
+        val targetIndex: Int,
+    ) : DetailEvent
 
     data class NavigateBack(
         val refreshHome: Boolean,
@@ -85,6 +87,8 @@ class DetailViewModel
         private var catchUpJob: Job? = null
         private var lastConnectionState: ConnectionState = relayWsClient.connectionState.value
         private var historyLoaded = false
+        private val catchUpBuffer = mutableListOf<ServerMessage.Event>()
+        private var isCatchingUp = false
 
         init {
             observeConnectionState()
@@ -109,9 +113,10 @@ class DetailViewModel
             loadJob =
                 viewModelScope.launch {
                     val settings = requireValidSettings() ?: return@launch
-                    relayWsClient.subscribe(sessionId)
+                    beginCatchUp()
                     eventProcessor.reset()
                     optimisticMessages.clear()
+                    relayWsClient.subscribe(sessionId)
 
                     _uiState.update { current ->
                         current.copy(
@@ -144,6 +149,7 @@ class DetailViewModel
                             )
                         }
                     }.onFailure { error ->
+                        finishCatchUp(processBufferedEvents = false)
                         _uiState.update { current ->
                             current.copy(
                                 isLoading = false,
@@ -164,6 +170,7 @@ class DetailViewModel
             val settings = requireValidSettings() ?: return
             val optimisticMessage =
                 MessageItem.UserMessage(
+                    id = generateMessageItemId(),
                     text = normalizedText,
                     timestamp = Instant.now().toString(),
                 )
@@ -229,13 +236,8 @@ class DetailViewModel
                     relayUrl = settings.relayUrl,
                     token = settings.token,
                     sessionId = sessionId,
-                ).onSuccess {
-                    publishSession(
-                        session.copy(
-                            status = "cancelled",
-                            errorMessage = session.errorMessage,
-                        ),
-                    )
+                ).onSuccess { updatedSession ->
+                    publishSession(updatedSession)
                     _uiState.update { current ->
                         current.copy(
                             isCancelling = false,
@@ -365,7 +367,11 @@ class DetailViewModel
             viewModelScope.launch {
                 relayWsClient.events.collect { event ->
                     if (event.sessionId == sessionId) {
-                        handleSessionEvent(event)
+                        if (isCatchingUp) {
+                            catchUpBuffer += event
+                        } else {
+                            handleSessionEvent(event)
+                        }
                     }
                 }
             }
@@ -377,6 +383,7 @@ class DetailViewModel
             }
 
             val settings = requireValidSettings() ?: return
+            beginCatchUp()
             catchUpJob =
                 viewModelScope.launch {
                     fetchEventsSince(
@@ -402,41 +409,48 @@ class DetailViewModel
                 }
             }
 
-            runCatching {
-                var cursor = sinceSeq
-                var hasMore: Boolean
+            val catchUpSucceeded =
+                runCatching {
+                    var cursor = sinceSeq
+                    var hasMore: Boolean
 
-                do {
-                    val page =
-                        relayHttpClient.getSessionEvents(
-                            relayUrl = settings.relayUrl,
-                            token = settings.token,
-                            sessionId = sessionId,
-                            sinceSeq = cursor,
-                        ).getOrThrow()
+                    do {
+                        val page =
+                            relayHttpClient.getSessionEvents(
+                                relayUrl = settings.relayUrl,
+                                token = settings.token,
+                                sessionId = sessionId,
+                                sinceSeq = cursor,
+                            ).getOrThrow()
 
-                    val sortedEvents = page.events.sortedBy(ServerMessage.Event::seq)
-                    sortedEvents.forEach { event ->
-                        handleSessionEvent(
-                            event = event,
-                            allowAutoScroll = false,
+                        val sortedEvents = page.events.sortedBy(ServerMessage.Event::seq)
+                        sortedEvents.forEach { event ->
+                            handleSessionEvent(
+                                event = event,
+                                allowAutoScroll = false,
+                            )
+                        }
+                        cursor = maxOf(cursor, sortedEvents.maxOfOrNull(ServerMessage.Event::seq) ?: cursor)
+                        hasMore = page.hasMore
+                    } while (hasMore)
+                }.onFailure { error ->
+                    _uiState.update { current ->
+                        current.copy(
+                            error = error.message ?: "同步消息失败",
                         )
                     }
-                    cursor = maxOf(cursor, sortedEvents.maxOfOrNull(ServerMessage.Event::seq) ?: cursor)
-                    hasMore = page.hasMore
-                } while (hasMore)
-            }.onSuccess {
+                }.isSuccess
+
+            finishCatchUp(processBufferedEvents = true)
+
+            if (catchUpSucceeded) {
                 if (showRecoveryBanner) {
-                    showRecoveredBanner()
+                    viewModelScope.launch {
+                        showRecoveredBanner()
+                    }
                 }
                 if (_uiState.value.scrollState.autoScrollEnabled && _uiState.value.messages.isNotEmpty()) {
-                    emitScrollToBottom()
-                }
-            }.onFailure { error ->
-                _uiState.update { current ->
-                    current.copy(
-                        error = error.message ?: "同步消息失败",
-                    )
+                    emitScrollToBottom(_uiState.value.messages.lastIndex)
                 }
             }
 
@@ -476,11 +490,21 @@ class DetailViewModel
         }
 
         private fun applyEventToSession(event: ServerMessage.Event) {
+            val currentSession = _uiState.value.session ?: return
+
             when (event.eventType) {
-                "session_status_changed" -> {
+                "session_started" -> {
+                    publishSession(
+                        currentSession.copy(
+                            status = "running",
+                            errorMessage = currentSession.errorMessage,
+                        ),
+                    )
+                }
+
+                "session_status_changed", "session_result" -> {
                     val status = event.payload.stringValue("status").orEmpty()
                     if (status.isNotBlank()) {
-                        val currentSession = _uiState.value.session ?: return
                         publishSession(
                             currentSession.copy(
                                 status = status,
@@ -492,7 +516,6 @@ class DetailViewModel
 
                 "session_error" -> {
                     val message = event.payload.stringValue("message")
-                    val currentSession = _uiState.value.session ?: return
                     publishSession(
                         currentSession.copy(
                             status = "failed",
@@ -535,7 +558,7 @@ class DetailViewModel
             }
 
             if (mutation.shouldScrollToBottom) {
-                emitScrollToBottom()
+                emitScrollToBottom(newMessages.lastIndex)
             }
         }
 
@@ -568,8 +591,38 @@ class DetailViewModel
         }
 
         private fun emitScrollToBottom() {
+            emitScrollToBottom(_uiState.value.messages.lastIndex)
+        }
+
+        private fun emitScrollToBottom(targetIndex: Int) {
+            if (targetIndex < 0) {
+                return
+            }
             viewModelScope.launch {
-                _events.emit(DetailEvent.ScrollToBottom)
+                _events.emit(DetailEvent.ScrollToBottom(targetIndex = targetIndex))
+            }
+        }
+
+        private fun beginCatchUp() {
+            isCatchingUp = true
+            catchUpBuffer.clear()
+        }
+
+        private suspend fun finishCatchUp(processBufferedEvents: Boolean) {
+            val bufferedEvents =
+                catchUpBuffer
+                    .sortedBy(ServerMessage.Event::seq)
+                    .distinctBy(ServerMessage.Event::seq)
+            catchUpBuffer.clear()
+            isCatchingUp = false
+
+            if (processBufferedEvents) {
+                bufferedEvents.forEach { event ->
+                    handleSessionEvent(
+                        event = event,
+                        allowAutoScroll = false,
+                    )
+                }
             }
         }
 

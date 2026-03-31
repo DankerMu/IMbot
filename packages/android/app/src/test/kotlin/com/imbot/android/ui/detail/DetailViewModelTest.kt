@@ -76,13 +76,10 @@ class DetailViewModelTest {
             ws.emitEvent(event(seq = 2, eventType = "assistant_delta", payload = payload("text" to "正在处理")))
             advanceUntilIdle()
 
-            assertEquals(
-                listOf(
-                    MessageItem.UserMessage("你好", TIMESTAMP),
-                    MessageItem.AgentMessage("正在处理", true, TIMESTAMP),
-                ),
-                viewModel.uiState.value.messages,
-            )
+            val messages = viewModel.uiState.value.messages
+            assertEquals(2, messages.size)
+            assertUserMessage(messages[0], "你好")
+            assertAgentMessage(messages[1], "正在处理", isStreaming = true)
         }
 
     @Test
@@ -107,9 +104,12 @@ class DetailViewModelTest {
         }
 
     @Test
-    fun `cancelSession updates status on success and surfaces error on failure`() =
+    fun `cancelSession uses API session status on success and surfaces error on failure`() =
         runTest(mainDispatcherRule.dispatcher) {
-            val successRelay = FakeRelayHttpClient()
+            val successRelay =
+                FakeRelayHttpClient().apply {
+                    cancelSessionResult = Result.success(TEST_SESSION.copy(status = "completed"))
+                }
             val successViewModel = createViewModel(relay = successRelay)
             advanceUntilIdle()
 
@@ -117,7 +117,7 @@ class DetailViewModelTest {
             advanceUntilIdle()
 
             assertEquals(1, successRelay.cancelSessionCalls)
-            assertEquals("cancelled", successViewModel.uiState.value.session?.status)
+            assertEquals("completed", successViewModel.uiState.value.session?.status)
             assertFalse(successViewModel.uiState.value.canSend)
 
             val failureRelay =
@@ -174,6 +174,44 @@ class DetailViewModelTest {
             ws.emitEvent(event(seq = 1, eventType = "session_status_changed", payload = payload("status" to "completed")))
             advanceUntilIdle()
 
+            assertEquals("completed", viewModel.uiState.value.session?.status)
+            assertFalse(viewModel.uiState.value.canSend)
+        }
+
+    @Test
+    fun `session_started and session_result update session status`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "queued"))
+                }
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            assertEquals("queued", viewModel.uiState.value.session?.status)
+            assertFalse(viewModel.uiState.value.canSend)
+
+            ws.emitEvent(event(seq = 1, eventType = "session_started"))
+            advanceUntilIdle()
+
+            assertEquals("running", viewModel.uiState.value.session?.status)
+            assertTrue(viewModel.uiState.value.canSend)
+            assertStatusChange(viewModel.uiState.value.messages.single(), status = "running", message = null)
+
+            ws.emitEvent(
+                event(
+                    seq = 2,
+                    eventType = "session_result",
+                    payload = payload("status" to "completed", "message" to "任务完成"),
+                ),
+            )
+            advanceUntilIdle()
+
+            val messages = viewModel.uiState.value.messages
+            assertEquals(2, messages.size)
+            assertStatusChange(messages[0], status = "running", message = null)
+            assertStatusChange(messages[1], status = "completed", message = "任务完成")
             assertEquals("completed", viewModel.uiState.value.session?.status)
             assertFalse(viewModel.uiState.value.canSend)
         }
@@ -255,13 +293,75 @@ class DetailViewModelTest {
 
             assertTrue(viewModel.uiState.value.isConnected)
             assertEquals(listOf(0, 1), relay.getSessionEventRequests.map(SessionEventsRequest::sinceSeq))
-            assertEquals(
-                listOf(
-                    MessageItem.UserMessage("你好", TIMESTAMP),
-                    MessageItem.AgentMessage("已恢复", false, TIMESTAMP),
+            val messages = viewModel.uiState.value.messages
+            assertEquals(2, messages.size)
+            assertUserMessage(messages[0], "你好")
+            assertAgentMessage(messages[1], "已恢复", isStreaming = false)
+        }
+
+    @Test
+    fun `live websocket events are buffered until reconnect catch up completes`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val reconnectGate = CompletableDeferred<Result<RelayEventPage>>()
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionEventsHandler =
+                        { _, _, _, sinceSeq, _ ->
+                            when (sinceSeq) {
+                                0 -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                                1 -> reconnectGate.await()
+                                else -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                            }
+                        }
+                }
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(event(seq = 1, eventType = "user_message", payload = payload("text" to "你好")))
+            advanceUntilIdle()
+
+            ws.emitConnectionState(ConnectionState.Disconnected("socket lost"))
+            advanceUntilIdle()
+
+            ws.emitConnectionState(ConnectionState.Connected)
+            runCurrent()
+
+            ws.emitEvent(
+                event(
+                    seq = 3,
+                    eventType = "session_status_changed",
+                    payload = payload("status" to "completed"),
                 ),
-                viewModel.uiState.value.messages,
             )
+            runCurrent()
+
+            assertEquals(1, viewModel.uiState.value.messages.size)
+            assertEquals("running", viewModel.uiState.value.session?.status)
+
+            reconnectGate.complete(
+                Result.success(
+                    RelayEventPage(
+                        events =
+                            listOf(
+                                event(
+                                    seq = 2,
+                                    eventType = "assistant_message",
+                                    payload = payload("text" to "补拉消息"),
+                                ),
+                            ),
+                        hasMore = false,
+                    ),
+                ),
+            )
+            advanceUntilIdle()
+
+            val messages = viewModel.uiState.value.messages
+            assertEquals(3, messages.size)
+            assertUserMessage(messages[0], "你好")
+            assertAgentMessage(messages[1], "补拉消息", isStreaming = false)
+            assertStatusChange(messages[2], status = "completed", message = null)
+            assertEquals("completed", viewModel.uiState.value.session?.status)
         }
 
     @Test
@@ -353,6 +453,41 @@ private fun payload(vararg pairs: Pair<String, Any?>): JSONObject =
         }
     }
 
+private fun assertUserMessage(
+    item: MessageItem,
+    text: String,
+    timestamp: String = TIMESTAMP,
+) {
+    val message = item as MessageItem.UserMessage
+    assertTrue(message.id.isNotBlank())
+    assertEquals(text, message.text)
+    assertEquals(timestamp, message.timestamp)
+}
+
+private fun assertAgentMessage(
+    item: MessageItem,
+    content: String,
+    isStreaming: Boolean,
+    timestamp: String = TIMESTAMP,
+) {
+    val message = item as MessageItem.AgentMessage
+    assertTrue(message.id.isNotBlank())
+    assertEquals(content, message.content)
+    assertEquals(isStreaming, message.isStreaming)
+    assertEquals(timestamp, message.timestamp)
+}
+
+private fun assertStatusChange(
+    item: MessageItem,
+    status: String,
+    message: String?,
+) {
+    val statusChange = item as MessageItem.StatusChange
+    assertTrue(statusChange.id.isNotBlank())
+    assertEquals(status, statusChange.status)
+    assertEquals(message, statusChange.message)
+}
+
 private data class SessionEventsRequest(
     val relayUrl: String,
     val token: String,
@@ -365,7 +500,7 @@ private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
     var getSessionResult: Result<RelaySession> = Result.success(TEST_SESSION)
     var getSessionEventsResult: Result<RelayEventPage> = Result.success(RelayEventPage(events = emptyList(), hasMore = false))
     var sendMessageResult: Result<Unit> = Result.success(Unit)
-    var cancelSessionResult: Result<Unit> = Result.success(Unit)
+    var cancelSessionResult: Result<RelaySession> = Result.success(TEST_SESSION.copy(status = "cancelled"))
     var deleteSessionResult: Result<Unit> = Result.success(Unit)
 
     var getSessionCalls = 0
@@ -378,7 +513,7 @@ private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
     var getSessionEventsHandler: suspend (String, String, String, Int, Int) -> Result<RelayEventPage> =
         { _, _, _, _, _ -> getSessionEventsResult }
     var sendMessageHandler: suspend (String, String, String, String) -> Result<Unit> = { _, _, _, _ -> sendMessageResult }
-    var cancelSessionHandler: suspend (String, String, String) -> Result<Unit> = { _, _, _ -> cancelSessionResult }
+    var cancelSessionHandler: suspend (String, String, String) -> Result<RelaySession> = { _, _, _ -> cancelSessionResult }
     var deleteSessionHandler: suspend (String, String, String) -> Result<Unit> = { _, _, _ -> deleteSessionResult }
 
     val getSessionEventRequests = mutableListOf<SessionEventsRequest>()
@@ -425,7 +560,7 @@ private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
         relayUrl: String,
         token: String,
         sessionId: String,
-    ): Result<Unit> {
+    ): Result<RelaySession> {
         cancelSessionCalls++
         return cancelSessionHandler(relayUrl, token, sessionId)
     }

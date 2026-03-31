@@ -5,11 +5,15 @@ package com.imbot.android.ui.detail
 import com.imbot.android.network.ServerMessage
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class EventProcessorTest {
-    private val processor = EventProcessor()
+    private var nextId = 0
+    private val processor = EventProcessor { "id-${++nextId}" }
 
     @Test
     fun `user_message event generates user message`() {
@@ -25,6 +29,7 @@ class EventProcessorTest {
         assertEquals(
             listOf(
                 MessageItem.UserMessage(
+                    id = "id-1",
                     text = "你好",
                     timestamp = TIMESTAMP,
                 ),
@@ -47,6 +52,7 @@ class EventProcessorTest {
         assertEquals(
             listOf(
                 MessageItem.AgentMessage(
+                    id = "id-1",
                     content = "正在分析",
                     isStreaming = true,
                     timestamp = TIMESTAMP,
@@ -69,9 +75,17 @@ class EventProcessorTest {
                 ),
             )
 
-        assertEquals(1, result.size)
-        assertEquals("正在分析", (result.single() as MessageItem.AgentMessage).content)
-        assertTrue((result.single() as MessageItem.AgentMessage).isStreaming)
+        assertEquals(
+            listOf(
+                MessageItem.AgentMessage(
+                    id = "id-1",
+                    content = "正在分析",
+                    isStreaming = true,
+                    timestamp = TIMESTAMP,
+                ),
+            ),
+            result,
+        )
     }
 
     @Test
@@ -90,6 +104,7 @@ class EventProcessorTest {
         assertEquals(
             listOf(
                 MessageItem.AgentMessage(
+                    id = "id-1",
                     content = "完整回复",
                     isStreaming = false,
                     timestamp = TIMESTAMP,
@@ -113,10 +128,23 @@ class EventProcessorTest {
                 ),
             )
 
-        assertEquals(2, result.size)
-        assertEquals("第一段完成", (result[0] as MessageItem.AgentMessage).content)
-        assertEquals("第二段", (result[1] as MessageItem.AgentMessage).content)
-        assertTrue((result[1] as MessageItem.AgentMessage).isStreaming)
+        assertEquals(
+            listOf(
+                MessageItem.AgentMessage(
+                    id = "id-1",
+                    content = "第一段完成",
+                    isStreaming = false,
+                    timestamp = TIMESTAMP,
+                ),
+                MessageItem.AgentMessage(
+                    id = "id-2",
+                    content = "第二段",
+                    isStreaming = true,
+                    timestamp = TIMESTAMP,
+                ),
+            ),
+            result,
+        )
     }
 
     @Test
@@ -212,23 +240,21 @@ class EventProcessorTest {
                 ),
             )
 
-        assertEquals(4, result.size)
-        assertEquals(MessageItem.UserMessage("帮我检查日志", TIMESTAMP), result[0])
-        assertEquals(MessageItem.AgentMessage("先看一下", false, TIMESTAMP), result[1])
         assertEquals(
-            MessageItem.ToolCall(
-                callId = "tool-1",
-                toolName = "tail",
-                title = "读取日志",
-                args = null,
-                result = "读取完成",
-                isRunning = false,
+            listOf(
+                MessageItem.UserMessage("id-1", "帮我检查日志", TIMESTAMP),
+                MessageItem.AgentMessage("id-2", "先看一下", false, TIMESTAMP),
+                MessageItem.ToolCall(
+                    callId = "tool-1",
+                    toolName = "tail",
+                    title = "读取日志",
+                    args = null,
+                    result = "读取完成",
+                    isRunning = false,
+                ),
+                MessageItem.AgentMessage("id-3", "问题已经定位，建议重启服务", false, TIMESTAMP),
             ),
-            result[2],
-        )
-        assertEquals(
-            MessageItem.AgentMessage("问题已经定位，建议重启服务", false, TIMESTAMP),
-            result[3],
+            result,
         )
     }
 
@@ -246,8 +272,54 @@ class EventProcessorTest {
         assertEquals(
             listOf(
                 MessageItem.StatusChange(
+                    id = "id-1",
                     status = "completed",
                     message = null,
+                ),
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `session_started appends running status change`() {
+        val result =
+            processor.process(
+                event(
+                    seq = 1,
+                    eventType = "session_started",
+                ),
+            )
+
+        assertEquals(
+            listOf(
+                MessageItem.StatusChange(
+                    id = "id-1",
+                    status = "running",
+                    message = null,
+                ),
+            ),
+            result,
+        )
+    }
+
+    @Test
+    fun `session_result appends status change from payload`() {
+        val result =
+            processor.process(
+                event(
+                    seq = 1,
+                    eventType = "session_result",
+                    payload = payload("status" to "completed", "message" to "任务结束"),
+                ),
+            )
+
+        assertEquals(
+            listOf(
+                MessageItem.StatusChange(
+                    id = "id-1",
+                    status = "completed",
+                    message = "任务结束",
                 ),
             ),
             result,
@@ -268,6 +340,7 @@ class EventProcessorTest {
         assertEquals(
             listOf(
                 MessageItem.StatusChange(
+                    id = "id-1",
                     status = "failed",
                     message = "provider timeout",
                 ),
@@ -312,6 +385,96 @@ class EventProcessorTest {
 
         assertEquals(first, second)
         assertEquals(1, second.size)
+    }
+
+    @Test
+    fun `assistant message keeps stable id across streaming updates`() {
+        val first =
+            processor.process(
+                event(
+                    seq = 1,
+                    eventType = "assistant_delta",
+                    payload = payload("text" to "第一段"),
+                ),
+            ).single() as MessageItem.AgentMessage
+
+        val second =
+            processor.process(
+                event(
+                    seq = 2,
+                    eventType = "assistant_delta",
+                    payload = payload("text" to "第二段"),
+                ),
+            ).single() as MessageItem.AgentMessage
+
+        val final =
+            processor.process(
+                event(
+                    seq = 3,
+                    eventType = "assistant_message",
+                    payload = payload("text" to "完整回复"),
+                ),
+            ).single() as MessageItem.AgentMessage
+
+        assertEquals(first.id, second.id)
+        assertEquals(second.id, final.id)
+        assertEquals("完整回复", final.content)
+        assertFalse(final.isStreaming)
+    }
+
+    @Test
+    fun `tool payloads are truncated to bounded length`() {
+        val longPayload = "a".repeat(10_100)
+
+        val result =
+            processor.process(
+                event(
+                    seq = 1,
+                    eventType = "tool_call_started",
+                    payload = payload("call_id" to "call-1", "args" to longPayload),
+                ),
+            )
+
+        val toolCall = result.single() as MessageItem.ToolCall
+        assertNotNull(toolCall.args)
+        assertTrue(toolCall.args!!.endsWith("…(已截断)"))
+        assertEquals(10_006, toolCall.args!!.length)
+    }
+
+    @Test
+    fun `processor keeps only the most recent 500 timeline items`() {
+        repeat(MAX_MESSAGE_ITEMS + 1) { index ->
+            processor.process(
+                event(
+                    seq = index + 1,
+                    eventType = "user_message",
+                    payload = payload("text" to "消息 ${index + 1}"),
+                ),
+            )
+        }
+
+        val snapshot = processor.snapshot()
+        assertEquals(MAX_MESSAGE_ITEMS, snapshot.size)
+        assertEquals("消息 2", (snapshot.first() as MessageItem.UserMessage).text)
+        assertEquals("消息 501", (snapshot.last() as MessageItem.UserMessage).text)
+    }
+
+    @Test
+    fun `new assistant turns receive new stable ids`() {
+        processor.process(event(seq = 1, eventType = "assistant_delta", payload = payload("text" to "第一条")))
+        processor.process(event(seq = 2, eventType = "assistant_message", payload = payload("text" to "第一条完成")))
+
+        val secondTurn =
+            processor.process(
+                event(
+                    seq = 3,
+                    eventType = "assistant_delta",
+                    payload = payload("text" to "第二条"),
+                ),
+            ).last() as MessageItem.AgentMessage
+
+        assertEquals("id-2", secondTurn.id)
+        assertNotEquals("id-1", secondTurn.id)
     }
 }
 

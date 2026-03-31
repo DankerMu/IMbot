@@ -51,7 +51,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -63,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -74,7 +74,6 @@ fun SessionDetailScreen(
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
-    val currentMessages by rememberUpdatedState(uiState.messages)
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
     val listState = rememberLazyListState()
@@ -106,9 +105,11 @@ fun SessionDetailScreen(
     LaunchedEffect(viewModel) {
         viewModel.events.collectLatest { event ->
             when (event) {
-                DetailEvent.ScrollToBottom -> {
-                    if (currentMessages.isNotEmpty()) {
-                        listState.animateScrollToItem(currentMessages.lastIndex)
+                is DetailEvent.ScrollToBottom -> {
+                    if (event.targetIndex >= 0) {
+                        snapshotFlow { listState.layoutInfo.totalItemsCount }
+                            .first { count -> count > event.targetIndex }
+                        listState.animateScrollToItem(event.targetIndex)
                     }
                 }
 
@@ -346,7 +347,7 @@ fun SessionDetailScreen(
                     ) {
                         itemsIndexed(
                             items = uiState.messages,
-                            key = { index, item -> timelineKey(index, item) },
+                            key = { _, item -> timelineKey(item) },
                         ) { _, item ->
                             when (item) {
                                 is MessageItem.ToolCall ->
@@ -468,15 +469,12 @@ private fun DetailStatusBar(
     )
 }
 
-private fun timelineKey(
-    index: Int,
-    item: MessageItem,
-): String =
+private fun timelineKey(item: MessageItem): String =
     when (item) {
-        is MessageItem.AgentMessage -> "agent-$index-${item.timestamp}"
-        is MessageItem.StatusChange -> "status-$index-${item.status}-${item.message}"
+        is MessageItem.AgentMessage -> "agent-${item.id}"
+        is MessageItem.StatusChange -> "status-${item.id}"
         is MessageItem.ToolCall -> "tool-${item.callId}"
-        is MessageItem.UserMessage -> "user-$index-${item.timestamp}"
+        is MessageItem.UserMessage -> "user-${item.id}"
     }
 
 private fun calculateDistanceFromBottomPx(listState: androidx.compose.foundation.lazy.LazyListState): Int {

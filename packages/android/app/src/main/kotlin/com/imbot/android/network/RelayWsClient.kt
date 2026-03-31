@@ -4,6 +4,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -51,6 +52,22 @@ open class RelayWsClient
         private var reconnectJob: Job? = null
         private var shouldReconnect = false
         private var reconnectAttempt = 0
+        private val frameChannel = Channel<String>(Channel.UNLIMITED)
+
+        init {
+            scope.launch {
+                for (frame in frameChannel) {
+                    val parsedMessage = parseServerMessage(frame)
+                    if (parsedMessage != null) {
+                        if (parsedMessage is ServerMessage.Event) {
+                            _events.emit(parsedMessage)
+                            _rawMessages.emit(frame)
+                        }
+                        _messages.emit(parsedMessage)
+                    }
+                }
+            }
+        }
 
         open fun connect(
             relayUrl: String,
@@ -162,17 +179,7 @@ open class RelayWsClient
                             if (currentSocket !== webSocket) {
                                 return
                             }
-
-                            scope.launch {
-                                val parsedMessage = parseServerMessage(text)
-                                if (parsedMessage != null) {
-                                    if (parsedMessage is ServerMessage.Event) {
-                                        _events.emit(parsedMessage)
-                                        _rawMessages.emit(text)
-                                    }
-                                    _messages.emit(parsedMessage)
-                                }
-                            }
+                            frameChannel.trySend(text)
                         }
 
                         override fun onClosed(

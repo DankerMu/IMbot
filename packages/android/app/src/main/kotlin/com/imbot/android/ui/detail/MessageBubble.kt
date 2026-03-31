@@ -84,7 +84,7 @@ private fun AgentMessageBubble(
     modifier: Modifier = Modifier,
 ) {
     val badgeColor = providerColor(provider)
-    var expanded by rememberSaveable(item.content) { mutableStateOf(item.content.length <= 5_000) }
+    var expanded by rememberSaveable(item.id) { mutableStateOf(item.content.length <= 5_000) }
     val content =
         if (expanded) {
             item.content

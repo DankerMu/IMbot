@@ -99,7 +99,7 @@ internal fun messageItemKindForEventType(eventType: String): MessageItemKind? =
         "user_message" -> MessageItemKind.User
         "assistant_delta", "assistant_message" -> MessageItemKind.Agent
         "tool_call_started", "tool_call_completed" -> MessageItemKind.ToolCall
-        "session_status_changed", "session_error" -> MessageItemKind.StatusChange
+        "session_status_changed", "session_started", "session_result", "session_error" -> MessageItemKind.StatusChange
         else -> null
     }
 

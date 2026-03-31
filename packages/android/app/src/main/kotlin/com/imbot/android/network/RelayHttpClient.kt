@@ -418,7 +418,7 @@ open class RelayHttpClient
             relayUrl: String,
             token: String,
             sessionId: String,
-        ): Result<Unit> =
+        ): Result<RelaySession> =
             runCatching {
                 withContext(Dispatchers.IO) {
                     val request =
@@ -440,6 +440,10 @@ open class RelayHttpClient
                         if (!response.isSuccessful) {
                             error(buildRelayErrorMessage(response, bodyText, "Cancel session"))
                         }
+
+                        val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
+                        val sessionObject = root.optJSONObject("session") ?: error("Relay response is missing session")
+                        sessionObject.toRelaySession()
                     }
                 }
             }

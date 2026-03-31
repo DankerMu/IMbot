@@ -103,6 +103,8 @@ class DetailUtilsTest {
         assertEquals(MessageItemKind.ToolCall, messageItemKindForEventType("tool_call_started"))
         assertEquals(MessageItemKind.ToolCall, messageItemKindForEventType("tool_call_completed"))
         assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_status_changed"))
+        assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_started"))
+        assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_result"))
         assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_error"))
     }
 

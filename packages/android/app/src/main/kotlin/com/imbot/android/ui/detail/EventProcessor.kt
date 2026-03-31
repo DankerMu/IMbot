@@ -3,14 +3,20 @@ package com.imbot.android.ui.detail
 import com.imbot.android.network.ServerMessage
 import org.json.JSONArray
 import org.json.JSONObject
+import java.util.UUID
+
+internal const val MAX_MESSAGE_ITEMS = 500
+private const val MAX_TOOL_PAYLOAD_LENGTH = 10_000
 
 sealed class MessageItem {
     data class UserMessage(
+        val id: String,
         val text: String,
         val timestamp: String,
     ) : MessageItem()
 
     data class AgentMessage(
+        val id: String,
         val content: String,
         val isStreaming: Boolean,
         val timestamp: String,
@@ -26,22 +32,26 @@ sealed class MessageItem {
     ) : MessageItem()
 
     data class StatusChange(
+        val id: String,
         val status: String,
         val message: String?,
     ) : MessageItem()
 }
 
+internal fun generateMessageItemId(): String = UUID.randomUUID().toString()
+
 @Suppress("TooManyFunctions")
-class EventProcessor {
+class EventProcessor(
+    private val idGenerator: () -> String = ::generateMessageItemId,
+) {
     private val messages = mutableListOf<MessageItem>()
-    private val processedSeqs = mutableSetOf<Int>()
-    private var lastProcessedSeq = 0
+    private var maxProcessedSeq = 0
 
     fun process(event: ServerMessage.Event): List<MessageItem> {
-        if (!processedSeqs.add(event.seq)) {
+        if (event.seq <= maxProcessedSeq) {
             return snapshot()
         }
-        lastProcessedSeq = maxOf(lastProcessedSeq, event.seq)
+        maxProcessedSeq = event.seq
 
         when (event.eventType) {
             "user_message" -> appendUserMessage(event)
@@ -50,21 +60,27 @@ class EventProcessor {
             "tool_call_started" -> appendToolCallStarted(event)
             "tool_call_completed" -> appendToolCallCompleted(event)
             "session_status_changed" -> appendStatusChange(event)
+            "session_started" -> appendStatusChange(status = "running", message = null)
+            "session_result" ->
+                appendStatusChange(
+                    status = event.payload.stringValue("status").orEmpty(),
+                    message = event.payload.stringValue("message"),
+                )
             "session_error" -> appendSessionError(event)
         }
 
+        trimMessagesIfNeeded()
         return snapshot()
     }
 
     internal fun reset() {
         messages.clear()
-        processedSeqs.clear()
-        lastProcessedSeq = 0
+        maxProcessedSeq = 0
     }
 
     internal fun snapshot(): List<MessageItem> = messages.toList()
 
-    internal fun lastProcessedSeq(): Int = lastProcessedSeq
+    internal fun lastProcessedSeq(): Int = maxProcessedSeq
 
     private fun appendUserMessage(event: ServerMessage.Event) {
         val text = event.payload.stringValue("text").orEmpty().trim()
@@ -75,6 +91,7 @@ class EventProcessor {
         closeStreamingAgentMessage()
         messages +=
             MessageItem.UserMessage(
+                id = idGenerator(),
                 text = text,
                 timestamp = event.timestamp,
             )
@@ -99,6 +116,7 @@ class EventProcessor {
 
         messages +=
             MessageItem.AgentMessage(
+                id = idGenerator(),
                 content = deltaText,
                 isStreaming = true,
                 timestamp = event.timestamp,
@@ -126,6 +144,7 @@ class EventProcessor {
 
         messages +=
             MessageItem.AgentMessage(
+                id = idGenerator(),
                 content = finalText,
                 isStreaming = false,
                 timestamp = event.timestamp,
@@ -145,7 +164,7 @@ class EventProcessor {
                 callId = callId,
                 toolName = payload.stringValue("tool_name").orEmpty(),
                 title = payload.stringValue("title").orEmpty(),
-                args = payload.compactValue("args"),
+                args = truncatePayload(payload.compactValue("args")),
                 result = null,
                 isRunning = true,
             )
@@ -167,7 +186,7 @@ class EventProcessor {
             val item = messages[toolCallIndex] as MessageItem.ToolCall
             messages[toolCallIndex] =
                 item.copy(
-                    result = payload.compactValue("result"),
+                    result = truncatePayload(payload.compactValue("result")),
                     isRunning = false,
                 )
         } else {
@@ -176,8 +195,8 @@ class EventProcessor {
                     callId = callId,
                     toolName = payload.stringValue("tool_name").orEmpty(),
                     title = payload.stringValue("title").orEmpty(),
-                    args = payload.compactValue("args"),
-                    result = payload.compactValue("result"),
+                    args = truncatePayload(payload.compactValue("args")),
+                    result = truncatePayload(payload.compactValue("result")),
                     isRunning = false,
                 )
         }
@@ -185,7 +204,16 @@ class EventProcessor {
 
     private fun appendStatusChange(event: ServerMessage.Event) {
         val payload = event.payload ?: return
-        val status = payload.stringValue("status").orEmpty()
+        appendStatusChange(
+            status = payload.stringValue("status").orEmpty(),
+            message = payload.stringValue("message"),
+        )
+    }
+
+    private fun appendStatusChange(
+        status: String,
+        message: String?,
+    ) {
         if (status.isBlank()) {
             return
         }
@@ -194,19 +222,16 @@ class EventProcessor {
         messages +=
             MessageItem.StatusChange(
                 status = status,
-                message = payload.stringValue("message"),
+                id = idGenerator(),
+                message = message,
             )
     }
 
     private fun appendSessionError(event: ServerMessage.Event) {
-        val message = event.payload.stringValue("message")
-
-        closeStreamingAgentMessage()
-        messages +=
-            MessageItem.StatusChange(
-                status = "failed",
-                message = message,
-            )
+        appendStatusChange(
+            status = "failed",
+            message = event.payload.stringValue("message"),
+        )
     }
 
     private fun closeStreamingAgentMessage() {
@@ -214,6 +239,27 @@ class EventProcessor {
         val lastMessage = messages.lastOrNull()
         if (lastMessage is MessageItem.AgentMessage && lastMessage.isStreaming) {
             messages[lastIndex] = lastMessage.copy(isStreaming = false)
+        }
+    }
+
+    private fun trimMessagesIfNeeded() {
+        val overflow = messages.size - MAX_MESSAGE_ITEMS
+        if (overflow > 0) {
+            messages.subList(0, overflow).clear()
+        }
+    }
+
+    private fun truncatePayload(
+        text: String?,
+        maxLength: Int = MAX_TOOL_PAYLOAD_LENGTH,
+    ): String? {
+        if (text == null) {
+            return null
+        }
+        return if (text.length > maxLength) {
+            text.take(maxLength) + "…(已截断)"
+        } else {
+            text
         }
     }
 }
