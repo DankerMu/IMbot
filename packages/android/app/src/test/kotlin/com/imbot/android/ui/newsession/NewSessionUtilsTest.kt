@@ -166,6 +166,7 @@ class NewSessionUtilsTest {
         provider = provider,
         path = path,
         label = null,
+        createdAt = "2026-03-31T10:00:00Z",
     )
 
     private fun host(

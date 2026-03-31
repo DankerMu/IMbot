@@ -14,6 +14,9 @@ interface SessionDao {
     @Query("SELECT * FROM sessions ORDER BY last_active_at DESC")
     fun getAll(): Flow<List<SessionEntity>>
 
+    @Query("SELECT * FROM sessions WHERE workspace_cwd LIKE :prefix || '%' ORDER BY last_active_at DESC")
+    fun getByPathPrefix(prefix: String): Flow<List<SessionEntity>>
+
     @Query("SELECT * FROM sessions WHERE id = :id LIMIT 1")
     suspend fun getById(id: String): SessionEntity?
 

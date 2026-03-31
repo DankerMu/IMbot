@@ -2,6 +2,7 @@
 
 package com.imbot.android.ui.navigation
 
+import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -29,15 +30,22 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
+import com.imbot.android.data.RelaySettings
 import com.imbot.android.ui.detail.DetailViewModel
 import com.imbot.android.ui.detail.SessionDetailScreen
 import com.imbot.android.ui.home.HomeScreen
 import com.imbot.android.ui.home.HomeViewModel
 import com.imbot.android.ui.newsession.NewSessionScreen
 import com.imbot.android.ui.newsession.NewSessionViewModel
+import com.imbot.android.ui.onboarding.OnboardingScreen
+import com.imbot.android.ui.onboarding.OnboardingViewModel
 import com.imbot.android.ui.prototype.PrototypeScreen
 import com.imbot.android.ui.settings.SettingsScreen
+import com.imbot.android.ui.settings.SettingsViewModel
+import com.imbot.android.ui.workspace.RootDetailScreen
+import com.imbot.android.ui.workspace.RootDetailViewModel
 import com.imbot.android.ui.workspace.WorkspaceScreen
+import com.imbot.android.ui.workspace.WorkspaceViewModel
 import com.imbot.android.viewmodel.MainNavigationEvent
 import com.imbot.android.viewmodel.MainViewModel
 import kotlinx.coroutines.flow.collectLatest
@@ -46,6 +54,7 @@ import kotlinx.coroutines.flow.collectLatest
 fun AppNavigation(
     homeViewModel: HomeViewModel,
     mainViewModel: MainViewModel,
+    startDestination: String,
     modifier: Modifier = Modifier,
 ) {
     val navController = rememberNavController()
@@ -54,6 +63,13 @@ fun AppNavigation(
     val currentDestination = backStackEntry?.destination
     val currentRoute = currentDestination?.route
     val showBottomBar = currentRoute in topLevelDestinations.map(TopLevelDestination::route)
+
+    LaunchedEffect(startDestination) {
+        if (startDestination != AppRoute.ONBOARDING) {
+            mainViewModel.connectConfiguredRelayIfNeeded()
+            homeViewModel.refresh()
+        }
+    }
 
     BackHandler(enabled = currentRoute != AppRoute.HOME && showBottomBar) {
         navigateToTopLevel(navController, AppRoute.HOME)
@@ -130,9 +146,20 @@ fun AppNavigation(
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = AppRoute.HOME,
+            startDestination = startDestination,
             modifier = Modifier.padding(innerPadding),
         ) {
+            composable(AppRoute.ONBOARDING) {
+                val viewModel: OnboardingViewModel = hiltViewModel()
+                OnboardingScreen(
+                    viewModel = viewModel,
+                    onNavigateHome = {
+                        mainViewModel.connectConfiguredRelayIfNeeded()
+                        homeViewModel.refresh()
+                        navigateAfterOnboarding(navController)
+                    },
+                )
+            }
             composable(AppRoute.HOME) {
                 HomeScreen(
                     viewModel = homeViewModel,
@@ -141,13 +168,23 @@ fun AppNavigation(
                 )
             }
             composable(AppRoute.WORKSPACE) {
-                WorkspaceScreen()
+                val viewModel: WorkspaceViewModel = hiltViewModel()
+                WorkspaceScreen(
+                    viewModel = viewModel,
+                    onOpenRoot = { root ->
+                        navController.navigate(
+                            AppRoute.rootDetail(
+                                rootId = root.id,
+                                hostId = root.hostId,
+                                path = root.path,
+                            ),
+                        )
+                    },
+                )
             }
             composable(AppRoute.SETTINGS) {
-                SettingsScreen(
-                    viewModel = mainViewModel,
-                    onOpenPrototype = mainViewModel::openPrototypeComposer,
-                )
+                val viewModel: SettingsViewModel = hiltViewModel()
+                SettingsScreen(viewModel = viewModel)
             }
             composable(AppRoute.PROTOTYPE) {
                 PrototypeScreen(
@@ -190,6 +227,26 @@ fun AppNavigation(
                     },
                 )
             }
+            composable(
+                route = AppRoute.ROOT_DETAIL,
+                arguments =
+                    listOf(
+                        navArgument(RootDetailViewModel.ROOT_ID_ARG) { type = NavType.StringType },
+                        navArgument(RootDetailViewModel.HOST_ID_ARG) { type = NavType.StringType },
+                        navArgument(RootDetailViewModel.PATH_ARG) { type = NavType.StringType },
+                    ),
+            ) {
+                val viewModel: RootDetailViewModel = hiltViewModel()
+                RootDetailScreen(
+                    viewModel = viewModel,
+                    onNavigateBack = {
+                        navController.popBackStack()
+                    },
+                    onOpenSession = { sessionId ->
+                        mainViewModel.openSession(sessionId)
+                    },
+                )
+            }
         }
     }
 }
@@ -207,7 +264,38 @@ private fun navigateToTopLevel(
     }
 }
 
-private object AppRoute {
+private fun navigateAfterOnboarding(navController: androidx.navigation.NavHostController) {
+    val spec = onboardingCompletionNavigation()
+    navController.navigate(spec.route) {
+        popUpTo(spec.popUpTo) {
+            inclusive = spec.inclusive
+        }
+        launchSingleTop = true
+    }
+}
+
+internal fun resolveStartDestination(settings: RelaySettings): String =
+    if (settings.relayUrl.isBlank() || settings.token.isBlank()) {
+        AppRoute.ONBOARDING
+    } else {
+        AppRoute.HOME
+    }
+
+internal data class OnboardingCompletionNavigation(
+    val route: String,
+    val popUpTo: String,
+    val inclusive: Boolean,
+)
+
+internal fun onboardingCompletionNavigation(): OnboardingCompletionNavigation =
+    OnboardingCompletionNavigation(
+        route = AppRoute.HOME,
+        popUpTo = AppRoute.ONBOARDING,
+        inclusive = true,
+    )
+
+internal object AppRoute {
+    const val ONBOARDING = "onboarding"
     const val HOME = "home"
     const val WORKSPACE = "workspace"
     const val SETTINGS = "settings"
@@ -215,8 +303,21 @@ private object AppRoute {
     const val NEW_SESSION = "new_session"
     const val SESSION_ID_ARG = "sessionId"
     const val SESSION_DETAIL = "session/{$SESSION_ID_ARG}"
+    const val ROOT_DETAIL =
+        "workspace/root/{${RootDetailViewModel.ROOT_ID_ARG}}" +
+            "?${RootDetailViewModel.HOST_ID_ARG}={${RootDetailViewModel.HOST_ID_ARG}}" +
+            "&${RootDetailViewModel.PATH_ARG}={${RootDetailViewModel.PATH_ARG}}"
 
     fun sessionDetail(sessionId: String): String = "session/$sessionId"
+
+    fun rootDetail(
+        rootId: String,
+        hostId: String,
+        path: String,
+    ): String =
+        "workspace/root/${Uri.encode(rootId)}" +
+            "?${RootDetailViewModel.HOST_ID_ARG}=${Uri.encode(hostId)}" +
+            "&${RootDetailViewModel.PATH_ARG}=${Uri.encode(path)}"
 }
 
 private data class TopLevelDestination(
