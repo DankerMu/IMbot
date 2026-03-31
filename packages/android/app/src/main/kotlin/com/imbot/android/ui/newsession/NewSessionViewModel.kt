@@ -455,7 +455,7 @@ class NewSessionViewModel
         }
     }
 
-private fun filterRootsForProvider(
+internal fun filterRootsForProvider(
     provider: String,
     roots: List<RelayWorkspaceRoot>,
 ): List<RelayWorkspaceRoot> =
@@ -464,7 +464,7 @@ private fun filterRootsForProvider(
         else -> roots
     }
 
-private fun findHostForProvider(
+internal fun findHostForProvider(
     provider: String,
     hosts: List<RelayHost>,
 ): RelayHost? =
@@ -474,7 +474,7 @@ private fun findHostForProvider(
         provider in host.providers
     }
 
-private fun providerOfflineMessage(provider: String): String =
+internal fun providerOfflineMessage(provider: String): String =
     when (provider) {
         "claude" -> "Claude Code 所在主机当前离线，请返回上一步重新选择。"
         "book" -> "book 所在主机当前离线，请返回上一步重新选择。"
@@ -482,7 +482,7 @@ private fun providerOfflineMessage(provider: String): String =
         else -> "当前 Provider 不可用，请稍后重试。"
     }
 
-private fun String.toBreadcrumbs(): List<DirectoryBreadcrumb> {
+internal fun String.toBreadcrumbs(): List<DirectoryBreadcrumb> {
     if (isBlank()) {
         return emptyList()
     }

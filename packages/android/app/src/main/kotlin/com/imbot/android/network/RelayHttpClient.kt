@@ -67,12 +67,12 @@ private data class RelayErrorResponse(
 )
 
 @Singleton
-class RelayHttpClient
+open class RelayHttpClient
     @Inject
     constructor(
         private val okHttpClient: OkHttpClient,
     ) {
-        suspend fun getHosts(
+        open suspend fun getHosts(
             relayUrl: String,
             token: String,
         ): Result<List<RelayHost>> =
@@ -111,7 +111,7 @@ class RelayHttpClient
                 }
             }
 
-        suspend fun getHostRoots(
+        open suspend fun getHostRoots(
             relayUrl: String,
             token: String,
             hostId: String,
@@ -153,7 +153,7 @@ class RelayHttpClient
                 }
             }
 
-        suspend fun browseDirectory(
+        open suspend fun browseDirectory(
             relayUrl: String,
             token: String,
             hostId: String,
@@ -228,7 +228,7 @@ class RelayHttpClient
                 }
             }
 
-        suspend fun createSession(
+        open suspend fun createSession(
             relayUrl: String,
             token: String,
             provider: String,

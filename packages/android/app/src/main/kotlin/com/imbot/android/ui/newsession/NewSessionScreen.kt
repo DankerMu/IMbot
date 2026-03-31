@@ -310,14 +310,14 @@ private fun WizardNavigationBar(
     }
 }
 
-private fun canMoveNext(state: NewSessionUiState): Boolean =
+internal fun canMoveNext(state: NewSessionUiState): Boolean =
     when (state.step) {
         0 -> !state.provider.isNullOrBlank() && !state.hostId.isNullOrBlank()
         1 -> !state.cwd.isNullOrBlank()
         else -> false
     }
 
-private fun canCreate(state: NewSessionUiState): Boolean =
+internal fun canCreate(state: NewSessionUiState): Boolean =
     !state.provider.isNullOrBlank() &&
         !state.hostId.isNullOrBlank() &&
         !state.cwd.isNullOrBlank() &&
