@@ -1,9 +1,12 @@
 package com.imbot.android.service
 
-import android.annotation.SuppressLint
+import android.Manifest
 import android.app.PendingIntent
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.Lifecycle
@@ -93,7 +96,6 @@ class FCMService : FirebaseMessagingService() {
             else -> Uri.parse("imbot://home")
         }
 
-    @SuppressLint("MissingPermission")
     private fun showNotification(
         title: String,
         body: String,
@@ -125,6 +127,13 @@ class FCMService : FirebaseMessagingService() {
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
                 .build()
+
+        if (
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
 
         NotificationManagerCompat.from(this).notify(requestCode, notification)
     }

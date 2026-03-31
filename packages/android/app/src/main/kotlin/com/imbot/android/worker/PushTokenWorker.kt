@@ -33,33 +33,41 @@ class PushTokenWorker(
         )
 
     override suspend fun doWork(): Result {
-        val settings = settingsRepository.load()
-        if (!settings.isConfigured()) {
-            return Result.success()
-        }
+        var pushToken: String? = null
 
-        val pushToken =
-            settingsRepository.loadPendingPushToken()
-                ?: FirebaseMessaging.getInstance().token.awaitValue().trim()
-
-        if (pushToken.isBlank()) {
-            return Result.retry()
-        }
-
-        return relayHttpClient.registerPushToken(
-            relayUrl = settings.relayUrl,
-            token = settings.token,
-            fcmToken = pushToken,
-        ).fold(
-            onSuccess = {
-                settingsRepository.clearPendingPushToken(pushToken)
+        return try {
+            val settings = settingsRepository.load()
+            if (!settings.isConfigured()) {
                 Result.success()
-            },
-            onFailure = {
-                settingsRepository.savePendingPushToken(pushToken)
-                Result.retry()
-            },
-        )
+            } else {
+                pushToken =
+                    settingsRepository.loadPendingPushToken()
+                        ?: FirebaseMessaging.getInstance().token.awaitValue().trim()
+
+                val currentPushToken = pushToken
+                if (currentPushToken.isNullOrBlank()) {
+                    Result.retry()
+                } else {
+                    relayHttpClient.registerPushToken(
+                        relayUrl = settings.relayUrl,
+                        token = settings.token,
+                        fcmToken = currentPushToken,
+                    ).fold(
+                        onSuccess = {
+                            settingsRepository.clearPendingPushToken(currentPushToken)
+                            Result.success()
+                        },
+                        onFailure = {
+                            settingsRepository.savePendingPushToken(currentPushToken)
+                            Result.retry()
+                        },
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            pushToken?.let(settingsRepository::savePendingPushToken)
+            Result.retry()
+        }
     }
 
     companion object {

@@ -206,7 +206,9 @@ export class PushAdapter {
     } catch (error) {
       if (this.isUnregisteredTokenError(error)) {
         this.db.prepare("DELETE FROM push_subscriptions WHERE fcm_token = ?").run(token);
-        this.logger.warn(`Deleted stale FCM token after unregistered send failure: ${token}`);
+        this.logger.warn(
+          `Deleted stale FCM token after unregistered send failure: ${token.slice(0, 8)}***`
+        );
         return;
       }
 

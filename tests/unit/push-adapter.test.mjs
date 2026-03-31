@@ -246,7 +246,10 @@ test("PushAdapter notify sends to all tokens and deletes stale registrations", a
     .map((row) => row.fcm_token);
   assert.deepEqual(remainingTokens, ["token-good"]);
   assert.equal(warnings.length, 1);
-  assert.match(warnings[0], /Deleted stale FCM token/);
+  assert.match(
+    warnings[0],
+    /Deleted stale FCM token after unregistered send failure: token-st\*\*\*/
+  );
 });
 
 test("PushAdapter notifyHostOffline sends the host offline payload", async (t) => {
@@ -330,23 +333,47 @@ test("POST /v1/push/register upserts the same token into a single row", async (t
     rmSync(tempDir, { recursive: true, force: true });
   });
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    const response = await runtime.app.inject({
-      method: "POST",
-      url: "/v1/push/register",
-      headers: {
-        authorization: `Bearer ${config.staticToken}`,
-        "content-type": "application/json"
-      },
-      payload: {
-        fcm_token: "same-token"
-      }
-    });
+  const headers = {
+    authorization: `Bearer ${config.staticToken}`,
+    "content-type": "application/json"
+  };
+  const payload = {
+    fcm_token: "same-token"
+  };
 
-    assert.equal(response.statusCode, 200);
-    assert.deepEqual(response.json(), { status: "ok" });
-  }
+  const firstResponse = await runtime.app.inject({
+    method: "POST",
+    url: "/v1/push/register",
+    headers,
+    payload
+  });
 
+  assert.equal(firstResponse.statusCode, 200);
+  assert.deepEqual(firstResponse.json(), { status: "ok" });
+
+  const firstRow = runtime.db
+    .prepare("SELECT id, created_at, updated_at FROM push_subscriptions WHERE fcm_token = ?")
+    .get("same-token");
+
+  await new Promise((resolve) => setTimeout(resolve, 1100));
+
+  const secondResponse = await runtime.app.inject({
+    method: "POST",
+    url: "/v1/push/register",
+    headers,
+    payload
+  });
+
+  assert.equal(secondResponse.statusCode, 200);
+  assert.deepEqual(secondResponse.json(), { status: "ok" });
+
+  const secondRow = runtime.db
+    .prepare("SELECT id, created_at, updated_at FROM push_subscriptions WHERE fcm_token = ?")
+    .get("same-token");
   const rowCount = runtime.db.prepare("SELECT COUNT(*) AS count FROM push_subscriptions").get();
+
   assert.deepEqual(rowCount, { count: 1 });
+  assert.equal(secondRow.id, firstRow.id);
+  assert.equal(secondRow.created_at, firstRow.created_at);
+  assert.notEqual(secondRow.updated_at, firstRow.updated_at);
 });

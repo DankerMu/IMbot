@@ -30,8 +30,9 @@ export function registerPushRoutes(
     deps.db
       .prepare(
         `
-        INSERT OR REPLACE INTO push_subscriptions (id, fcm_token, created_at, updated_at)
+        INSERT INTO push_subscriptions (id, fcm_token, created_at, updated_at)
         VALUES (?, ?, datetime('now'), datetime('now'))
+        ON CONFLICT(fcm_token) DO UPDATE SET updated_at = datetime('now')
         `
       )
       .run(randomUUID(), fcmToken);
