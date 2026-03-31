@@ -54,14 +54,71 @@
 - [ ] 7.2 Handle pagination: only diff within the loaded page range (do not delete sessions beyond the loaded offset)
 - [ ] 7.3 Write test: mock relay returns 5 sessions, Room has 7, expect 2 deleted from Room
 
-## 8. Tests
+## Unit Tests: Purge Job (Relay)
 
-- [ ] 8.1 Unit test `ErrorStateManager`: set relay connected/disconnected → state updates; set host offline → state updates; priority: relay > host > session
-- [ ] 8.2 Unit test `ErrorBannerHost` composable: relay down → ConnectionBanner shown; relay up + host down → HostBanner shown; relay up + host up + session error → SessionBanner shown; all clear → no banner
-- [ ] 8.3 Unit test foreground service lifecycle: app open → ACTIVE; app background + no sessions → COOLING_DOWN → 5min → STOPPED; app foreground during cooldown → ACTIVE
-- [ ] 8.4 Unit test network change reconnect: onAvailable → debounce 1s → reconnect called; multiple onAvailable within 1s → only one reconnect
-- [ ] 8.5 Unit test purge job (relay): 31-day session purged, 29-day not, running skipped, cascade verified, log output correct
-- [ ] 8.6 Unit test stale session sync: local has [A,B,C,D], remote has [A,C] → B and D deleted from Room
-- [ ] 8.7 UI test empty states: verify illustration + CTA render for empty session list, empty workspace
-- [ ] 8.8 UI test shimmer: verify shimmer composable renders during loading state, replaced by content on load
-- [ ] 8.9 UI test Snackbar: verify auto-dismiss after 4s, verify action button triggers retry
+- [ ] 8.1 Session 31 days old + status=completed → purged
+- [ ] 8.2 Session 29 days old + status=completed → NOT purged (boundary)
+- [ ] 8.3 Session 31 days old + status=running → NOT purged (running protected)
+- [ ] 8.4 Session 31 days old + status=failed → purged
+- [ ] 8.5 Session 31 days old + status=cancelled → purged
+- [ ] 8.6 CASCADE: purging session also deletes associated session_events
+- [ ] 8.7 Batch processing: 150 qualifying sessions → purged in batches of 100
+- [ ] 8.8 Zero qualifying sessions → logs "purged 0 sessions", no error
+
+## Unit Tests: Connection Stability (Relay)
+
+- [ ] 9.1 WS ping sent every 30s to all connected clients
+- [ ] 9.2 Client idle >60s (no messages/pong) → connection closed with code 1001
+- [ ] 9.3 Client responds with pong within 60s → connection stays alive
+- [ ] 9.4 Companion heartbeat stale >90s → host marked offline + host_status broadcast
+- [ ] 9.5 Companion heartbeat received after stale → host marked online + broadcast
+
+## Unit Tests: ErrorStateManager (Android)
+
+- [ ] 10.1 Initial state: relay connected, all hosts online, no session errors
+- [ ] 10.2 setRelayConnected(false) → state.relayConnected = false
+- [ ] 10.3 setRelayConnected(true) → state.relayConnected = true
+- [ ] 10.4 setHostStatus("macbook-1", false) → host offline in state
+- [ ] 10.5 setHostStatus("macbook-1", true) → host online in state
+- [ ] 10.6 setSessionError("s1", "msg") → session error recorded
+- [ ] 10.7 clearSessionError("s1") → session error removed
+- [ ] 10.8 Priority: relay disconnected overrides host offline in ErrorBannerHost
+- [ ] 10.9 Priority: host offline overrides session error in ErrorBannerHost
+- [ ] 10.10 Concurrent state updates: rapid setRelayConnected toggles → final state consistent
+- [ ] 10.11 Scoped queries: GLOBAL scope shows relay errors, SESSION(id) scope shows session-specific errors
+
+## Unit Tests: Foreground Service Lifecycle
+
+- [ ] 11.1 App open → state = ACTIVE
+- [ ] 11.2 App background + no running sessions → state = COOLING_DOWN
+- [ ] 11.3 COOLING_DOWN + 5min elapsed → state = STOPPED, service stopped
+- [ ] 11.4 COOLING_DOWN + app foregrounds → state = ACTIVE, timer cancelled
+- [ ] 11.5 COOLING_DOWN + new session starts → state = ACTIVE, timer cancelled
+- [ ] 11.6 App background + running sessions → state stays ACTIVE (no cooldown)
+
+## Unit Tests: Network Change Reconnect
+
+- [ ] 12.1 onAvailable → debounce 1s → reconnect called once
+- [ ] 12.2 Multiple onAvailable within 1s → only one reconnect (debounce)
+- [ ] 12.3 onLost → reconnect attempts paused
+- [ ] 12.4 onLost → onAvailable → reconnect resumes (bypasses backoff)
+- [ ] 12.5 onAvailable during active connection → no-op (already connected)
+
+## Unit Tests: Stale Session Sync
+
+- [ ] 13.1 Local [A,B,C,D], remote [A,C] → B and D deleted from Room
+- [ ] 13.2 Local [A,B], remote [A,B,C] → no deletions (C not local yet)
+- [ ] 13.3 Local empty, remote has sessions → no deletions
+- [ ] 13.4 Pagination: only diff within loaded page range, sessions beyond offset preserved
+- [ ] 13.5 Running sessions never deleted even if absent from remote page
+
+## UI Tests
+
+- [ ] 14.1 Empty state: session list → "暂无会话" + "新建会话" CTA renders
+- [ ] 14.2 Empty state: workspace → "暂无根目录" + "添加根目录" CTA renders
+- [ ] 14.3 Shimmer: loading state shows 3 skeleton SessionCards
+- [ ] 14.4 Shimmer: replaced by real content when load completes
+- [ ] 14.5 Snackbar: auto-dismiss after 4s
+- [ ] 14.6 Snackbar: retry action button triggers callback
+- [ ] 14.7 ConnectionBanner: visible when relay disconnected, hidden when connected
+- [ ] 14.8 Host offline banner: visible when relay up + host down
