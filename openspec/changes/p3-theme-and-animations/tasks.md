@@ -45,13 +45,44 @@
 - [ ] 6.4 Apply StatusIndicator with pulse/morph to SessionCard and DetailScreen status bar
 - [ ] 6.5 Apply ConnectionBanner to the root scaffold (visible on all screens)
 
-## 7. Tests
+## Unit Tests: Theme Resolution
 
-- [ ] 7.1 Unit test theme resolution: System mode + light OS → light scheme, System mode + dark OS → dark scheme, explicit Light → light scheme regardless of OS, explicit Dark → dark scheme regardless of OS
-- [ ] 7.2 Unit test dynamic color: API 31+ → uses dynamic scheme, API 30 → uses static seed scheme
-- [ ] 7.3 Unit test code tokenizer: Kotlin keywords highlighted, strings in correct color, comments detected, unknown language → plain text
-- [ ] 7.4 Unit test animation constants: verify all durations match FOUNDATION.md spec
-- [ ] 7.5 UI test theme switch: toggle Light → Dark → verify surface colors change, no flash (screenshot comparison)
-- [ ] 7.6 UI test shared element: tap SessionCard → verify DetailScreen appears with animation (compose test rule)
-- [ ] 7.7 UI test streaming cursor: verify cursor blinks during streaming, disappears on complete
-- [ ] 7.8 UI test ConnectionBanner: verify banner appears on disconnect, shows "已恢复" on reconnect, slides out after 2s
+- [ ] 7.1 System mode + light OS → resolves to light colorScheme
+- [ ] 7.2 System mode + dark OS → resolves to dark colorScheme
+- [ ] 7.3 Explicit Light → light scheme regardless of OS setting
+- [ ] 7.4 Explicit Dark → dark scheme regardless of OS setting
+- [ ] 7.5 API 31+ → dynamic color scheme returned
+- [ ] 7.6 API 30 → static seed color scheme returned
+- [ ] 7.7 ProviderColors: claude=amber, book=violet, openclaw=red — values match FOUNDATION.md
+- [ ] 7.8 StatusColors: running=green, completed=green, failed=red, cancelled=gray, queued=gray — both light and dark variants
+
+## Unit Tests: Code Tokenizer
+
+- [ ] 8.1 Kotlin source: `fun`, `val`, `class` recognized as keywords
+- [ ] 8.2 TypeScript source: `const`, `function`, `import` recognized as keywords
+- [ ] 8.3 Python source: `def`, `class`, `import` recognized as keywords
+- [ ] 8.4 JSON source: keys, strings, numbers, booleans highlighted correctly
+- [ ] 8.5 String literals: single-quoted, double-quoted, template literals detected
+- [ ] 8.6 Comments: single-line `//`, multi-line `/* */`, Python `#` detected
+- [ ] 8.7 Empty string → empty token list, no crash
+- [ ] 8.8 Unknown/null language → plain text (no highlighting), no crash
+- [ ] 8.9 Nested strings (e.g. `"he said \"hello\""`) → correct span boundaries
+- [ ] 8.10 Multi-line code block → tokens span correct line ranges
+- [ ] 8.11 Memoization: same (code, language) pair returns cached result
+
+## Unit Tests: Animation Constants
+
+- [ ] 9.1 All transition durations match FOUNDATION.md spec (300ms enter, 250ms exit, 400ms shared element)
+- [ ] 9.2 Easing curves match spec (Emphasized for page, Linear for pulse)
+- [ ] 9.3 Streaming cursor: 500ms blink interval, alpha range 0.3-1.0
+- [ ] 9.4 Status pulse: 1500ms cycle, alpha range 0.3-1.0
+- [ ] 9.5 Color morph: 300ms tween
+- [ ] 9.6 ConnectionBanner: "已恢复" visible for 2000ms before dismiss
+
+## UI Tests
+
+- [ ] 10.1 Theme switch: toggle Light → Dark → surface colors change without flash
+- [ ] 10.2 Shared element: tap SessionCard → DetailScreen TopAppBar animates from card
+- [ ] 10.3 Streaming cursor: visible and blinking during isStreaming=true, gone on false
+- [ ] 10.4 ToolCallCard expand/collapse: animation runs on toggle
+- [ ] 10.5 ConnectionBanner: appears on disconnect, shows "已恢复" on reconnect, slides out

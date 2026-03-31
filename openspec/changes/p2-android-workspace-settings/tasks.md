@@ -49,12 +49,76 @@
 - [ ] 6.2 Register RootDetailScreen as a sub-route under workspace with arguments (rootId, hostId, path)
 - [ ] 6.3 Verify bottom nav tab switching preserves each tab's scroll position and state
 
-## 7. Tests
+## Unit Tests: OnboardingViewModel
 
-- [ ] 7.1 Unit test OnboardingViewModel: test button enable/disable logic (empty fields → disabled, both filled → enabled), testConnection success/error/timeout mapping, saveAndProceed writes to prefs
-- [ ] 7.2 Unit test WorkspaceViewModel: initial load populates hosts+roots, refresh re-fetches, removeRoot updates state, error handling
-- [ ] 7.3 Unit test SettingsViewModel: theme persistence round-trip, relay URL update triggers reconnect, clearCache delegates to repository
-- [ ] 7.4 Unit test PrefsDataStore: write/read relay URL, write/read token (encrypted), write/read theme mode, missing values return null/default
-- [ ] 7.5 UI test OnboardingScreen: verify first-launch navigation guard, test connection flow (mock API), proceed saves and navigates
-- [ ] 7.6 UI test WorkspaceScreen: verify root list rendering, add root bottom sheet flow, remove root confirmation
-- [ ] 7.7 UI test SettingsScreen: verify all sections render, theme toggle changes state, relay URL edit dialog
+- [ ] 7.1 Init state: both fields empty, testResult=null, isTesting=false
+- [ ] 7.2 updateUrl/updateToken: values reflected in uiState immediately
+- [ ] 7.3 testConnection with empty URL or empty token → error "请填写完整的连接信息" without API call
+- [ ] 7.4 testConnection → HTTP 200 → TestResult.Success with host statuses parsed
+- [ ] 7.5 testConnection → HTTP 401 → TestResult.Error "认证失败"
+- [ ] 7.6 testConnection → network error (IOException) → TestResult.Error "无法连接"
+- [ ] 7.7 testConnection → timeout (SocketTimeoutException) → TestResult.Error "连接超时"
+- [ ] 7.8 testConnection sets isTesting=true during request, false on completion (success or failure)
+- [ ] 7.9 Double-tap testConnection guard: ignore when isTesting=true
+- [ ] 7.10 saveAndProceed: writes relayUrl+token to PrefsDataStore, emits navigation event
+- [ ] 7.11 saveAndProceed without successful testResult → blocked (button should be disabled)
+- [ ] 7.12 Invalid URL format (no scheme, non-https) → testConnection returns error
+
+## Unit Tests: WorkspaceViewModel
+
+- [ ] 8.1 Init fetches hosts+roots, populates WorkspaceUiState.hosts
+- [ ] 8.2 Refresh re-fetches and updates state
+- [ ] 8.3 Empty hosts list → empty state
+- [ ] 8.4 Host with multiple roots → roots grouped correctly
+- [ ] 8.5 Book provider roots filtered to book-only in display
+- [ ] 8.6 removeRoot success → root removed from state, Snackbar "已移除"
+- [ ] 8.7 removeRoot failure → Snackbar error, root remains in state
+- [ ] 8.8 removeRoot shows confirmation dialog before API call
+- [ ] 8.9 Network failure on init → error state with retry
+- [ ] 8.10 Provider-to-host auto-mapping: claude/book → macbook host, openclaw → relay-local
+
+## Unit Tests: AddRootBottomSheet State
+
+- [ ] 9.1 Provider selection → auto-resolves hostId from hosts list
+- [ ] 9.2 Directory browse → updates currentPath and entries
+- [ ] 9.3 Breadcrumb navigation → fetches parent directory
+- [ ] 9.4 Submit with valid fields → API call, dismiss on 201
+- [ ] 9.5 Submit → 409 conflict → inline error "该目录已添加"
+- [ ] 9.6 Submit → 502 → inline error "主机离线"
+- [ ] 9.7 Submit → network error → inline error with retry
+- [ ] 9.8 Double-tap submit guard: ignore when isSubmitting=true
+- [ ] 9.9 Empty label defaults to directory basename
+
+## Unit Tests: SettingsViewModel
+
+- [ ] 10.1 Init observes PrefsDataStore for relayUrl + themeMode
+- [ ] 10.2 Init observes WS connection state
+- [ ] 10.3 setTheme writes to PrefsDataStore, new mode reflected in state
+- [ ] 10.4 updateRelayUrl saves to prefs and triggers WS reconnect
+- [ ] 10.5 clearCache calls SessionRepository.clearLocalCache, shows Snackbar
+- [ ] 10.6 clearCache failure → error Snackbar
+- [ ] 10.7 Host statuses updated from WS host_status messages
+
+## Unit Tests: RootDetailViewModel
+
+- [ ] 11.1 Init fetches directory entries for root path
+- [ ] 11.2 Init fetches sessions filtered by path prefix
+- [ ] 11.3 navigateToSubdirectory → updates path + re-fetches both
+- [ ] 11.4 navigateUp → parent path + re-fetch
+- [ ] 11.5 Empty directory → shows "此目录为空"
+- [ ] 11.6 Empty sessions → shows "暂无会话"
+- [ ] 11.7 Network failure → error state with retry
+
+## Unit Tests: WorkspaceRepository
+
+- [ ] 12.1 getHostsWithRoots combines GET /hosts + GET /hosts/:id/roots per host
+- [ ] 12.2 addRoot calls POST /hosts/:id/roots with correct body
+- [ ] 12.3 removeRoot calls DELETE /hosts/:id/roots/:rootId
+- [ ] 12.4 browseDirectory calls GET /hosts/:id/browse?path=
+- [ ] 12.5 getSessionsByPathPrefix filters sessions with path startsWith
+
+## Unit Tests: Navigation Guard
+
+- [ ] 13.1 No saved relayUrl → startDestination = "onboarding"
+- [ ] 13.2 Saved relayUrl + token → startDestination = "home"
+- [ ] 13.3 Onboarding saveAndProceed → navigates to home, back-press exits app (popUpTo inclusive)
