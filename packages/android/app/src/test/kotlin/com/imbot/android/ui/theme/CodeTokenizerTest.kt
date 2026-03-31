@@ -1,6 +1,7 @@
 package com.imbot.android.ui.theme
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -110,6 +111,33 @@ class CodeTokenizerTest {
         val second = CodeTokenizer.tokenize(code, "kotlin")
 
         assertSame(first, second)
+    }
+
+    @Test
+    fun `oversized snippets skip highlighting and caching`() {
+        val code = "a".repeat(MAX_HIGHLIGHT_SIZE + 1)
+
+        val tokens = CodeTokenizer.tokenize(code, "kotlin")
+
+        assertTrue(tokens.isEmpty())
+        assertEquals(0, CodeTokenizer.cacheSize())
+    }
+
+    @Test
+    fun `cache evicts oldest entries beyond capacity`() {
+        val firstCode = "fun first() = 1"
+        val first = CodeTokenizer.tokenize(firstCode, "kotlin")
+
+        repeat(MAX_TOKEN_CACHE_ENTRIES) { index ->
+            CodeTokenizer.tokenize("fun value$index() = $index", "kotlin")
+        }
+
+        assertEquals(MAX_TOKEN_CACHE_ENTRIES, CodeTokenizer.cacheSize())
+
+        val reloaded = CodeTokenizer.tokenize(firstCode, "kotlin")
+
+        assertEquals(MAX_TOKEN_CACHE_ENTRIES, CodeTokenizer.cacheSize())
+        assertNotSame(first, reloaded)
     }
 
     private fun assertContainsToken(

@@ -36,6 +36,7 @@ import com.imbot.android.ui.theme.CodeTheme
 import com.imbot.android.ui.theme.CodeTokenizer
 import com.imbot.android.ui.theme.LocalCodeTheme
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
+import com.imbot.android.ui.theme.MAX_HIGHLIGHT_SIZE
 import com.imbot.android.ui.theme.TokenSpan
 import com.imbot.android.ui.theme.normalizeLanguage
 import kotlinx.coroutines.Dispatchers
@@ -54,10 +55,14 @@ fun CodeBlock(
     val componentShapes = LocalIMbotComponentShapes.current
     val coroutineScope = rememberCoroutineScope()
     val normalizedLanguage = remember(language) { normalizeLanguage(language) }
+    val shouldHighlight =
+        remember(code, normalizedLanguage) {
+            normalizedLanguage != null && code.isNotEmpty() && code.length <= MAX_HIGHLIGHT_SIZE
+        }
     val tokens by
-        produceState(initialValue = emptyList<TokenSpan>(), code, normalizedLanguage) {
+        produceState(initialValue = emptyList<TokenSpan>(), code, normalizedLanguage, shouldHighlight) {
             value =
-                if (normalizedLanguage == null || code.isEmpty()) {
+                if (!shouldHighlight) {
                     emptyList()
                 } else {
                     withContext(Dispatchers.Default) {
@@ -67,13 +72,17 @@ fun CodeBlock(
         }
     val defaultCodeColor = MaterialTheme.colorScheme.onSurface
     val highlightedText =
-        remember(code, tokens, codeTheme, defaultCodeColor) {
-            buildCodeAnnotatedString(
-                code = code,
-                tokens = tokens,
-                codeTheme = codeTheme,
-                defaultColor = defaultCodeColor,
-            )
+        remember(code, tokens, codeTheme, defaultCodeColor, shouldHighlight) {
+            if (!shouldHighlight) {
+                AnnotatedString(code)
+            } else {
+                buildCodeAnnotatedString(
+                    code = code,
+                    tokens = tokens,
+                    codeTheme = codeTheme,
+                    defaultColor = defaultCodeColor,
+                )
+            }
         }
 
     Surface(

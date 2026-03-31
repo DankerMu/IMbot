@@ -1,12 +1,9 @@
 @file:Suppress("FunctionName")
-@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 
 package com.imbot.android.ui.detail
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -50,7 +47,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -69,9 +65,7 @@ import com.imbot.android.ui.components.LocalSnackbarHostState
 import com.imbot.android.ui.components.StatusIndicator
 import com.imbot.android.ui.components.StatusIndicatorVariant
 import com.imbot.android.ui.theme.IMbotAnimations
-import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalProviderColors
-import com.imbot.android.ui.theme.sessionSharedElement
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -85,8 +79,6 @@ fun SessionDetailScreen(
     viewModel: DetailViewModel,
     sessionId: String,
     onNavigateBack: (Boolean) -> Unit,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -100,12 +92,7 @@ fun SessionDetailScreen(
     var showCancelDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var initialLoadHandled by rememberSaveable(sessionId) { mutableStateOf(false) }
-    var lastSeenSeq by rememberSaveable(sessionId) { mutableIntStateOf(Int.MIN_VALUE) }
-
-    val currentMaxSeq =
-        remember(uiState.messages) {
-            uiState.messages.mapNotNull(::timelineSeq).maxOrNull() ?: Int.MIN_VALUE
-        }
+    val renderedKeys = remember(sessionId) { mutableSetOf<String>() }
 
     LaunchedEffect(uiState.error) {
         val message = uiState.error ?: return@LaunchedEffect
@@ -113,14 +100,14 @@ fun SessionDetailScreen(
         viewModel.clearError()
     }
 
-    LaunchedEffect(currentMaxSeq, uiState.messages.size) {
+    LaunchedEffect(uiState.messages) {
         if (uiState.messages.isEmpty()) {
             return@LaunchedEffect
         }
+        renderedKeys.addAll(uiState.messages.map(::timelineKey))
         if (!initialLoadHandled) {
             initialLoadHandled = true
         }
-        lastSeenSeq = maxOf(lastSeenSeq, currentMaxSeq)
     }
 
     LaunchedEffect(listState, density) {
@@ -224,12 +211,9 @@ fun SessionDetailScreen(
                 TopAppBar(
                     title = {
                         DetailTopBarTitle(
-                            sessionId = sessionId,
                             title = uiState.session?.let(::sessionTitle) ?: "会话详情",
                             subtitle = uiState.session?.let(::sessionSubtitle),
                             provider = uiState.session?.provider.orEmpty(),
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = animatedVisibilityScope,
                         )
                     },
                     navigationIcon = {
@@ -373,15 +357,9 @@ fun SessionDetailScreen(
                                 key = { _, item -> timelineKey(item) },
                             ) { index, item ->
                                 val key = timelineKey(item)
-                                val itemSeq = timelineSeq(item)
                                 val shouldStaggerInitial =
                                     !initialLoadHandled && index < IMbotAnimations.STAGGER_ITEM_LIMIT
-                                val shouldAnimateNew =
-                                    initialLoadHandled &&
-                                        (
-                                            (itemSeq != null && itemSeq > lastSeenSeq) ||
-                                                itemSeq == null
-                                        )
+                                val shouldAnimateNew = initialLoadHandled && key !in renderedKeys
 
                                 AnimatedTimelineEntry(
                                     itemKey = key,
@@ -437,23 +415,12 @@ fun SessionDetailScreen(
 
 @Composable
 private fun DetailTopBarTitle(
-    sessionId: String,
     title: String,
     subtitle: String?,
     provider: String,
-    sharedTransitionScope: SharedTransitionScope?,
-    animatedVisibilityScope: AnimatedVisibilityScope?,
 ) {
-    val componentShapes = LocalIMbotComponentShapes.current
-
     Row(
-        modifier =
-            Modifier.sessionSharedElement(
-                sessionId = sessionId,
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
-                clipShape = componentShapes.card,
-            ),
+        modifier = Modifier,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -548,14 +515,6 @@ private fun AnimatedTimelineEntry(
         content()
     }
 }
-
-private fun timelineSeq(item: MessageItem): Int? =
-    when (item) {
-        is MessageItem.AgentMessage -> item.seq
-        is MessageItem.StatusChange -> item.seq
-        is MessageItem.ToolCall -> item.seq
-        is MessageItem.UserMessage -> item.seq
-    }
 
 private fun timelineKey(item: MessageItem): String =
     when (item) {

@@ -1,10 +1,7 @@
 @file:Suppress("FunctionName")
-@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 
 package com.imbot.android.ui.home
 
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -61,8 +58,6 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     onCreateSession: () -> Unit,
     onOpenSession: (String) -> Unit,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -124,8 +119,6 @@ fun HomeScreen(
                         state = uiState,
                         onDeleteSession = viewModel::deleteSession,
                         onOpenSession = onOpenSession,
-                        sharedTransitionScope = sharedTransitionScope,
-                        animatedVisibilityScope = animatedVisibilityScope,
                     )
                 }
             }
@@ -144,8 +137,6 @@ private fun SessionListContent(
     state: HomeUiState,
     onDeleteSession: (String) -> Unit,
     onOpenSession: (String) -> Unit,
-    sharedTransitionScope: SharedTransitionScope?,
-    animatedVisibilityScope: AnimatedVisibilityScope?,
 ) {
     val runningSessions = state.sessions.filter { session -> isRunningStatus(session.status) }
     val otherSessions = state.sessions.filterNot { session -> isRunningStatus(session.status) }
@@ -167,8 +158,6 @@ private fun SessionListContent(
                 onDelete = {
                     onDeleteSession(session.id)
                 },
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
             )
         }
 
@@ -193,8 +182,6 @@ private fun SessionListContent(
                 onDelete = {
                     onDeleteSession(session.id)
                 },
-                sharedTransitionScope = sharedTransitionScope,
-                animatedVisibilityScope = animatedVisibilityScope,
             )
         }
     }

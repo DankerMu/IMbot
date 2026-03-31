@@ -1,5 +1,4 @@
 @file:Suppress("FunctionName")
-@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 
 package com.imbot.android.ui.workspace
 

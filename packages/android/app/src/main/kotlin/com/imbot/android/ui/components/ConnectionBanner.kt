@@ -19,21 +19,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.imbot.android.network.ConnectionState
 import com.imbot.android.ui.theme.IMbotAnimations
-import kotlinx.coroutines.delay
 
 private data class ConnectionBannerModel(
     val message: String,
-    val isSuccess: Boolean,
     val showSpinner: Boolean,
 )
 
@@ -42,49 +35,20 @@ fun ConnectionBanner(
     connectionState: ConnectionState,
     modifier: Modifier = Modifier,
 ) {
-    var bannerModel by remember { mutableStateOf<ConnectionBannerModel?>(null) }
-    var previousConnectionState by remember { mutableStateOf<ConnectionState>(ConnectionState.NotConfigured) }
-
-    LaunchedEffect(connectionState) {
+    val bannerModel =
         when (connectionState) {
-            ConnectionState.NotConfigured -> bannerModel = null
+            ConnectionState.NotConfigured, ConnectionState.Connected -> null
             ConnectionState.Connecting ->
-                bannerModel =
-                    ConnectionBannerModel(
-                        message = "网络不稳定，正在重连...",
-                        isSuccess = false,
-                        showSpinner = true,
-                    )
+                ConnectionBannerModel(
+                    message = "网络不稳定，正在重连...",
+                    showSpinner = true,
+                )
             is ConnectionState.Disconnected ->
-                bannerModel =
-                    ConnectionBannerModel(
-                        message = "无法连接服务器",
-                        isSuccess = false,
-                        showSpinner = true,
-                    )
-
-            ConnectionState.Connected -> {
-                if (
-                    previousConnectionState is ConnectionState.Disconnected ||
-                    previousConnectionState == ConnectionState.Connecting
-                ) {
-                    bannerModel =
-                        ConnectionBannerModel(
-                            message = "已恢复",
-                            isSuccess = true,
-                            showSpinner = false,
-                        )
-                    delay(IMbotAnimations.BANNER_RECOVERY_DISPLAY_MS.toLong())
-                    if (connectionState == ConnectionState.Connected) {
-                        bannerModel = null
-                    }
-                } else {
-                    bannerModel = null
-                }
-            }
+                ConnectionBannerModel(
+                    message = "无法连接服务器",
+                    showSpinner = false,
+                )
         }
-        previousConnectionState = connectionState
-    }
 
     AnimatedVisibility(
         visible = bannerModel != null,
@@ -140,18 +104,8 @@ fun ConnectionBanner(
         label = "connection-banner",
     ) {
         val model = bannerModel ?: return@AnimatedVisibility
-        val background =
-            if (model.isSuccess) {
-                MaterialTheme.colorScheme.secondaryContainer
-            } else {
-                MaterialTheme.colorScheme.errorContainer
-            }
-        val contentColor =
-            if (model.isSuccess) {
-                MaterialTheme.colorScheme.onSecondaryContainer
-            } else {
-                MaterialTheme.colorScheme.onErrorContainer
-            }
+        val background = MaterialTheme.colorScheme.errorContainer
+        val contentColor = MaterialTheme.colorScheme.onErrorContainer
 
         Surface(
             modifier = Modifier.fillMaxWidth(),

@@ -4,8 +4,6 @@ package com.imbot.android.ui.navigation
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -60,7 +58,6 @@ import com.imbot.android.viewmodel.MainNavigationEvent
 import com.imbot.android.viewmodel.MainViewModel
 import kotlinx.coroutines.flow.collectLatest
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun AppNavigation(
     homeViewModel: HomeViewModel,
@@ -167,179 +164,169 @@ fun AppNavigation(
                 modifier = Modifier.padding(horizontal = 16.dp),
             )
 
-            SharedTransitionLayout(
+            NavHost(
+                navController = navController,
+                startDestination = startDestination,
                 modifier = Modifier.weight(1f),
             ) {
-                val sharedTransitionScope = this
-
-                NavHost(
-                    navController = navController,
-                    startDestination = startDestination,
-                    modifier = Modifier.fillMaxSize(),
+                composable(
+                    route = AppRoute.ONBOARDING,
+                    enterTransition = { imbotEnterTransition() },
+                    exitTransition = { imbotExitTransition() },
+                    popEnterTransition = { imbotPopEnterTransition() },
+                    popExitTransition = { imbotPopExitTransition() },
+                    sizeTransform = { null },
                 ) {
-                    composable(
-                        route = AppRoute.ONBOARDING,
-                        enterTransition = { imbotEnterTransition() },
-                        exitTransition = { imbotExitTransition() },
-                        popEnterTransition = { imbotPopEnterTransition() },
-                        popExitTransition = { imbotPopExitTransition() },
-                        sizeTransform = { null },
-                    ) {
-                        val viewModel: OnboardingViewModel = hiltViewModel()
-                        OnboardingScreen(
-                            viewModel = viewModel,
-                            onNavigateHome = {
-                                mainViewModel.connectConfiguredRelayIfNeeded()
+                    val viewModel: OnboardingViewModel = hiltViewModel()
+                    OnboardingScreen(
+                        viewModel = viewModel,
+                        onNavigateHome = {
+                            mainViewModel.connectConfiguredRelayIfNeeded()
+                            homeViewModel.refresh()
+                            navigateAfterOnboarding(navController)
+                        },
+                    )
+                }
+
+                composable(
+                    route = AppRoute.HOME,
+                    enterTransition = { imbotEnterTransition() },
+                    exitTransition = { imbotExitTransition() },
+                    popEnterTransition = { imbotPopEnterTransition() },
+                    popExitTransition = { imbotPopExitTransition() },
+                    sizeTransform = { null },
+                ) {
+                    HomeScreen(
+                        viewModel = homeViewModel,
+                        onCreateSession = mainViewModel::openNewSession,
+                        onOpenSession = mainViewModel::openSession,
+                    )
+                }
+
+                composable(
+                    route = AppRoute.WORKSPACE,
+                    enterTransition = { imbotEnterTransition() },
+                    exitTransition = { imbotExitTransition() },
+                    popEnterTransition = { imbotPopEnterTransition() },
+                    popExitTransition = { imbotPopExitTransition() },
+                    sizeTransform = { null },
+                ) {
+                    val viewModel: WorkspaceViewModel = hiltViewModel()
+                    WorkspaceScreen(
+                        viewModel = viewModel,
+                        onOpenRoot = { root ->
+                            navController.navigate(
+                                AppRoute.rootDetail(
+                                    rootId = root.id,
+                                    hostId = root.hostId,
+                                    path = root.path,
+                                ),
+                            )
+                        },
+                    )
+                }
+
+                composable(
+                    route = AppRoute.SETTINGS,
+                    enterTransition = { imbotEnterTransition() },
+                    exitTransition = { imbotExitTransition() },
+                    popEnterTransition = { imbotPopEnterTransition() },
+                    popExitTransition = { imbotPopExitTransition() },
+                    sizeTransform = { null },
+                ) {
+                    val viewModel: SettingsViewModel = hiltViewModel()
+                    SettingsScreen(viewModel = viewModel)
+                }
+
+                composable(
+                    route = AppRoute.PROTOTYPE,
+                    enterTransition = { imbotEnterTransition() },
+                    exitTransition = { imbotExitTransition() },
+                    popEnterTransition = { imbotPopEnterTransition() },
+                    popExitTransition = { imbotPopExitTransition() },
+                    sizeTransform = { null },
+                ) {
+                    PrototypeScreen(
+                        viewModel = mainViewModel,
+                        onNavigateBack = {
+                            navController.popBackStack()
+                        },
+                    )
+                }
+
+                composable(
+                    route = AppRoute.NEW_SESSION,
+                    enterTransition = { imbotEnterTransition() },
+                    exitTransition = { imbotExitTransition() },
+                    popEnterTransition = { imbotPopEnterTransition() },
+                    popExitTransition = { imbotPopExitTransition() },
+                    sizeTransform = { null },
+                ) {
+                    val viewModel: NewSessionViewModel = hiltViewModel()
+                    NewSessionScreen(
+                        viewModel = viewModel,
+                        onNavigateBack = {
+                            navController.popBackStack()
+                        },
+                        onSessionCreated = { sessionId ->
+                            homeViewModel.refresh()
+                            mainViewModel.openSession(sessionId)
+                        },
+                    )
+                }
+
+                composable(
+                    route = AppRoute.SESSION_DETAIL,
+                    arguments =
+                        listOf(
+                            navArgument(AppRoute.SESSION_ID_ARG) {
+                                type = NavType.StringType
+                            },
+                        ),
+                    enterTransition = { imbotEnterTransition() },
+                    exitTransition = { imbotExitTransition() },
+                    popEnterTransition = { imbotPopEnterTransition() },
+                    popExitTransition = { imbotPopExitTransition() },
+                    sizeTransform = { null },
+                ) { backStackEntry ->
+                    val viewModel: DetailViewModel = hiltViewModel()
+                    val sessionId = backStackEntry.arguments?.getString(AppRoute.SESSION_ID_ARG).orEmpty()
+                    SessionDetailScreen(
+                        viewModel = viewModel,
+                        sessionId = sessionId,
+                        onNavigateBack = { refreshHome ->
+                            if (refreshHome) {
                                 homeViewModel.refresh()
-                                navigateAfterOnboarding(navController)
-                            },
-                        )
-                    }
+                            }
+                            navController.popBackStack()
+                        },
+                    )
+                }
 
-                    composable(
-                        route = AppRoute.HOME,
-                        enterTransition = { imbotEnterTransition() },
-                        exitTransition = { imbotExitTransition() },
-                        popEnterTransition = { imbotPopEnterTransition() },
-                        popExitTransition = { imbotPopExitTransition() },
-                        sizeTransform = { null },
-                    ) {
-                        HomeScreen(
-                            viewModel = homeViewModel,
-                            onCreateSession = mainViewModel::openNewSession,
-                            onOpenSession = mainViewModel::openSession,
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = this,
-                        )
-                    }
-
-                    composable(
-                        route = AppRoute.WORKSPACE,
-                        enterTransition = { imbotEnterTransition() },
-                        exitTransition = { imbotExitTransition() },
-                        popEnterTransition = { imbotPopEnterTransition() },
-                        popExitTransition = { imbotPopExitTransition() },
-                        sizeTransform = { null },
-                    ) {
-                        val viewModel: WorkspaceViewModel = hiltViewModel()
-                        WorkspaceScreen(
-                            viewModel = viewModel,
-                            onOpenRoot = { root ->
-                                navController.navigate(
-                                    AppRoute.rootDetail(
-                                        rootId = root.id,
-                                        hostId = root.hostId,
-                                        path = root.path,
-                                    ),
-                                )
-                            },
-                        )
-                    }
-
-                    composable(
-                        route = AppRoute.SETTINGS,
-                        enterTransition = { imbotEnterTransition() },
-                        exitTransition = { imbotExitTransition() },
-                        popEnterTransition = { imbotPopEnterTransition() },
-                        popExitTransition = { imbotPopExitTransition() },
-                        sizeTransform = { null },
-                    ) {
-                        val viewModel: SettingsViewModel = hiltViewModel()
-                        SettingsScreen(viewModel = viewModel)
-                    }
-
-                    composable(
-                        route = AppRoute.PROTOTYPE,
-                        enterTransition = { imbotEnterTransition() },
-                        exitTransition = { imbotExitTransition() },
-                        popEnterTransition = { imbotPopEnterTransition() },
-                        popExitTransition = { imbotPopExitTransition() },
-                        sizeTransform = { null },
-                    ) {
-                        PrototypeScreen(
-                            viewModel = mainViewModel,
-                            onNavigateBack = {
-                                navController.popBackStack()
-                            },
-                        )
-                    }
-
-                    composable(
-                        route = AppRoute.NEW_SESSION,
-                        enterTransition = { imbotEnterTransition() },
-                        exitTransition = { imbotExitTransition() },
-                        popEnterTransition = { imbotPopEnterTransition() },
-                        popExitTransition = { imbotPopExitTransition() },
-                        sizeTransform = { null },
-                    ) {
-                        val viewModel: NewSessionViewModel = hiltViewModel()
-                        NewSessionScreen(
-                            viewModel = viewModel,
-                            onNavigateBack = {
-                                navController.popBackStack()
-                            },
-                            onSessionCreated = { sessionId ->
-                                homeViewModel.refresh()
-                                mainViewModel.openSession(sessionId)
-                            },
-                        )
-                    }
-
-                    composable(
-                        route = AppRoute.SESSION_DETAIL,
-                        arguments =
-                            listOf(
-                                navArgument(AppRoute.SESSION_ID_ARG) {
-                                    type = NavType.StringType
-                                },
-                            ),
-                        enterTransition = { imbotEnterTransition() },
-                        exitTransition = { imbotExitTransition() },
-                        popEnterTransition = { imbotPopEnterTransition() },
-                        popExitTransition = { imbotPopExitTransition() },
-                        sizeTransform = { null },
-                    ) { backStackEntry ->
-                        val viewModel: DetailViewModel = hiltViewModel()
-                        val sessionId = backStackEntry.arguments?.getString(AppRoute.SESSION_ID_ARG).orEmpty()
-                        SessionDetailScreen(
-                            viewModel = viewModel,
-                            sessionId = sessionId,
-                            onNavigateBack = { refreshHome ->
-                                if (refreshHome) {
-                                    homeViewModel.refresh()
-                                }
-                                navController.popBackStack()
-                            },
-                            sharedTransitionScope = sharedTransitionScope,
-                            animatedVisibilityScope = this,
-                        )
-                    }
-
-                    composable(
-                        route = AppRoute.ROOT_DETAIL,
-                        arguments =
-                            listOf(
-                                navArgument(RootDetailViewModel.ROOT_ID_ARG) { type = NavType.StringType },
-                                navArgument(RootDetailViewModel.HOST_ID_ARG) { type = NavType.StringType },
-                                navArgument(RootDetailViewModel.PATH_ARG) { type = NavType.StringType },
-                            ),
-                        enterTransition = { imbotEnterTransition() },
-                        exitTransition = { imbotExitTransition() },
-                        popEnterTransition = { imbotPopEnterTransition() },
-                        popExitTransition = { imbotPopExitTransition() },
-                        sizeTransform = { null },
-                    ) {
-                        val viewModel: RootDetailViewModel = hiltViewModel()
-                        RootDetailScreen(
-                            viewModel = viewModel,
-                            onNavigateBack = {
-                                navController.popBackStack()
-                            },
-                            onOpenSession = { sessionId ->
-                                mainViewModel.openSession(sessionId)
-                            },
-                        )
-                    }
+                composable(
+                    route = AppRoute.ROOT_DETAIL,
+                    arguments =
+                        listOf(
+                            navArgument(RootDetailViewModel.ROOT_ID_ARG) { type = NavType.StringType },
+                            navArgument(RootDetailViewModel.HOST_ID_ARG) { type = NavType.StringType },
+                            navArgument(RootDetailViewModel.PATH_ARG) { type = NavType.StringType },
+                        ),
+                    enterTransition = { imbotEnterTransition() },
+                    exitTransition = { imbotExitTransition() },
+                    popEnterTransition = { imbotPopEnterTransition() },
+                    popExitTransition = { imbotPopExitTransition() },
+                    sizeTransform = { null },
+                ) {
+                    val viewModel: RootDetailViewModel = hiltViewModel()
+                    RootDetailScreen(
+                        viewModel = viewModel,
+                        onNavigateBack = {
+                            navController.popBackStack()
+                        },
+                        onOpenSession = { sessionId ->
+                            mainViewModel.openSession(sessionId)
+                        },
+                    )
                 }
             }
         }

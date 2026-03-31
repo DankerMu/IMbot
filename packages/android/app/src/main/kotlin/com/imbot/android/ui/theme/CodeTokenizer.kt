@@ -2,7 +2,7 @@
 
 package com.imbot.android.ui.theme
 
-import java.util.concurrent.ConcurrentHashMap
+import java.util.LinkedHashMap
 
 data class TokenSpan(
     val start: Int,
@@ -21,28 +21,50 @@ private data class TokenizationRequest(
     val language: String,
 )
 
+internal const val MAX_HIGHLIGHT_SIZE = 10_000
+internal const val MAX_TOKEN_CACHE_ENTRIES = 64
+
 object CodeTokenizer {
-    private val cache = ConcurrentHashMap<TokenizationRequest, List<TokenSpan>>()
+    private val cacheLock = Any()
+    private val cache =
+        object : LinkedHashMap<TokenizationRequest, List<TokenSpan>>(MAX_TOKEN_CACHE_ENTRIES, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<TokenizationRequest, List<TokenSpan>>?): Boolean =
+                size > MAX_TOKEN_CACHE_ENTRIES
+        }
 
     @Suppress("ReturnCount")
     fun tokenize(
         code: String,
         language: String?,
     ): List<TokenSpan> {
-        if (code.isEmpty()) {
+        if (code.isEmpty() || code.length > MAX_HIGHLIGHT_SIZE) {
             return emptyList()
         }
 
         val normalizedLanguage = normalizeLanguage(language) ?: return emptyList()
         val request = TokenizationRequest(code = code, language = normalizedLanguage)
-        return cache.getOrPut(request) {
-            tokenizeUncached(code = code, language = normalizedLanguage)
+        synchronized(cacheLock) {
+            cache[request]?.let { return it }
+        }
+
+        val tokens = tokenizeUncached(code = code, language = normalizedLanguage)
+        synchronized(cacheLock) {
+            cache[request]?.let { return it }
+            cache[request] = tokens
+            return tokens
         }
     }
 
     internal fun clearCache() {
-        cache.clear()
+        synchronized(cacheLock) {
+            cache.clear()
+        }
     }
+
+    internal fun cacheSize(): Int =
+        synchronized(cacheLock) {
+            cache.size
+        }
 
     private fun tokenizeUncached(
         code: String,

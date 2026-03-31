@@ -1,10 +1,7 @@
 @file:Suppress("FunctionName")
-@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 
 package com.imbot.android.ui.home
 
-import androidx.compose.animation.AnimatedVisibilityScope
-import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -50,7 +47,6 @@ import com.imbot.android.ui.components.StatusIndicatorVariant
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalProviderColors
 import com.imbot.android.ui.theme.providerColorFor
-import com.imbot.android.ui.theme.sessionSharedElement
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -59,8 +55,6 @@ fun SessionCard(
     onClick: () -> Unit,
     onDelete: () -> Unit,
     allowDelete: Boolean = true,
-    sharedTransitionScope: SharedTransitionScope? = null,
-    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
@@ -153,15 +147,7 @@ fun SessionCard(
                         verticalAlignment = Alignment.Top,
                     ) {
                         Row(
-                            modifier =
-                                Modifier
-                                    .weight(1f)
-                                    .sessionSharedElement(
-                                        sessionId = session.id,
-                                        sharedTransitionScope = sharedTransitionScope,
-                                        animatedVisibilityScope = animatedVisibilityScope,
-                                        clipShape = componentShapes.card,
-                                    ),
+                            modifier = Modifier.weight(1f),
                             horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
