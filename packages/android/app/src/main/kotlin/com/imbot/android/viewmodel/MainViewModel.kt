@@ -251,6 +251,13 @@ class MainViewModel
             _navigationEvents.tryEmit(MainNavigationEvent.OpenPrototype)
         }
 
+        fun openNewSession() {
+            relayWsClient.clearSubscription()
+            resetPrototypeSession()
+            updateNotice()
+            _navigationEvents.tryEmit(MainNavigationEvent.OpenNewSession)
+        }
+
         private fun resetPrototypeSession() {
             _sessionId.value = null
             _events.value = emptyList()
@@ -283,6 +290,8 @@ class MainViewModel
 
 sealed interface MainNavigationEvent {
     data object OpenHome : MainNavigationEvent
+
+    data object OpenNewSession : MainNavigationEvent
 
     data object OpenPrototype : MainNavigationEvent
 }

@@ -1,6 +1,7 @@
 package com.imbot.android.data
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.imbot.android.BuildConfig
 import dagger.hilt.android.qualifiers.ApplicationContext
 import javax.inject.Inject
@@ -14,12 +15,14 @@ data class RelaySettings(
 }
 
 @Singleton
-class SettingsRepository
-    @Inject
-    constructor(
-        @ApplicationContext context: Context,
+open class SettingsRepository
+    protected constructor(
+        private val preferences: SharedPreferences,
     ) {
-        private val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        @Inject
+        constructor(
+            @ApplicationContext context: Context,
+        ) : this(context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE))
 
         fun load(): RelaySettings =
             RelaySettings(
