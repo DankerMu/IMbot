@@ -1,11 +1,11 @@
 package com.imbot.android
 
+import android.app.Application
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
 import com.imbot.android.data.SettingsRepository
 import com.imbot.android.worker.PushTokenWorker
-import android.app.Application
 import dagger.hilt.android.HiltAndroidApp
 
 @HiltAndroidApp
