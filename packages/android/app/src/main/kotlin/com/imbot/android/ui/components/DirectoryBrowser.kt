@@ -2,11 +2,6 @@
 
 package com.imbot.android.ui.components
 
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -27,17 +22,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material3.Button
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -265,34 +257,17 @@ private fun DirectoryEntryCard(
 
 @Composable
 private fun DirectoryLoadingState(modifier: Modifier = Modifier) {
-    val transition = rememberInfiniteTransition(label = "directory-loading")
-    val alpha by
-        transition.animateFloat(
-            initialValue = 0.35f,
-            targetValue = 0.9f,
-            animationSpec =
-                infiniteRepeatable(
-                    animation = tween(durationMillis = 850),
-                    repeatMode = RepeatMode.Reverse,
-                ),
-            label = "directory-loading-alpha",
-        )
-
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         repeat(5) {
-            Box(
+            ShimmerSkeleton(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .height(72.dp)
-                        .alpha(alpha)
-                        .background(
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(20.dp),
-                        ),
+                        .height(72.dp),
+                shape = RoundedCornerShape(20.dp),
             )
         }
     }
@@ -311,14 +286,10 @@ private fun DirectoryErrorState(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = message,
-                color = MaterialTheme.colorScheme.error,
-                style = MaterialTheme.typography.bodyLarge,
+            InlineRetry(
+                errorMessage = message,
+                onRetry = onRetry,
             )
-            Button(onClick = onRetry) {
-                Text("重试")
-            }
         }
     }
 }

@@ -516,16 +516,19 @@ class DetailViewModel
 
                 "session_error" -> {
                     val message = event.payload.stringValue("message")
+                    val errorCode = event.payload.stringValue("error_code")
                     publishSession(
                         currentSession.copy(
                             status = "failed",
                             errorMessage = message,
                         ),
                     )
-                    _uiState.update { current ->
-                        current.copy(
-                            error = message ?: current.error,
-                        )
+                    if (errorCode != "provider_unreachable") {
+                        _uiState.update { current ->
+                            current.copy(
+                                error = message ?: current.error,
+                            )
+                        }
                     }
                 }
             }

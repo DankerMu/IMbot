@@ -1,5 +1,6 @@
 package com.imbot.android.network
 
+import com.imbot.android.data.ErrorStateManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -28,6 +29,8 @@ open class RelayWsClient
     @Inject
     constructor(
         private val okHttpClient: OkHttpClient,
+        private val errorStateManager: ErrorStateManager,
+        private val onConnected: suspend (relayUrl: String, token: String) -> Unit = { _, _ -> },
     ) {
         private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private val reconnectDelaysMs = listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L)
@@ -50,8 +53,11 @@ open class RelayWsClient
         private var trackedSessionIds: Set<String> = emptySet()
         private var currentSocket: WebSocket? = null
         private var reconnectJob: Job? = null
+        private var heartbeatJob: Job? = null
         private var shouldReconnect = false
+        private var networkAvailable = true
         private var reconnectAttempt = 0
+        private var lastPongReceivedAtMs = System.currentTimeMillis()
         private val frameChannel = Channel<String>(Channel.UNLIMITED)
 
         init {
@@ -59,6 +65,7 @@ open class RelayWsClient
                 for (frame in frameChannel) {
                     val parsedMessage = parseServerMessage(frame)
                     if (parsedMessage != null) {
+                        handleMessageSideEffects(parsedMessage)
                         if (parsedMessage is ServerMessage.Event) {
                             _events.emit(parsedMessage)
                             _rawMessages.emit(frame)
@@ -78,15 +85,19 @@ open class RelayWsClient
 
             if (configuredRelayUrl.isNullOrBlank() || configuredToken.isNullOrBlank()) {
                 shouldReconnect = false
+                networkAvailable = true
                 reconnectAttempt = 0
                 reconnectJob?.cancel()
+                heartbeatJob?.cancel()
                 currentSocket?.cancel()
                 currentSocket = null
                 _connectionState.value = ConnectionState.NotConfigured
+                errorStateManager.setRelayConnected(true)
                 return
             }
 
             shouldReconnect = true
+            networkAvailable = true
             reconnectAttempt = 0
             reconnectJob?.cancel()
             openSocket()
@@ -94,14 +105,48 @@ open class RelayWsClient
 
         open fun disconnect() {
             shouldReconnect = false
+            networkAvailable = true
             reconnectAttempt = 0
             reconnectJob?.cancel()
+            heartbeatJob?.cancel()
             currentSocket?.close(1000, "client disconnect")
             currentSocket = null
             _connectionState.value = ConnectionState.Disconnected("Disconnected by client")
+            errorStateManager.setRelayConnected(true)
         }
 
         open fun send(message: String): Boolean = currentSocket?.send(message) == true
+
+        open fun forceReconnect() {
+            if (!shouldReconnect || !networkAvailable) {
+                return
+            }
+
+            reconnectAttempt = 0
+            reconnectJob?.cancel()
+            heartbeatJob?.cancel()
+            currentSocket?.cancel()
+            currentSocket = null
+            openSocket()
+        }
+
+        open fun pauseReconnection() {
+            networkAvailable = false
+            reconnectJob?.cancel()
+            heartbeatJob?.cancel()
+            currentSocket?.cancel()
+            currentSocket = null
+            if (shouldReconnect) {
+                _connectionState.value = ConnectionState.Disconnected("Network unavailable")
+                errorStateManager.setRelayConnected(false)
+            }
+        }
+
+        open fun resumeReconnection() {
+            networkAvailable = true
+        }
+
+        open fun isConnected(): Boolean = _connectionState.value is ConnectionState.Connected
 
         open fun subscribe(sessionId: String) {
             val normalizedSessionId = sessionId.trim()
@@ -141,12 +186,18 @@ open class RelayWsClient
             val token = configuredToken.orEmpty()
             val socketUrl = relayUrl.toRelayWebSocketUrl(token)
 
+            if (!networkAvailable) {
+                return
+            }
+
             if (socketUrl == null) {
                 _connectionState.value = ConnectionState.Disconnected("Invalid relay URL")
+                errorStateManager.setRelayConnected(true)
                 return
             }
 
             reconnectJob?.cancel()
+            heartbeatJob?.cancel()
             currentSocket?.cancel()
             _connectionState.value = ConnectionState.Connecting
 
@@ -168,8 +219,12 @@ open class RelayWsClient
                             }
 
                             reconnectAttempt = 0
+                            lastPongReceivedAtMs = System.currentTimeMillis()
                             _connectionState.value = ConnectionState.Connected
+                            errorStateManager.setRelayConnected(true)
+                            startHeartbeat(webSocket)
                             currentSubscriptionIds().forEach(::sendSubscribe)
+                            notifyConnected(relayUrl, token)
                         }
 
                         override fun onMessage(
@@ -212,15 +267,17 @@ open class RelayWsClient
                 return
             }
 
+            heartbeatJob?.cancel()
             currentSocket = null
             _connectionState.value = ConnectionState.Disconnected(reason)
+            errorStateManager.setRelayConnected(false)
             if (shouldReconnect) {
                 scheduleReconnect()
             }
         }
 
         private fun scheduleReconnect() {
-            if (reconnectJob?.isActive == true) {
+            if (reconnectJob?.isActive == true || !networkAvailable) {
                 return
             }
 
@@ -229,10 +286,81 @@ open class RelayWsClient
                     val delayMs = reconnectDelaysMs[minOf(reconnectAttempt, reconnectDelaysMs.lastIndex)]
                     reconnectAttempt += 1
                     delay(delayMs)
-                    if (shouldReconnect) {
+                    if (shouldReconnect && networkAvailable) {
                         openSocket()
                     }
                 }
+        }
+
+        private fun startHeartbeat(webSocket: WebSocket) {
+            heartbeatJob?.cancel()
+            heartbeatJob =
+                scope.launch {
+                    while (currentSocket === webSocket && shouldReconnect) {
+                        delay(PING_INTERVAL_MS)
+                        if (currentSocket !== webSocket) {
+                            return@launch
+                        }
+
+                        if (System.currentTimeMillis() - lastPongReceivedAtMs >= PONG_TIMEOUT_MS) {
+                            webSocket.close(1001, "Pong timeout")
+                            return@launch
+                        }
+
+                        val sent =
+                            webSocket.send(
+                                JSONObject()
+                                    .put("action", "ping")
+                                    .toString(),
+                            )
+                        if (!sent) {
+                            webSocket.cancel()
+                            return@launch
+                        }
+                    }
+                }
+        }
+
+        private fun handleMessageSideEffects(message: ServerMessage) {
+            when (message) {
+                is ServerMessage.Event -> handleSessionEventSideEffects(message)
+                is ServerMessage.HostStatus ->
+                    errorStateManager.setHostStatus(
+                        message.hostId,
+                        message.status == STATUS_ONLINE,
+                    )
+                is ServerMessage.Status -> {
+                    if (message.status != STATUS_FAILED) {
+                        errorStateManager.clearSessionError(message.sessionId)
+                    }
+                }
+                is ServerMessage.Error -> Unit
+                ServerMessage.Pong -> {
+                    lastPongReceivedAtMs = System.currentTimeMillis()
+                }
+            }
+        }
+
+        private fun handleSessionEventSideEffects(event: ServerMessage.Event) {
+            when (event.eventType) {
+                "session_error" -> {
+                    if (event.payload.stringValue("error_code") == ERROR_CODE_PROVIDER_UNREACHABLE) {
+                        errorStateManager.setSessionError(
+                            event.sessionId,
+                            event.payload.stringValue("message")
+                                ?: GENERIC_PROVIDER_UNAVAILABLE_MESSAGE,
+                        )
+                    }
+                }
+
+                "session_started" -> errorStateManager.clearSessionError(event.sessionId)
+                "session_status_changed", "session_result" -> {
+                    val status = event.payload.stringValue("status").orEmpty()
+                    if (status.isNotBlank() && status != STATUS_FAILED) {
+                        errorStateManager.clearSessionError(event.sessionId)
+                    }
+                }
+            }
         }
 
         private fun sendSubscribe(sessionId: String) {
@@ -270,7 +398,32 @@ open class RelayWsClient
             previousSubscriptions.subtract(nextSubscriptions).forEach(::sendUnsubscribe)
             nextSubscriptions.subtract(previousSubscriptions).forEach(::sendSubscribe)
         }
+
+        private fun notifyConnected(
+            relayUrl: String,
+            token: String,
+        ) {
+            scope.launch {
+                runCatching {
+                    onConnected(relayUrl, token)
+                }.onFailure { error ->
+                    android.util.Log.w("RelayWsClient", "Host status seeding failed", error)
+                }
+            }
+        }
     }
+
+private fun JSONObject?.stringValue(key: String): String? {
+    val payload = this ?: return null
+    val value = payload.opt(key)
+    return when (value) {
+        null,
+        JSONObject.NULL,
+        -> null
+        is String -> value
+        else -> value.toString()
+    }?.takeIf { it.isNotBlank() }
+}
 
 private fun String.toRelayWebSocketUrl(token: String): String? {
     val baseUrl = toRelayBaseHttpUrl() ?: return null
@@ -281,3 +434,10 @@ private fun String.toRelayWebSocketUrl(token: String): String? {
         .build()
         .toString()
 }
+
+private const val PING_INTERVAL_MS = 30_000L
+private const val PONG_TIMEOUT_MS = 60_000L
+private const val GENERIC_PROVIDER_UNAVAILABLE_MESSAGE = "Provider 不可用，请稍后重试"
+private const val STATUS_FAILED = "failed"
+private const val STATUS_ONLINE = "online"
+private const val ERROR_CODE_PROVIDER_UNREACHABLE = "provider_unreachable"

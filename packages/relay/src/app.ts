@@ -4,6 +4,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 
 import { AuditLogger } from "./audit/logger";
 import { createAuthGuard } from "./auth/guard";
+import { RelayPurgeJob } from "./cleanup/purge-job";
 import { CompanionManager } from "./companion/manager";
 import type { RelayConfig } from "./config";
 import { loadConfig } from "./config";
@@ -28,6 +29,7 @@ export interface RelayRuntime {
   readonly db: RelayDatabase;
   readonly hub: WsHub;
   readonly companionManager: CompanionManager;
+  readonly purgeJob: RelayPurgeJob;
   readonly openClawBridge: OpenClawBridge;
   readonly orchestrator: SessionOrchestrator;
   close(): Promise<void>;
@@ -50,6 +52,7 @@ export async function createRelayApp(options?: {
 
   const hub = new WsHub(config.wsPingIntervalMs);
   const auditLogger = new AuditLogger(db, app.log);
+  const purgeJob = new RelayPurgeJob(config, db, app.log);
   const pushAdapter = new PushAdapter(config, db, app.log);
   await pushAdapter.init();
   let companionManager!: CompanionManager;
@@ -86,6 +89,7 @@ export async function createRelayApp(options?: {
     }
 
     shutdownComplete = true;
+    purgeJob.stop();
     companionManager.shutdown();
     openClawBridge.shutdown();
     await hub.closeAll(1001, "Going Away");
@@ -165,6 +169,7 @@ export async function createRelayApp(options?: {
   });
 
   openClawBridge.connect();
+  purgeJob.start();
 
   return {
     app,
@@ -172,6 +177,7 @@ export async function createRelayApp(options?: {
     db,
     hub,
     companionManager,
+    purgeJob,
     openClawBridge,
     orchestrator,
     close: async () => {

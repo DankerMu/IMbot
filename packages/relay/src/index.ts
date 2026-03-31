@@ -1,6 +1,7 @@
 import { PROVIDERS, type Provider, type Session } from "@imbot/wire";
 
 import { createRelayApp, type RelayRuntime } from "./app";
+import { RelayPurgeJob } from "./cleanup/purge-job";
 import { loadConfig, type RelayConfig } from "./config";
 
 export const RELAY_SUPPORTED_PROVIDERS = PROVIDERS;
@@ -23,6 +24,7 @@ export function createRelaySessionEnvelope(
 
 export { createRelayApp, loadConfig };
 export type { RelayConfig, RelayRuntime };
+export { RelayPurgeJob };
 
 export async function startRelayServer(config = loadConfig()): Promise<RelayRuntime> {
   const runtime = await createRelayApp({ config });

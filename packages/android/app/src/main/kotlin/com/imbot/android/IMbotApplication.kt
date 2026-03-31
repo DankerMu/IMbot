@@ -12,7 +12,7 @@ import dagger.hilt.android.HiltAndroidApp
 class IMbotApplication : Application() {
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        createNotificationChannels()
         PushTokenWorker.enqueuePeriodic(this)
 
         val settingsRepository = SettingsRepository(this)
@@ -21,22 +21,29 @@ class IMbotApplication : Application() {
         }
     }
 
-    private fun createNotificationChannel() {
+    private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return
         }
 
         val notificationManager = getSystemService(NotificationManager::class.java) ?: return
-        val channel =
+        val sessionChannel =
             NotificationChannel(
                 SESSION_NOTIFICATION_CHANNEL_ID,
                 "会话通知",
                 NotificationManager.IMPORTANCE_HIGH,
             )
-        notificationManager.createNotificationChannel(channel)
+        val serviceChannel =
+            NotificationChannel(
+                SERVICE_NOTIFICATION_CHANNEL_ID,
+                "后台连接服务",
+                NotificationManager.IMPORTANCE_LOW,
+            )
+        notificationManager.createNotificationChannels(listOf(sessionChannel, serviceChannel))
     }
 
     companion object {
         const val SESSION_NOTIFICATION_CHANNEL_ID = "imbot_sessions"
+        const val SERVICE_NOTIFICATION_CHANNEL_ID = "imbot_service"
     }
 }

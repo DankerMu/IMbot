@@ -33,6 +33,13 @@ data class RelaySession(
     val lastActiveAt: String,
 )
 
+data class RelaySessionPage(
+    val sessions: List<RelaySession>,
+    val total: Int,
+    val limit: Int,
+    val offset: Int,
+)
+
 data class SessionResponse(
     val sessionId: String,
     val rawJson: String,
@@ -225,10 +232,12 @@ open class RelayHttpClient
                 }
             }
 
-        suspend fun getSessions(
+        open suspend fun getSessionsPage(
             relayUrl: String,
             token: String,
-        ): Result<List<RelaySession>> =
+            limit: Int = DEFAULT_SESSION_PAGE_LIMIT,
+            offset: Int = 0,
+        ): Result<RelaySessionPage> =
             runCatching {
                 withContext(Dispatchers.IO) {
                     val request =
@@ -237,6 +246,8 @@ open class RelayHttpClient
                                 requireRelayBaseUrl(relayUrl)
                                     .newBuilder()
                                     .encodedPath("/v1/sessions")
+                                    .addQueryParameter("limit", limit.toString())
+                                    .addQueryParameter("offset", offset.toString())
                                     .build(),
                             )
                             .header("Authorization", "Bearer $token")
@@ -253,17 +264,36 @@ open class RelayHttpClient
                         val sessionsArray =
                             root.optJSONArray("sessions") ?: error("Relay response is missing sessions")
 
-                        buildList {
-                            for (index in 0 until sessionsArray.length()) {
-                                val sessionObject =
-                                    sessionsArray.optJSONObject(index)
-                                        ?: error("Relay returned malformed session payload")
-                                add(sessionObject.toRelaySession())
-                            }
-                        }
+                        RelaySessionPage(
+                            sessions =
+                                buildList {
+                                    for (index in 0 until sessionsArray.length()) {
+                                        val sessionObject =
+                                            sessionsArray.optJSONObject(index)
+                                                ?: error("Relay returned malformed session payload")
+                                        add(sessionObject.toRelaySession())
+                                    }
+                                },
+                            total = root.optInt("total"),
+                            limit = root.optInt("limit", limit),
+                            offset = root.optInt("offset", offset),
+                        )
                     }
                 }
             }
+
+        open suspend fun getSessions(
+            relayUrl: String,
+            token: String,
+            limit: Int = DEFAULT_SESSION_PAGE_LIMIT,
+            offset: Int = 0,
+        ): Result<List<RelaySession>> =
+            getSessionsPage(
+                relayUrl = relayUrl,
+                token = token,
+                limit = limit,
+                offset = offset,
+            ).map(RelaySessionPage::sessions)
 
         open suspend fun getSession(
             relayUrl: String,
@@ -590,6 +620,7 @@ open class RelayHttpClient
 
         private companion object {
             val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+            const val DEFAULT_SESSION_PAGE_LIMIT = 200
         }
 
         open suspend fun deleteSession(

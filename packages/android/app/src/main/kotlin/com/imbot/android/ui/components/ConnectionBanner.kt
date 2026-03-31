@@ -22,31 +22,29 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.imbot.android.network.ConnectionState
 import com.imbot.android.ui.theme.IMbotAnimations
-
-private data class ConnectionBannerModel(
-    val message: String,
-    val showSpinner: Boolean,
-)
 
 @Composable
 fun ConnectionBanner(
-    connectionState: ConnectionState,
+    state: ConnectionBannerState,
     modifier: Modifier = Modifier,
 ) {
     val bannerModel =
-        when (connectionState) {
-            ConnectionState.NotConfigured, ConnectionState.Connected -> null
-            ConnectionState.Connecting ->
+        when (state) {
+            ConnectionBannerState.Hidden -> null
+            ConnectionBannerState.Disconnected ->
                 ConnectionBannerModel(
-                    message = "网络不稳定，正在重连...",
+                    message = "无法连接服务器，正在重连...",
                     showSpinner = true,
+                    background = MaterialTheme.colorScheme.errorContainer,
+                    contentColor = MaterialTheme.colorScheme.onErrorContainer,
                 )
-            is ConnectionState.Disconnected ->
+            ConnectionBannerState.Recovered ->
                 ConnectionBannerModel(
-                    message = "无法连接服务器",
+                    message = "已恢复",
                     showSpinner = false,
+                    background = MaterialTheme.colorScheme.secondaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
         }
 
@@ -104,12 +102,10 @@ fun ConnectionBanner(
         label = "connection-banner",
     ) {
         val model = bannerModel ?: return@AnimatedVisibility
-        val background = MaterialTheme.colorScheme.errorContainer
-        val contentColor = MaterialTheme.colorScheme.onErrorContainer
 
         Surface(
             modifier = Modifier.fillMaxWidth(),
-            color = background,
+            color = model.background,
             shape = MaterialTheme.shapes.medium,
         ) {
             Row(
@@ -121,15 +117,22 @@ fun ConnectionBanner(
                     CircularProgressIndicator(
                         modifier = Modifier.padding(start = 2.dp),
                         strokeWidth = 2.dp,
-                        color = contentColor,
+                        color = model.contentColor,
                     )
                 }
                 Text(
                     text = model.message,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = contentColor,
+                    color = model.contentColor,
                 )
             }
         }
     }
 }
+
+private data class ConnectionBannerModel(
+    val message: String,
+    val showSpinner: Boolean,
+    val background: androidx.compose.ui.graphics.Color,
+    val contentColor: androidx.compose.ui.graphics.Color,
+)

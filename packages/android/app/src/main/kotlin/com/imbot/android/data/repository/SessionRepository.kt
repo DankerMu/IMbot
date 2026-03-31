@@ -31,7 +31,10 @@ class SessionRepository
                 escapedPrefix = pathPrefix.escapeSqlLikePattern(),
             )
 
-        suspend fun refreshFromApi() {
+        suspend fun refreshFromApi(
+            limit: Int = DEFAULT_SESSION_PAGE_LIMIT,
+            offset: Int = 0,
+        ) {
             val settings = settingsRepository.load()
             if (!settings.isConfigured()) {
                 return
@@ -39,19 +42,28 @@ class SessionRepository
             val relayValidationError = settings.relayValidationError()
             require(relayValidationError == null) { relayValidationError.orEmpty() }
 
-            val sessions =
-                relayHttpClient.getSessions(
+            val page =
+                relayHttpClient.getSessionsPage(
                     relayUrl = settings.relayUrl,
                     token = settings.token,
+                    limit = limit,
+                    offset = offset,
                 ).getOrThrow()
-                    .map(RelaySession::toEntity)
+            val sessions = page.sessions.map(RelaySession::toEntity)
 
             database.withTransaction {
                 sessionDao.insertAll(sessions)
-                if (sessions.isEmpty()) {
-                    sessionDao.deleteAll()
-                } else {
-                    sessionDao.deleteNotIn(sessions.map(SessionEntity::id))
+                val staleIds =
+                    computeStaleSessionIds(
+                        localPage =
+                            sessionDao.getPage(
+                                offset = page.offset,
+                                limit = page.limit,
+                            ),
+                        remoteSessionIds = sessions.map(SessionEntity::id).toSet(),
+                    )
+                if (staleIds.isNotEmpty()) {
+                    sessionDao.deleteByIds(staleIds)
                 }
             }
         }
@@ -97,6 +109,17 @@ class SessionRepository
         }
     }
 
+internal fun computeStaleSessionIds(
+    localPage: List<SessionEntity>,
+    remoteSessionIds: Set<String>,
+): List<String> =
+    localPage
+        .asSequence()
+        .filterNot { session -> session.id in remoteSessionIds }
+        .filterNot { session -> session.status == STATUS_RUNNING || session.status == STATUS_QUEUED }
+        .map(SessionEntity::id)
+        .toList()
+
 private fun RelaySession.toEntity() =
     SessionEntity(
         id = id,
@@ -111,3 +134,7 @@ private fun RelaySession.toEntity() =
         updatedAt = updatedAt,
         lastActiveAt = lastActiveAt,
     )
+
+private const val DEFAULT_SESSION_PAGE_LIMIT = 200
+private const val STATUS_QUEUED = "queued"
+private const val STATUS_RUNNING = "running"

@@ -4,6 +4,7 @@ package com.imbot.android.ui.detail
 
 import android.content.SharedPreferences
 import androidx.lifecycle.SavedStateHandle
+import com.imbot.android.data.ErrorStateManager
 import com.imbot.android.data.RelaySettings
 import com.imbot.android.data.SettingsRepository
 import com.imbot.android.network.ConnectionState
@@ -575,7 +576,7 @@ private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
     }
 }
 
-private class FakeRelayWsClient : RelayWsClient(OkHttpClient()) {
+private class FakeRelayWsClient : RelayWsClient(OkHttpClient(), ErrorStateManager()) {
     private val connectionStateFlow = MutableStateFlow<ConnectionState>(ConnectionState.Connected)
     override val connectionState: StateFlow<ConnectionState> = connectionStateFlow.asStateFlow()
 
