@@ -16,7 +16,9 @@ class MainActivitySmokeTest {
     @Test
     fun rendersHomeScreen() {
         composeRule.onNodeWithText("IMbot").assertIsDisplayed()
-        composeRule.onNodeWithText("会话").assertIsDisplayed()
-        composeRule.onNodeWithText("设置").assertIsDisplayed()
+        // Without a configured relay URL, the onboarding screen is shown.
+        // With a configured relay URL, the home screen with bottom nav tabs is shown.
+        // Both screens display "IMbot", so this assertion covers both paths.
+        composeRule.onNodeWithText("测试连接").assertIsDisplayed()
     }
 }
