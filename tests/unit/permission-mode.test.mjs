@@ -18,6 +18,27 @@ const silentLogger = {
   error() {}
 };
 
+function waitForCondition(predicate, label, timeoutMs = 2000) {
+  return new Promise((resolve, reject) => {
+    const deadline = Date.now() + timeoutMs;
+    const check = () => {
+      if (predicate()) {
+        resolve();
+        return;
+      }
+
+      if (Date.now() >= deadline) {
+        reject(new Error(`Timed out waiting for ${label}`));
+        return;
+      }
+
+      setTimeout(check, 10);
+    };
+
+    check();
+  });
+}
+
 function waitForOpen(ws, label) {
   return new Promise((resolve, reject) => {
     const cleanup = () => {
@@ -134,6 +155,11 @@ async function connectCompanion(t, harness) {
   );
   await waitForOpen(ws, "companion");
   sendHeartbeat(ws);
+
+  await waitForCondition(
+    () => harness.runtime.companionManager.isOnline("macbook-1"),
+    "companion online"
+  );
 
   t.after(() => {
     ws.close();

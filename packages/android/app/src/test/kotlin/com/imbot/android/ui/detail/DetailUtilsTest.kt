@@ -120,6 +120,10 @@ class DetailUtilsTest {
             "Approval resolved: bash",
             approvalStatusMessage("approval_resolved", null, "bash"),
         )
+        assertEquals(
+            "Approval required",
+            approvalStatusMessage("approval_required", null, null),
+        )
     }
 
     @Test

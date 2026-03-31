@@ -121,6 +121,21 @@ test("mapRuntimeEvent preserves approval event payloads for the reserved path", 
   });
 });
 
+test("mapRuntimeEvent handles minimal approval event with only call_id", () => {
+  const minimal = mapRuntimeEvent({
+    type: "approval_required",
+    call_id: "call-2"
+  });
+
+  assert.deepEqual(minimal, {
+    kind: "event",
+    eventType: "approval_required",
+    payload: {
+      call_id: "call-2"
+    }
+  });
+});
+
 test("relay stores and broadcasts approval events in order without changing session status", async (t) => {
   const runtime = await createRelayRuntime(t, "imbot-approval-events-");
   insertRunningSession(runtime.db, "sess-approval");
