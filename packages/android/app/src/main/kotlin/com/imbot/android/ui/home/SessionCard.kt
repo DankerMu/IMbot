@@ -1,13 +1,10 @@
 @file:Suppress("FunctionName")
+@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 
 package com.imbot.android.ui.home
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -43,12 +40,17 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.imbot.android.data.local.SessionEntity
+import com.imbot.android.ui.components.StatusIndicator
+import com.imbot.android.ui.components.StatusIndicatorVariant
+import com.imbot.android.ui.theme.LocalIMbotComponentShapes
+import com.imbot.android.ui.theme.LocalProviderColors
+import com.imbot.android.ui.theme.providerColorFor
+import com.imbot.android.ui.theme.sessionSharedElement
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
 @Composable
@@ -57,10 +59,13 @@ fun SessionCard(
     onClick: () -> Unit,
     onDelete: () -> Unit,
     allowDelete: Boolean = true,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     var showContextMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by rememberSaveable(session.id) { mutableStateOf(false) }
+    val componentShapes = LocalIMbotComponentShapes.current
     val dismissState =
         rememberSwipeToDismissBoxState(
             confirmValueChange = { value ->
@@ -133,60 +138,71 @@ fun SessionCard(
                         containerColor = MaterialTheme.colorScheme.surface,
                     ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+                shape = componentShapes.card,
             ) {
-                Row(
+                Column(
                     modifier =
                         Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 16.dp, vertical = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    ProviderBadge(provider = session.provider)
-
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Top,
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier =
+                                Modifier
+                                    .weight(1f)
+                                    .sessionSharedElement(
+                                        sessionId = session.id,
+                                        sharedTransitionScope = sharedTransitionScope,
+                                        animatedVisibilityScope = animatedVisibilityScope,
+                                        clipShape = componentShapes.card,
+                                    ),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
+                            ProviderBadge(provider = session.provider)
                             Text(
                                 text = providerDisplayName(session.provider),
                                 style = MaterialTheme.typography.labelLarge,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            Text(
-                                text = formatRelativeTime(session.lastActiveAt),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
                         }
-
                         Text(
-                            text = summarizeWorkspacePath(session.workspaceCwd),
-                            style = MaterialTheme.typography.bodySmall,
+                            text = formatRelativeTime(session.lastActiveAt),
+                            style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
+                        )
+                    }
+
+                    Text(
+                        text = summarizeWorkspacePath(session.workspaceCwd),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = summarizePrompt(session.initialPrompt),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f),
+                            maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Text(
-                                text = summarizePrompt(session.initialPrompt),
-                                style = MaterialTheme.typography.bodyMedium,
-                                modifier = Modifier.weight(1f),
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            StatusDot(status = session.status)
-                        }
+                        StatusIndicator(
+                            status = session.status,
+                            variant = StatusIndicatorVariant.Dot,
+                        )
                     }
                 }
             }
@@ -243,7 +259,7 @@ private fun DeleteBackground() {
 
 @Composable
 private fun ProviderBadge(provider: String) {
-    val badgeColor = providerColor(provider)
+    val badgeColor = providerColorFor(provider = provider, colors = LocalProviderColors.current)
 
     Box(
         modifier =
@@ -264,49 +280,6 @@ private fun ProviderBadge(provider: String) {
     }
 }
 
-@Composable
-private fun StatusDot(status: String) {
-    val isRunning = isRunningStatus(status)
-    val dotAlpha =
-        if (isRunning) {
-            val infiniteTransition = rememberInfiniteTransition(label = "status-pulse")
-            val alpha by
-                infiniteTransition.animateFloat(
-                    initialValue = 0.45f,
-                    targetValue = 1f,
-                    animationSpec =
-                        infiniteRepeatable(
-                            animation = tween(durationMillis = 750, easing = LinearEasing),
-                            repeatMode = RepeatMode.Reverse,
-                        ),
-                    label = "status-alpha",
-                )
-            alpha
-        } else {
-            1f
-        }
-
-    Box(
-        modifier =
-            Modifier
-                .size(10.dp)
-                .alpha(dotAlpha)
-                .background(
-                    color = statusColor(status),
-                    shape = CircleShape,
-                ),
-    )
-}
-
-@Composable
-private fun providerColor(provider: String): Color =
-    when (provider) {
-        "claude" -> Color(0xFFB45C1D)
-        "book" -> Color(0xFF1E6F5C)
-        "openclaw" -> Color(0xFFB3261E)
-        else -> MaterialTheme.colorScheme.outline
-    }
-
 private fun providerDisplayName(provider: String): String =
     when (provider) {
         "claude" -> "Claude Code"
@@ -321,12 +294,4 @@ private fun providerShortLabel(provider: String): String =
         "book" -> "BK"
         "openclaw" -> "OC"
         else -> provider.take(2).uppercase()
-    }
-
-private fun statusColor(status: String): Color =
-    when (status) {
-        "running", "completed" -> Color(0xFF1B873F)
-        "failed" -> Color(0xFFB3261E)
-        "queued", "cancelled" -> Color(0xFF7A7A7A)
-        else -> Color(0xFF7A7A7A)
     }

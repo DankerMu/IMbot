@@ -3,42 +3,29 @@
 package com.imbot.android.ui.detail
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
+import com.imbot.android.ui.components.CodeBlock
 
 @Composable
 fun MarkdownText(
@@ -115,7 +102,16 @@ private fun MarkdownInlineText(
     modifier: Modifier = Modifier,
 ) {
     val uriHandler = LocalUriHandler.current
-    val annotated = remember(text) { buildMarkdownAnnotatedString(text) }
+    val inlineCodeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+    val linkColor = MaterialTheme.colorScheme.primary
+    val annotated =
+        remember(text, inlineCodeBackground, linkColor) {
+            buildMarkdownAnnotatedString(
+                text = text,
+                inlineCodeBackground = inlineCodeBackground,
+                linkColor = linkColor,
+            )
+        }
 
     ClickableText(
         text = annotated,
@@ -131,74 +127,6 @@ private fun MarkdownInlineText(
                 }
         },
     )
-}
-
-@Composable
-private fun CodeBlock(
-    language: String?,
-    code: String,
-) {
-    val clipboardManager = LocalClipboardManager.current
-    var copied by remember(code) { mutableStateOf(false) }
-
-    LaunchedEffect(copied) {
-        if (copied) {
-            delay(1_000)
-            copied = false
-        }
-    }
-
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceVariant,
-        shape = RoundedCornerShape(16.dp),
-    ) {
-        Box(
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (!language.isNullOrBlank()) {
-                    Text(
-                        text = language,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary,
-                    )
-                }
-
-                SelectionContainer {
-                    Text(
-                        text = code,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                    )
-                }
-            }
-
-            IconButton(
-                onClick = {
-                    clipboardManager.setText(AnnotatedString(code))
-                    copied = true
-                },
-                modifier = Modifier.align(Alignment.TopEnd),
-            ) {
-                Icon(
-                    imageVector = if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
-                    contentDescription = if (copied) "已复制" else "复制代码",
-                    tint =
-                        if (copied) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                )
-            }
-        }
-    }
 }
 
 private sealed interface MarkdownBlock {
@@ -305,7 +233,11 @@ private fun shouldContinueParagraph(line: String): Boolean {
 }
 
 @Suppress("CyclomaticComplexMethod")
-private fun buildMarkdownAnnotatedString(text: String): AnnotatedString {
+private fun buildMarkdownAnnotatedString(
+    text: String,
+    inlineCodeBackground: Color,
+    linkColor: Color,
+): AnnotatedString {
     val builder = AnnotatedString.Builder()
     var currentIndex = 0
 
@@ -334,8 +266,7 @@ private fun buildMarkdownAnnotatedString(text: String): AnnotatedString {
             token.startsWith("`") && token.endsWith("`") ->
                 builder.withStyle(
                     SpanStyle(
-                        fontFamily = FontFamily.Monospace,
-                        background = Color.Black.copy(alpha = 0.08f),
+                        background = inlineCodeBackground,
                     ),
                 ) {
                     append(token.removePrefix("`").removeSuffix("`"))
@@ -349,7 +280,7 @@ private fun buildMarkdownAnnotatedString(text: String): AnnotatedString {
                     builder.pushStringAnnotation(tag = "URL", annotation = url)
                     builder.withStyle(
                         SpanStyle(
-                            color = Color(0xFF1565C0),
+                            color = linkColor,
                             textDecoration = TextDecoration.Underline,
                         ),
                     ) {

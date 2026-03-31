@@ -1,7 +1,10 @@
 @file:Suppress("FunctionName")
+@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 
 package com.imbot.android.ui.home
 
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -58,6 +61,8 @@ fun HomeScreen(
     viewModel: HomeViewModel,
     onCreateSession: () -> Unit,
     onOpenSession: (String) -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -119,6 +124,8 @@ fun HomeScreen(
                         state = uiState,
                         onDeleteSession = viewModel::deleteSession,
                         onOpenSession = onOpenSession,
+                        sharedTransitionScope = sharedTransitionScope,
+                        animatedVisibilityScope = animatedVisibilityScope,
                     )
                 }
             }
@@ -137,6 +144,8 @@ private fun SessionListContent(
     state: HomeUiState,
     onDeleteSession: (String) -> Unit,
     onOpenSession: (String) -> Unit,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
 ) {
     val runningSessions = state.sessions.filter { session -> isRunningStatus(session.status) }
     val otherSessions = state.sessions.filterNot { session -> isRunningStatus(session.status) }
@@ -146,12 +155,6 @@ private fun SessionListContent(
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        if (!state.isConnected) {
-            item(key = "connection-banner") {
-                ConnectionBanner()
-            }
-        }
-
         items(
             items = runningSessions,
             key = { session -> session.id },
@@ -164,6 +167,8 @@ private fun SessionListContent(
                 onDelete = {
                     onDeleteSession(session.id)
                 },
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
             )
         }
 
@@ -188,6 +193,8 @@ private fun SessionListContent(
                 onDelete = {
                     onDeleteSession(session.id)
                 },
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
             )
         }
     }
@@ -239,26 +246,6 @@ private fun HomeTopAppBar(
 }
 
 @Composable
-private fun ConnectionBanner() {
-    Box(
-        modifier =
-            Modifier
-                .fillMaxWidth()
-                .background(
-                    color = MaterialTheme.colorScheme.errorContainer,
-                    shape = MaterialTheme.shapes.medium,
-                )
-                .padding(12.dp),
-    ) {
-        Text(
-            text = "WebSocket 已断开，当前显示的是缓存数据。",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onErrorContainer,
-        )
-    }
-}
-
-@Composable
 private fun EmptyState(
     isConnected: Boolean,
     onCreateSession: () -> Unit,
@@ -272,16 +259,18 @@ private fun EmptyState(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            if (!isConnected) {
-                ConnectionBanner()
-            }
             Text(
                 text = "暂无会话",
                 style = MaterialTheme.typography.headlineSmall,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
-                text = "通过下方入口创建新会话，或等待后台刷新缓存。",
+                text =
+                    if (isConnected) {
+                        "通过下方入口创建新会话，或等待后台刷新缓存。"
+                    } else {
+                        "当前离线，可先查看本地缓存，连接恢复后会自动刷新。"
+                    },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

@@ -80,11 +80,11 @@ class DetailUtilsTest {
 
     @Test
     fun `status color mapping matches requirement`() {
-        assertEquals(Color(0xFF1B873F), detailStatusColor("running"))
-        assertEquals(Color(0xFF1B873F), detailStatusColor("completed"))
-        assertEquals(Color(0xFFB3261E), detailStatusColor("failed"))
-        assertEquals(Color(0xFF7A7A7A), detailStatusColor("cancelled"))
-        assertEquals(Color(0xFF7A7A7A), detailStatusColor("queued"))
+        assertEquals(Color(0xFF10B981), detailStatusColor("running"))
+        assertEquals(Color(0xFF059669), detailStatusColor("completed"))
+        assertEquals(Color(0xFFEF4444), detailStatusColor("failed"))
+        assertEquals(Color(0xFF6B7280), detailStatusColor("cancelled"))
+        assertEquals(Color(0xFF9CA3AF), detailStatusColor("queued"))
     }
 
     @Test

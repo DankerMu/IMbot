@@ -4,13 +4,15 @@ package com.imbot.android.ui.detail
 
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
@@ -32,7 +34,8 @@ import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.delay
+import com.imbot.android.ui.theme.IMbotAnimations
+import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 
 @Composable
 fun ToolCallCard(
@@ -40,20 +43,27 @@ fun ToolCallCard(
     modifier: Modifier = Modifier,
 ) {
     var expanded by rememberSaveable(item.callId) { mutableStateOf(item.isRunning) }
-    val chevronRotation by animateFloatAsState(if (expanded) 180f else 0f, label = "tool-chevron")
+    val componentShapes = LocalIMbotComponentShapes.current
+    val chevronRotation by
+        animateFloatAsState(
+            targetValue = if (expanded) 180f else 0f,
+            animationSpec =
+                tween(
+                    durationMillis = IMbotAnimations.TOOL_EXPAND_MS,
+                    easing = IMbotAnimations.standardEasing,
+                ),
+            label = "tool-chevron",
+        )
 
-    LaunchedEffect(item.isRunning, item.result) {
+    LaunchedEffect(item.isRunning) {
         if (item.isRunning) {
             expanded = true
-        } else if (item.result != null) {
-            delay(1_000)
-            expanded = false
         }
     }
 
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
+        shape = componentShapes.card,
     ) {
         Column(
             modifier = Modifier.fillMaxWidth(),
@@ -103,7 +113,25 @@ fun ToolCallCard(
                 )
             }
 
-            AnimatedVisibility(visible = expanded) {
+            AnimatedVisibility(
+                visible = expanded,
+                enter =
+                    expandVertically(
+                        animationSpec =
+                            tween(
+                                durationMillis = IMbotAnimations.TOOL_EXPAND_MS,
+                                easing = IMbotAnimations.standardEasing,
+                            ),
+                    ),
+                exit =
+                    shrinkVertically(
+                        animationSpec =
+                            tween(
+                                durationMillis = IMbotAnimations.TOOL_EXPAND_MS,
+                                easing = IMbotAnimations.standardEasing,
+                            ),
+                    ),
+            ) {
                 Column(
                     modifier =
                         Modifier

@@ -1,27 +1,29 @@
 @file:Suppress("FunctionName")
+@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
 
 package com.imbot.android.ui.detail
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.AnimatedVisibilityScope
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.SharedTransitionScope
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -41,25 +43,36 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.imbot.android.ui.components.LocalSnackbarHostState
+import com.imbot.android.ui.components.StatusIndicator
+import com.imbot.android.ui.components.StatusIndicatorVariant
+import com.imbot.android.ui.theme.IMbotAnimations
+import com.imbot.android.ui.theme.LocalIMbotComponentShapes
+import com.imbot.android.ui.theme.LocalProviderColors
+import com.imbot.android.ui.theme.sessionSharedElement
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
@@ -70,7 +83,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun SessionDetailScreen(
     viewModel: DetailViewModel,
+    sessionId: String,
     onNavigateBack: (Boolean) -> Unit,
+    sharedTransitionScope: SharedTransitionScope? = null,
+    animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -83,11 +99,28 @@ fun SessionDetailScreen(
     var menuExpanded by remember { mutableStateOf(false) }
     var showCancelDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
+    var initialLoadHandled by rememberSaveable(sessionId) { mutableStateOf(false) }
+    var lastSeenSeq by rememberSaveable(sessionId) { mutableIntStateOf(Int.MIN_VALUE) }
+
+    val currentMaxSeq =
+        remember(uiState.messages) {
+            uiState.messages.mapNotNull(::timelineSeq).maxOrNull() ?: Int.MIN_VALUE
+        }
 
     LaunchedEffect(uiState.error) {
         val message = uiState.error ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(message)
         viewModel.clearError()
+    }
+
+    LaunchedEffect(currentMaxSeq, uiState.messages.size) {
+        if (uiState.messages.isEmpty()) {
+            return@LaunchedEffect
+        }
+        if (!initialLoadHandled) {
+            initialLoadHandled = true
+        }
+        lastSeenSeq = maxOf(lastSeenSeq, currentMaxSeq)
     }
 
     LaunchedEffect(listState, density) {
@@ -184,205 +217,260 @@ fun SessionDetailScreen(
         )
     }
 
-    Scaffold(
-        modifier = modifier,
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = uiState.session?.let(::sessionTitle) ?: "会话详情",
-                            style = MaterialTheme.typography.titleMedium,
+    CompositionLocalProvider(LocalSnackbarHostState provides snackbarHostState) {
+        Scaffold(
+            modifier = modifier,
+            topBar = {
+                TopAppBar(
+                    title = {
+                        DetailTopBarTitle(
+                            sessionId = sessionId,
+                            title = uiState.session?.let(::sessionTitle) ?: "会话详情",
+                            subtitle = uiState.session?.let(::sessionSubtitle),
+                            provider = uiState.session?.provider.orEmpty(),
+                            sharedTransitionScope = sharedTransitionScope,
+                            animatedVisibilityScope = animatedVisibilityScope,
                         )
-                        uiState.session?.let { session ->
-                            Text(
-                                text = sessionSubtitle(session),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = {
+                                onNavigateBack(false)
+                            },
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                contentDescription = "返回",
                             )
                         }
-                    }
-                },
-                navigationIcon = {
-                    IconButton(
-                        onClick = {
-                            onNavigateBack(false)
-                        },
-                    ) {
-                        Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = "返回",
-                        )
-                    }
-                },
-                actions = {
-                    uiState.session?.let { session ->
-                        StatusBadge(status = session.status)
-                    }
-                    IconButton(
-                        onClick = {
-                            menuExpanded = true
-                        },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.MoreVert,
-                            contentDescription = "更多操作",
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = {
-                            menuExpanded = false
-                        },
-                    ) {
-                        if (canSendToSession(uiState.session?.status)) {
+                    },
+                    actions = {
+                        uiState.session?.let { session ->
+                            StatusIndicator(
+                                status = session.status,
+                                variant = StatusIndicatorVariant.Badge,
+                            )
+                        }
+                        IconButton(
+                            onClick = {
+                                menuExpanded = true
+                            },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.MoreVert,
+                                contentDescription = "更多操作",
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = menuExpanded,
+                            onDismissRequest = {
+                                menuExpanded = false
+                            },
+                        ) {
+                            if (canSendToSession(uiState.session?.status)) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("取消会话")
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Filled.StopCircle,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    enabled = !uiState.isCancelling,
+                                    onClick = {
+                                        menuExpanded = false
+                                        showCancelDialog = true
+                                    },
+                                )
+                            }
                             DropdownMenuItem(
                                 text = {
-                                    Text("取消会话")
+                                    Text("删除会话")
                                 },
                                 leadingIcon = {
                                     Icon(
-                                        imageVector = Icons.Filled.StopCircle,
+                                        imageVector = Icons.Filled.Delete,
                                         contentDescription = null,
                                     )
                                 },
-                                enabled = !uiState.isCancelling,
+                                enabled = !uiState.isDeleting,
                                 onClick = {
                                     menuExpanded = false
-                                    showCancelDialog = true
+                                    showDeleteDialog = true
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = {
+                                    Text("复制全部输出")
+                                },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Filled.ContentCopy,
+                                        contentDescription = null,
+                                    )
+                                },
+                                onClick = {
+                                    menuExpanded = false
+                                    clipboardManager.setText(
+                                        AnnotatedString(
+                                            copyableAgentTranscript(uiState.messages),
+                                        ),
+                                    )
+                                    coroutineScope.launch {
+                                        snackbarHostState.showSnackbar("已复制全部输出")
+                                    }
                                 },
                             )
                         }
-                        DropdownMenuItem(
-                            text = {
-                                Text("删除会话")
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Filled.Delete,
-                                    contentDescription = null,
-                                )
-                            },
-                            enabled = !uiState.isDeleting,
-                            onClick = {
-                                menuExpanded = false
-                                showDeleteDialog = true
-                            },
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text("复制全部输出")
-                            },
-                            leadingIcon = {
-                                Icon(
-                                    imageVector = Icons.Filled.ContentCopy,
-                                    contentDescription = null,
-                                )
-                            },
-                            onClick = {
-                                menuExpanded = false
-                                clipboardManager.setText(
-                                    androidx.compose.ui.text.AnnotatedString(
-                                        copyableAgentTranscript(uiState.messages),
-                                    ),
-                                )
-                                coroutineScope.launch {
-                                    snackbarHostState.showSnackbar("已复制全部输出")
-                                }
-                            },
-                        )
-                    }
-                },
-            )
-        },
-        bottomBar = {
-            InputBar(
-                status = uiState.session?.status,
-                canSend = uiState.canSend,
-                isSending = uiState.isSending,
-                onSend = viewModel::sendMessage,
-            )
-        },
-        snackbarHost = {
-            SnackbarHost(hostState = snackbarHostState)
-        },
-    ) { innerPadding ->
-        Box(
-            modifier =
-                Modifier
-                    .fillMaxSize()
-                    .padding(innerPadding),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxSize(),
-            ) {
-                uiState.connectionBanner?.let { banner ->
-                    ConnectionBanner(
-                        state = banner,
-                        modifier =
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 16.dp, vertical = 8.dp),
-                    )
-                }
-
-                DetailStatusBar(
-                    status = uiState.session?.status.orEmpty(),
-                    modifier = Modifier.fillMaxWidth(),
+                    },
                 )
+            },
+            bottomBar = {
+                InputBar(
+                    status = uiState.session?.status,
+                    canSend = uiState.canSend,
+                    isSending = uiState.isSending,
+                    onSend = viewModel::sendMessage,
+                )
+            },
+            snackbarHost = {
+                SnackbarHost(hostState = snackbarHostState)
+            },
+        ) { innerPadding ->
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding),
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    StatusIndicator(
+                        status = uiState.session?.status.orEmpty(),
+                        variant = StatusIndicatorVariant.Bar,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
 
-                if (uiState.isLoading && uiState.messages.isEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator()
-                    }
-                } else {
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        itemsIndexed(
-                            items = uiState.messages,
-                            key = { _, item -> timelineKey(item) },
-                        ) { _, item ->
-                            when (item) {
-                                is MessageItem.ToolCall ->
-                                    ToolCallCard(
-                                        item = item,
-                                    )
+                    if (uiState.isLoading && uiState.messages.isEmpty()) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CircularProgressIndicator()
+                        }
+                    } else {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            itemsIndexed(
+                                items = uiState.messages,
+                                key = { _, item -> timelineKey(item) },
+                            ) { index, item ->
+                                val key = timelineKey(item)
+                                val itemSeq = timelineSeq(item)
+                                val shouldStaggerInitial =
+                                    !initialLoadHandled && index < IMbotAnimations.STAGGER_ITEM_LIMIT
+                                val shouldAnimateNew =
+                                    initialLoadHandled &&
+                                        (
+                                            (itemSeq != null && itemSeq > lastSeenSeq) ||
+                                                itemSeq == null
+                                        )
 
-                                else ->
-                                    MessageBubble(
-                                        item = item,
-                                        provider = uiState.session?.provider.orEmpty(),
-                                    )
+                                AnimatedTimelineEntry(
+                                    itemKey = key,
+                                    shouldAnimateOnEnter = shouldStaggerInitial || shouldAnimateNew,
+                                    enterDelayMs =
+                                        if (shouldStaggerInitial) {
+                                            index * IMbotAnimations.STAGGER_DELAY_MS
+                                        } else {
+                                            0
+                                        },
+                                ) {
+                                    when (item) {
+                                        is MessageItem.ToolCall ->
+                                            ToolCallCard(
+                                                item = item,
+                                            )
+
+                                        else ->
+                                            MessageBubble(
+                                                item = item,
+                                                provider = uiState.session?.provider.orEmpty(),
+                                            )
+                                    }
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            if (uiState.scrollState.fabVisible) {
-                ExtendedFloatingActionButton(
-                    onClick = viewModel::onFabTapped,
-                    icon = {
-                        Icon(
-                            imageVector = Icons.Filled.ArrowDownward,
-                            contentDescription = null,
-                        )
-                    },
-                    text = {
-                        val count = uiState.scrollState.newMsgCount
-                        Text(if (count > 0) "↓ $count 条新消息" else "回到底部")
-                    },
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 16.dp, bottom = 88.dp),
+                if (uiState.scrollState.fabVisible) {
+                    ExtendedFloatingActionButton(
+                        onClick = viewModel::onFabTapped,
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Filled.ArrowDownward,
+                                contentDescription = null,
+                            )
+                        },
+                        text = {
+                            val count = uiState.scrollState.newMsgCount
+                            Text(if (count > 0) "↓ $count 条新消息" else "回到底部")
+                        },
+                        modifier =
+                            Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 16.dp, bottom = 88.dp),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailTopBarTitle(
+    sessionId: String,
+    title: String,
+    subtitle: String?,
+    provider: String,
+    sharedTransitionScope: SharedTransitionScope?,
+    animatedVisibilityScope: AnimatedVisibilityScope?,
+) {
+    val componentShapes = LocalIMbotComponentShapes.current
+
+    Row(
+        modifier =
+            Modifier.sessionSharedElement(
+                sessionId = sessionId,
+                sharedTransitionScope = sharedTransitionScope,
+                animatedVisibilityScope = animatedVisibilityScope,
+                clipShape = componentShapes.card,
+            ),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TopBarProviderBadge(provider = provider)
+        Column(
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+            )
+            subtitle?.let { subtitleText ->
+                Text(
+                    text = subtitleText,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -390,84 +478,84 @@ fun SessionDetailScreen(
 }
 
 @Composable
-private fun StatusBadge(status: String) {
-    Surface(
-        color = detailStatusColor(status).copy(alpha = 0.12f),
-        shape = MaterialTheme.shapes.small,
-    ) {
-        Text(
-            text = statusLabel(status),
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            style = MaterialTheme.typography.labelMedium,
-            color = detailStatusColor(status),
-        )
-    }
-}
-
-@Composable
-private fun ConnectionBanner(
-    state: ConnectionBannerUiState,
-    modifier: Modifier = Modifier,
-) {
-    val background =
-        if (state.isSuccess) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            MaterialTheme.colorScheme.tertiaryContainer
-        }
-    val contentColor =
-        if (state.isSuccess) {
-            MaterialTheme.colorScheme.onSecondaryContainer
-        } else {
-            MaterialTheme.colorScheme.onTertiaryContainer
-        }
-
-    Surface(
-        modifier = modifier,
-        color = background,
-        shape = MaterialTheme.shapes.medium,
-    ) {
-        Text(
-            text = state.message,
-            modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = contentColor,
-        )
-    }
-}
-
-@Composable
-private fun DetailStatusBar(
-    status: String,
-    modifier: Modifier = Modifier,
-) {
-    val color by animateColorAsState(detailStatusColor(status), label = "detail-status-color")
-    val alpha =
-        if (status == "running") {
-            val transition = rememberInfiniteTransition(label = "detail-status-pulse")
-            val pulse by
-                transition.animateFloat(
-                    initialValue = 0.3f,
-                    targetValue = 1f,
-                    animationSpec =
-                        infiniteRepeatable(
-                            animation = tween(durationMillis = 750, easing = LinearEasing),
-                            repeatMode = RepeatMode.Reverse,
-                        ),
-                    label = "detail-status-alpha",
-                )
-            pulse
-        } else {
-            animateFloatAsState(targetValue = 1f, label = "detail-status-static").value
-        }
+private fun TopBarProviderBadge(provider: String) {
+    val badgeColor = providerColor(provider, LocalProviderColors.current)
+    val label = providerShortLabel(provider).ifBlank { "IM" }
 
     Box(
         modifier =
-            modifier
-                .height(2.dp)
-                .background(color.copy(alpha = alpha)),
-    )
+            Modifier
+                .size(36.dp)
+                .background(
+                    color = badgeColor.copy(alpha = 0.16f),
+                    shape = CircleShape,
+                ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = badgeColor,
+            fontWeight = FontWeight.Bold,
+        )
+    }
 }
+
+@Composable
+private fun AnimatedTimelineEntry(
+    itemKey: String,
+    shouldAnimateOnEnter: Boolean,
+    enterDelayMs: Int,
+    content: @Composable () -> Unit,
+) {
+    val slideOffsetPx = with(LocalDensity.current) { IMbotAnimations.MESSAGE_OFFSET_DP.dp.roundToPx() }
+    var visible by rememberSaveable(itemKey) { mutableStateOf(!shouldAnimateOnEnter) }
+
+    LaunchedEffect(itemKey, shouldAnimateOnEnter, enterDelayMs) {
+        if (!shouldAnimateOnEnter) {
+            visible = true
+            return@LaunchedEffect
+        }
+
+        visible = false
+        if (enterDelayMs > 0) {
+            delay(enterDelayMs.toLong())
+        }
+        visible = true
+    }
+
+    AnimatedVisibility(
+        visible = visible,
+        enter =
+            fadeIn(
+                animationSpec =
+                    tween(
+                        durationMillis = IMbotAnimations.MESSAGE_FADE_MS,
+                        easing = IMbotAnimations.standardEasing,
+                    ),
+            ) +
+                slideInVertically(
+                    animationSpec =
+                        tween(
+                            durationMillis = IMbotAnimations.MESSAGE_FADE_MS,
+                            easing = IMbotAnimations.standardEasing,
+                        ),
+                    initialOffsetY = { slideOffsetPx },
+                ),
+        exit = ExitTransition.None,
+        label = "timeline-entry-$itemKey",
+    ) {
+        content()
+    }
+}
+
+private fun timelineSeq(item: MessageItem): Int? =
+    when (item) {
+        is MessageItem.AgentMessage -> item.seq
+        is MessageItem.StatusChange -> item.seq
+        is MessageItem.ToolCall -> item.seq
+        is MessageItem.UserMessage -> item.seq
+    }
 
 private fun timelineKey(item: MessageItem): String =
     when (item) {
