@@ -23,7 +23,7 @@ import javax.inject.Singleton
 
 @Singleton
 @Suppress("TooManyFunctions")
-class RelayWsClient
+open class RelayWsClient
     @Inject
     constructor(
         private val okHttpClient: OkHttpClient,
@@ -32,16 +32,16 @@ class RelayWsClient
         private val reconnectDelaysMs = listOf(1_000L, 2_000L, 4_000L, 8_000L, 16_000L, 30_000L)
 
         private val _connectionState = MutableStateFlow<ConnectionState>(ConnectionState.NotConfigured)
-        val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
+        open val connectionState: StateFlow<ConnectionState> = _connectionState.asStateFlow()
 
         private val _messages = MutableSharedFlow<ServerMessage>(extraBufferCapacity = 64)
-        val messages: SharedFlow<ServerMessage> = _messages.asSharedFlow()
+        open val messages: SharedFlow<ServerMessage> = _messages.asSharedFlow()
 
         private val _events = MutableSharedFlow<ServerMessage.Event>(extraBufferCapacity = 64)
-        val events: SharedFlow<ServerMessage.Event> = _events.asSharedFlow()
+        open val events: SharedFlow<ServerMessage.Event> = _events.asSharedFlow()
 
         private val _rawMessages = MutableSharedFlow<String>(extraBufferCapacity = 64)
-        val rawMessages: SharedFlow<String> = _rawMessages.asSharedFlow()
+        open val rawMessages: SharedFlow<String> = _rawMessages.asSharedFlow()
 
         private var configuredRelayUrl: String? = null
         private var configuredToken: String? = null
@@ -52,7 +52,7 @@ class RelayWsClient
         private var shouldReconnect = false
         private var reconnectAttempt = 0
 
-        fun connect(
+        open fun connect(
             relayUrl: String,
             token: String,
         ) {
@@ -75,7 +75,7 @@ class RelayWsClient
             openSocket()
         }
 
-        fun disconnect() {
+        open fun disconnect() {
             shouldReconnect = false
             reconnectAttempt = 0
             reconnectJob?.cancel()
@@ -84,9 +84,9 @@ class RelayWsClient
             _connectionState.value = ConnectionState.Disconnected("Disconnected by client")
         }
 
-        fun send(message: String): Boolean = currentSocket?.send(message) == true
+        open fun send(message: String): Boolean = currentSocket?.send(message) == true
 
-        fun subscribe(sessionId: String) {
+        open fun subscribe(sessionId: String) {
             val normalizedSessionId = sessionId.trim()
             if (normalizedSessionId.isBlank()) {
                 return
@@ -102,13 +102,13 @@ class RelayWsClient
             syncSubscriptions(previousSubscriptions, currentSubscriptionIds())
         }
 
-        fun clearSubscription() {
+        open fun clearSubscription() {
             val previousSubscriptions = currentSubscriptionIds()
             activeSessionId = null
             syncSubscriptions(previousSubscriptions, currentSubscriptionIds())
         }
 
-        fun setTrackedSessionIds(sessionIds: Set<String>) {
+        open fun setTrackedSessionIds(sessionIds: Set<String>) {
             val normalizedSessionIds = sessionIds.map(String::trim).filter(String::isNotBlank).toSet()
             if (trackedSessionIds == normalizedSessionIds) {
                 return

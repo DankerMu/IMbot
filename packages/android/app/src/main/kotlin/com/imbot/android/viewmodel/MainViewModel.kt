@@ -227,14 +227,10 @@ class MainViewModel
                 return
             }
 
-            if (_sessionId.value != normalizedSessionId) {
-                _events.value = emptyList()
-            }
-
-            _sessionId.value = normalizedSessionId
-            relayWsClient.subscribe(normalizedSessionId)
-            updateNotice(message = "Opened session from push notification")
-            _navigationEvents.tryEmit(MainNavigationEvent.OpenPrototype)
+            relayWsClient.clearSubscription()
+            resetPrototypeSession()
+            updateNotice()
+            _navigationEvents.tryEmit(MainNavigationEvent.OpenSessionDetail(normalizedSessionId))
         }
 
         fun openHomeFromNotification() {
@@ -294,6 +290,10 @@ sealed interface MainNavigationEvent {
     data object OpenNewSession : MainNavigationEvent
 
     data object OpenPrototype : MainNavigationEvent
+
+    data class OpenSessionDetail(
+        val sessionId: String,
+    ) : MainNavigationEvent
 }
 
 private fun ServerMessage.Event.toDebugString(): String =

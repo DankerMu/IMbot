@@ -23,10 +23,14 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.navArgument
+import com.imbot.android.ui.detail.DetailViewModel
+import com.imbot.android.ui.detail.SessionDetailScreen
 import com.imbot.android.ui.home.HomeScreen
 import com.imbot.android.ui.home.HomeViewModel
 import com.imbot.android.ui.newsession.NewSessionScreen
@@ -65,6 +69,10 @@ fun AppNavigation(
                     }
                 MainNavigationEvent.OpenPrototype ->
                     navController.navigate(AppRoute.PROTOTYPE) {
+                        launchSingleTop = true
+                    }
+                is MainNavigationEvent.OpenSessionDetail ->
+                    navController.navigate(AppRoute.sessionDetail(event.sessionId)) {
                         launchSingleTop = true
                     }
             }
@@ -156,9 +164,29 @@ fun AppNavigation(
                     onNavigateBack = {
                         navController.popBackStack()
                     },
-                    onSessionCreated = {
+                    onSessionCreated = { sessionId ->
                         homeViewModel.refresh()
-                        navigateToTopLevel(navController, AppRoute.HOME)
+                        mainViewModel.openSession(sessionId)
+                    },
+                )
+            }
+            composable(
+                route = AppRoute.SESSION_DETAIL,
+                arguments =
+                    listOf(
+                        navArgument(AppRoute.SESSION_ID_ARG) {
+                            type = NavType.StringType
+                        },
+                    ),
+            ) {
+                val viewModel: DetailViewModel = hiltViewModel()
+                SessionDetailScreen(
+                    viewModel = viewModel,
+                    onNavigateBack = { refreshHome ->
+                        if (refreshHome) {
+                            homeViewModel.refresh()
+                        }
+                        navController.popBackStack()
                     },
                 )
             }
@@ -185,6 +213,10 @@ private object AppRoute {
     const val SETTINGS = "settings"
     const val PROTOTYPE = "prototype"
     const val NEW_SESSION = "new_session"
+    const val SESSION_ID_ARG = "sessionId"
+    const val SESSION_DETAIL = "session/{$SESSION_ID_ARG}"
+
+    fun sessionDetail(sessionId: String): String = "session/$sessionId"
 }
 
 private data class TopLevelDestination(

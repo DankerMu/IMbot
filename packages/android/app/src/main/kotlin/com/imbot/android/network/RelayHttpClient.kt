@@ -37,6 +37,11 @@ data class SessionResponse(
     val rawJson: String,
 )
 
+data class RelayEventPage(
+    val events: List<ServerMessage.Event>,
+    val hasMore: Boolean,
+)
+
 data class RelayHost(
     val id: String,
     val name: String,
@@ -231,6 +236,89 @@ open class RelayHttpClient
                 }
             }
 
+        open suspend fun getSession(
+            relayUrl: String,
+            token: String,
+            sessionId: String,
+        ): Result<RelaySession> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .addPathSegments("v1/sessions")
+                                    .addPathSegment(sessionId)
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .get()
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            error(buildRelayErrorMessage(response, bodyText, "Load session"))
+                        }
+
+                        val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
+                        val sessionObject = root.optJSONObject("session") ?: error("Relay response is missing session")
+                        sessionObject.toRelaySession()
+                    }
+                }
+            }
+
+        open suspend fun getSessionEvents(
+            relayUrl: String,
+            token: String,
+            sessionId: String,
+            sinceSeq: Int,
+            limit: Int = 500,
+        ): Result<RelayEventPage> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .addPathSegments("v1/sessions")
+                                    .addPathSegment(sessionId)
+                                    .addPathSegment("events")
+                                    .addQueryParameter("since_seq", sinceSeq.toString())
+                                    .addQueryParameter("limit", limit.toString())
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .get()
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            error(buildRelayErrorMessage(response, bodyText, "Load session events"))
+                        }
+
+                        val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
+                        val eventsArray = root.optJSONArray("events") ?: error("Relay response is missing events")
+
+                        RelayEventPage(
+                            events =
+                                buildList {
+                                    for (index in 0 until eventsArray.length()) {
+                                        val eventObject =
+                                            eventsArray.optJSONObject(index)
+                                                ?: error("Relay returned malformed session event payload")
+                                        add(eventObject.toRelayEvent())
+                                    }
+                                },
+                            hasMore = root.optBoolean("has_more"),
+                        )
+                    }
+                }
+            }
+
         open suspend fun createSession(
             relayUrl: String,
             token: String,
@@ -289,11 +377,78 @@ open class RelayHttpClient
                 }
             }
 
+        open suspend fun sendMessage(
+            relayUrl: String,
+            token: String,
+            sessionId: String,
+            text: String,
+        ): Result<Unit> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val requestBody =
+                        JSONObject()
+                            .put("text", text)
+                            .toString()
+                            .toRequestBody(JSON_MEDIA_TYPE)
+
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .addPathSegments("v1/sessions")
+                                    .addPathSegment(sessionId)
+                                    .addPathSegment("message")
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .post(requestBody)
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            error(buildRelayErrorMessage(response, bodyText, "Send message"))
+                        }
+                    }
+                }
+            }
+
+        open suspend fun cancelSession(
+            relayUrl: String,
+            token: String,
+            sessionId: String,
+        ): Result<Unit> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .addPathSegments("v1/sessions")
+                                    .addPathSegment(sessionId)
+                                    .addPathSegment("cancel")
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .post("{}".toRequestBody(JSON_MEDIA_TYPE))
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            error(buildRelayErrorMessage(response, bodyText, "Cancel session"))
+                        }
+                    }
+                }
+            }
+
         private companion object {
             val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
         }
 
-        suspend fun deleteSession(
+        open suspend fun deleteSession(
             relayUrl: String,
             token: String,
             sessionId: String,
@@ -445,6 +600,29 @@ private fun JSONObject.toRelaySession(): RelaySession {
         createdAt = optString("created_at"),
         updatedAt = optString("updated_at").ifBlank { optString("created_at") },
         lastActiveAt = optString("last_active_at").ifBlank { optString("updated_at") },
+    )
+}
+
+private fun JSONObject.toRelayEvent(): ServerMessage.Event {
+    val sessionId = optString("session_id")
+    require(sessionId.isNotBlank()) { "Relay response is missing event.session_id" }
+
+    val eventType = optString("type")
+    require(eventType.isNotBlank()) { "Relay response is missing event.type" }
+
+    val payloadValue = opt("payload")
+
+    return ServerMessage.Event(
+        sessionId = sessionId,
+        seq = optInt("seq"),
+        eventType = eventType,
+        payload =
+            when (payloadValue) {
+                is JSONObject -> payloadValue
+                null -> null
+                else -> JSONObject().put("value", payloadValue)
+            },
+        timestamp = optString("created_at"),
     )
 }
 
