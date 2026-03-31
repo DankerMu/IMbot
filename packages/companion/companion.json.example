@@ -1,0 +1,34 @@
+{
+  "relay_url": "wss://your-relay.example.com/v1/companion",
+  "token": "<RELAY_STATIC_TOKEN>",
+  "host_id": "macbook-1",
+  "host_name": "MacBook Pro",
+  "providers": {
+    "claude": {
+      "binary": "claude",
+      "enabled": true
+    },
+    "book": {
+      "binary": "book",
+      "enabled": true
+    }
+  },
+  "workspace_roots": [
+    {
+      "id": "uuid-claude-root",
+      "provider": "claude",
+      "path": "/Users/your-user/Desktop/AI-vault",
+      "label": "AI-vault"
+    },
+    {
+      "id": "uuid-book-root",
+      "provider": "book",
+      "path": "/Users/your-user/Desktop/novel",
+      "label": "novel"
+    }
+  ],
+  "log_dir": "~/.imbot/logs",
+  "log_level": "info",
+  "heartbeat_interval_ms": 30000,
+  "reconnect_max_delay_ms": 30000
+}
