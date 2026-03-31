@@ -14,9 +14,9 @@ class MainActivitySmokeTest {
     val composeRule = createAndroidComposeRule<MainActivity>()
 
     @Test
-    fun rendersPrototypeChrome() {
-        composeRule.onNodeWithText("IMbot Prototype").assertIsDisplayed()
-        composeRule.onNodeWithText("Relay Settings").assertIsDisplayed()
-        composeRule.onNodeWithText("Create Session").assertIsDisplayed()
+    fun rendersHomeScreen() {
+        composeRule.onNodeWithText("IMbot").assertIsDisplayed()
+        composeRule.onNodeWithText("会话").assertIsDisplayed()
+        composeRule.onNodeWithText("设置").assertIsDisplayed()
     }
 }
