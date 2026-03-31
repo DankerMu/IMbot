@@ -82,7 +82,9 @@ jobs:
       - name: Dependency review
         uses: actions/dependency-review-action@v4
         with:
-          fail-on-severity: moderate
+          # GHSA-vpq2-c234-7xj6: low-severity @tootallnate/once in firebase-admin
+          # transitive chain (6 levels deep, no upstream fix available)
+          allow-ghsas: GHSA-vpq2-c234-7xj6
 
   codeql-javascript-typescript:
     name: CodeQL JavaScript/TypeScript
