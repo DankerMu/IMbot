@@ -132,14 +132,42 @@ function createMockCliBinary(tempDir) {
     scriptPath,
     `#!/usr/bin/env node
 const args = process.argv.slice(2);
-const promptIndex = args.indexOf("-p");
+const resumeIndex = args.indexOf("-r");
 const sessionIdFlagIndex = args.indexOf("--session-id");
 const providerSessionId =
   process.env.MOCK_CLI_PROVIDER_SESSION_ID ||
-  (sessionIdFlagIndex >= 0 ? args[sessionIdFlagIndex + 1] : "provider-session-1");
+  (resumeIndex >= 0
+    ? args[resumeIndex + 1]
+    : sessionIdFlagIndex >= 0
+      ? args[sessionIdFlagIndex + 1]
+      : "provider-session-1");
 const behavior = process.env.MOCK_CLI_BEHAVIOR || "complete";
 const resultDelayMs = Number(process.env.MOCK_CLI_RESULT_DELAY_MS || "30");
 let stdinBuffer = "";
+
+function readPrompt(values) {
+  const flagsWithValue = new Set(["--output-format", "--permission-mode", "--model", "-r", "--session-id"]);
+
+  for (let index = 0; index < values.length; index += 1) {
+    const value = values[index];
+    if (value === "-p" || value === "--print" || value === "--verbose") {
+      continue;
+    }
+
+    if (flagsWithValue.has(value)) {
+      index += 1;
+      continue;
+    }
+
+    if (value.startsWith("-")) {
+      continue;
+    }
+
+    return value;
+  }
+
+  return null;
+}
 
 function emit(message) {
   process.stdout.write(JSON.stringify(message) + "\\n");
@@ -147,8 +175,16 @@ function emit(message) {
 
 emit({ type: "system", session_id: providerSessionId });
 
-if (promptIndex >= 0 && args[promptIndex + 1]) {
-  emit({ type: "assistant", subtype: "text", text: "prompt:" + args[promptIndex + 1] });
+const prompt = readPrompt(args);
+if (prompt) {
+  emit({
+    type: "assistant",
+    session_id: providerSessionId,
+    message: {
+      role: "assistant",
+      content: [{ type: "text", text: "prompt:" + prompt }]
+    }
+  });
 }
 
 process.stdin.on("data", (chunk) => {
@@ -161,7 +197,14 @@ process.stdin.on("data", (chunk) => {
       continue;
     }
 
-    emit({ type: "assistant", subtype: "text", text: "echo:" + line });
+    emit({
+      type: "assistant",
+      session_id: providerSessionId,
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "echo:" + line }]
+      }
+    });
   }
 });
 

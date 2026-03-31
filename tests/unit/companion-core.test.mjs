@@ -124,6 +124,47 @@ test("loadCompanionConfig reads env overrides and validates configured providers
   }
 });
 
+test("loadCompanionConfig resolves bare provider binaries from common user paths", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-config-path-"));
+  const homeDir = path.join(tempDir, "home");
+  const configPath = path.join(tempDir, "companion.json");
+  const claudeBinDir = path.join(homeDir, ".local", "bin");
+  const claudeBinary = path.join(claudeBinDir, "claude");
+
+  mkdirSync(claudeBinDir, { recursive: true });
+  writeFileSync(claudeBinary, "#!/bin/sh\nexit 0\n", { mode: 0o755 });
+  writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      {
+        relay_url: "wss://relay.example.com/v1/companion",
+        token: "test-token",
+        host_id: "macbook-1",
+        providers: {
+          claude: {
+            binary: "claude"
+          }
+        }
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  try {
+    const config = companion.loadCompanionConfig({
+      COMPANION_CONFIG: configPath,
+      HOME: homeDir,
+      PATH: "/usr/bin:/bin"
+    });
+
+    assert.equal(config.providers.claude.binary, claudeBinary);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 function createAdapterHarness(tempDir, isAllowedDirectory) {
   const sessionIndexPath = path.join(tempDir, "sessions.json");
   const sessionIndex = new companion.SessionIndex({
@@ -265,6 +306,61 @@ test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () =
     });
     assert.equal(spawnCalls.length, 1);
     assert.equal(spawnCalls[0].binary, "claude");
+    assert.deepEqual(spawnCalls[0].args, [
+      "-p",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "--permission-mode",
+      "bypassPermissions",
+      "hello"
+    ]);
+
+    await adapter.shutdown();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ClaudeRuntimeAdapter uses the current Claude resume flags and avoids removed legacy options", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-claude-resume-"));
+  const projectDir = path.join(tempDir, "AI-vault");
+  mkdirSync(projectDir, { recursive: true });
+
+  try {
+    const { adapter, sessionIndex, spawnCalls } = createAdapterHarness(tempDir, () => true);
+
+    sessionIndex.set("relay-claude-resume", {
+      provider_session_id: "provider-session-existing",
+      cwd: projectDir,
+      provider: "claude",
+      created_at: "2026-03-30T00:00:00.000Z"
+    });
+
+    const result = await adapter.resumeSession({
+      cmd: "resume_session",
+      req_id: "req-claude-resume",
+      session_id: "relay-claude-resume",
+      provider_session_id: "provider-session-existing",
+      cwd: projectDir
+    });
+
+    assert.deepEqual(result, {
+      provider_session_id: "provider-session-existing"
+    });
+    assert.equal(spawnCalls.length, 1);
+    assert.equal(spawnCalls[0].binary, "claude");
+    assert.deepEqual(spawnCalls[0].args, [
+      "-p",
+      "--verbose",
+      "--output-format",
+      "stream-json",
+      "-r",
+      "provider-session-existing"
+    ]);
+    assert.equal(spawnCalls[0].args.includes("--print-session-id"), false);
+    assert.equal(spawnCalls[0].args.includes("--resume"), false);
+    assert.equal(spawnCalls[0].args.includes("--session-id"), false);
 
     await adapter.shutdown();
   } finally {

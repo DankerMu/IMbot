@@ -200,9 +200,12 @@ function normalizeWorkspaceRootEntry(value: unknown): WorkspaceRootEntry | null 
   const record = value as Record<string, unknown>;
   const provider = record.provider;
   const rootPath = typeof record.path === "string" ? record.path : null;
-  const addedAt = typeof record.added_at === "string" ? record.added_at : null;
+  const addedAt =
+    normalizeRootTimestamp(record.added_at) ??
+    normalizeRootTimestamp(record.created_at) ??
+    LEGACY_ROOT_ADDED_AT;
 
-  if ((provider !== "claude" && provider !== "book") || !rootPath || !addedAt) {
+  if ((provider !== "claude" && provider !== "book") || !rootPath) {
     return null;
   }
 
@@ -259,6 +262,17 @@ function normalizeLabel(label: unknown): string | null {
   return trimmed === "" ? null : trimmed;
 }
 
+function normalizeRootTimestamp(value: unknown): string | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed === "" ? null : trimmed;
+}
+
 function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "unknown error";
 }
+
+const LEGACY_ROOT_ADDED_AT = "1970-01-01T00:00:00.000Z";

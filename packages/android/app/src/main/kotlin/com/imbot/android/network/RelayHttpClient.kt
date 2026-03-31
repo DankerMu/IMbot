@@ -322,8 +322,7 @@ open class RelayHttpClient
                         }
 
                         val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
-                        val sessionObject = root.optJSONObject("session") ?: error("Relay response is missing session")
-                        sessionObject.toRelaySession()
+                        root.requireRelaySessionObject().toRelaySession()
                     }
                 }
             }
@@ -535,7 +534,7 @@ open class RelayHttpClient
                         }
 
                         val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
-                        val sessionObject = root.optJSONObject("session") ?: error("Relay response is missing session")
+                        val sessionObject = root.requireRelaySessionObject()
                         val sessionId = sessionObject.optString("id")
                         require(sessionId.isNotBlank()) { "Relay response is missing session.id" }
 
@@ -612,8 +611,7 @@ open class RelayHttpClient
                         }
 
                         val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
-                        val sessionObject = root.optJSONObject("session") ?: error("Relay response is missing session")
-                        sessionObject.toRelaySession()
+                        root.requireRelaySessionObject().toRelaySession()
                     }
                 }
             }
@@ -789,6 +787,14 @@ private fun JSONObject.toRelaySession(): RelaySession {
         updatedAt = optString("updated_at").ifBlank { optString("created_at") },
         lastActiveAt = optString("last_active_at").ifBlank { optString("updated_at") },
     )
+}
+
+internal fun JSONObject.requireRelaySessionObject(): JSONObject {
+    return optJSONObject("session")
+        ?: takeIf {
+            optString("id").isNotBlank()
+        }
+        ?: error("Relay response is missing session")
 }
 
 private fun JSONObject.toRelayEvent(): ServerMessage.Event {
