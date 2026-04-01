@@ -216,6 +216,13 @@ export class SessionOrchestrator {
     this.assertProviderAvailable(session);
     if (session.status === "idle") {
       await this.transition(session.id, "running");
+      try {
+        await this.dispatchSendMessage(session, text);
+      } catch (error) {
+        await this.transitionWithConflictTolerance(session.id, "idle");
+        throw error;
+      }
+      return;
     }
 
     await this.dispatchSendMessage(session, text);
