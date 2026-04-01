@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -21,14 +22,15 @@ class RelayOnboardingFlowTest {
 
     @Test
     fun onboardingAuthenticatesAndSubsequentScreensDoNotShow401() {
-        val relayUrl = requireArg("relayUrl")
-        val token = requireArg("token")
+        val relayUrl = optionalArg("relayUrl")
+        val token = optionalArg("token")
+        assumeTrue("Skipped: relayUrl and token instrumentation args required", relayUrl != null && token != null)
 
         composeRule.onNodeWithText("测试连接").assertIsDisplayed()
 
         val textFields = composeRule.onAllNodes(hasSetTextAction())
-        textFields[0].performTextInput(relayUrl)
-        textFields[1].performTextInput(token)
+        textFields[0].performTextInput(relayUrl!!)
+        textFields[1].performTextInput(token!!)
 
         composeRule.onNodeWithText("测试连接").performClick()
         composeRule.waitUntil(timeoutMillis = 20_000) {
@@ -80,10 +82,9 @@ class RelayOnboardingFlowTest {
             .fetchSemanticsNodes()
             .isNotEmpty()
 
-    private fun requireArg(name: String): String =
+    private fun optionalArg(name: String): String? =
         InstrumentationRegistry.getArguments().getString(name)
             ?.takeIf { it.isNotBlank() }
-            ?: error("Missing instrumentation arg: $name")
 
     private companion object {
         const val POLL_INTERVAL_MS = 250L
