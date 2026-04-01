@@ -150,8 +150,8 @@ class OnboardingViewModel
                     isTesting = isTesting,
                     testResult = TestResult.Error(message),
                 )
-                }
             }
+        }
 
         private suspend fun loadAuthenticatedHealth(
             relayUrl: String,

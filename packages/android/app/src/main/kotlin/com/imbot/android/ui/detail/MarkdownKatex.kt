@@ -11,10 +11,10 @@ import android.webkit.JavascriptInterface
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -38,7 +38,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlin.math.ceil
-import kotlin.math.max
 
 @Composable
 internal fun MarkdownKatexInlineText(
@@ -164,8 +163,9 @@ private fun KatexWebView(
                             request: WebResourceRequest?,
                         ): android.webkit.WebResourceResponse? {
                             val url = request?.url?.toString().orEmpty()
-                            val blocked = url.startsWith("file://") &&
-                                !url.startsWith("file:///android_asset/katex/")
+                            val blocked =
+                                url.startsWith("file://") &&
+                                    !url.startsWith("file:///android_asset/katex/")
                             return if (blocked) {
                                 android.webkit.WebResourceResponse(
                                     "text/plain",
@@ -379,7 +379,7 @@ internal fun buildKatexDocumentHtml(
             <div id="content">$bodyHtml</div>
         </body>
         </html>
-    """.trimIndent()
+        """.trimIndent()
 }
 
 private fun encodeHtml(text: String): String =

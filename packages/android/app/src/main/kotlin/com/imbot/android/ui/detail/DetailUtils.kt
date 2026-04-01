@@ -90,8 +90,9 @@ internal fun canSendToSession(status: String?): Boolean = status == "running" ||
 
 internal fun canInputToSession(status: String?): Boolean = status == "idle"
 
-internal fun canResumeSession(status: String?): Boolean =
-    status == "completed" || status == "failed" || status == "cancelled"
+internal fun canResumeSession(status: String?): Boolean = status in RESUMABLE_STATUSES
+
+private val RESUMABLE_STATUSES = setOf("completed", "failed", "cancelled")
 
 internal fun canCancelSession(status: String?): Boolean = status == "running"
 

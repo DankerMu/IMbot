@@ -2,10 +2,10 @@
 
 package com.imbot.android.ui.detail
 
-import androidx.compose.foundation.border
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -135,13 +135,13 @@ private fun MarkdownTable(
                     .fillMaxWidth()
                     .border(width = 1.dp, color = borderColor, shape = RoundedCornerShape(16.dp)),
         ) {
-                MarkdownTableRow(
-                    cells = header,
-                    alignments = alignments,
-                    backgroundColor = headerBackground,
-                    borderColor = borderColor,
-                    textStyle = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
-                )
+            MarkdownTableRow(
+                cells = header,
+                alignments = alignments,
+                backgroundColor = headerBackground,
+                borderColor = borderColor,
+                textStyle = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+            )
             rows.forEach { row ->
                 MarkdownTableRow(
                     cells = row,
