@@ -24,18 +24,18 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 
 ## Requirement Mapping
 
-| PRD Requirement      | Primary OpenSpec Changes                                                                                                                            |
-| -------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-01 Provider 管理  | `p0-openclaw-bridge`, `p1-companion-session-management`, `p2-android-new-session`, `p2-android-session-list`                                        |
-| FR-02 Workspace 管理 | `p1-relay-workspace-api`, `p1-companion-session-management`, `p2-android-new-session`, `p2-android-workspace-settings`                              |
-| FR-03 会话创建       | `p0-relay-minimal`, `p0-companion-minimal`, `p0-android-prototype`, `p2-android-new-session`                                                        |
+| PRD Requirement      | Primary OpenSpec Changes                                                                                                                                                               |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-01 Provider 管理  | `p0-openclaw-bridge`, `p1-companion-session-management`, `p2-android-new-session`, `p2-android-session-list`                                                                           |
+| FR-02 Workspace 管理 | `p1-relay-workspace-api`, `p1-companion-session-management`, `p2-android-new-session`, `p2-android-workspace-settings`                                                                 |
+| FR-03 会话创建       | `p0-relay-minimal`, `p0-companion-minimal`, `p0-android-prototype`, `p2-android-new-session`                                                                                           |
 | FR-04 会话恢复       | `p1-relay-session-lifecycle`, `p1-companion-session-management`, `p0-openclaw-bridge`, `p2-android-workspace-settings`, `p2-android-session-detail`, `persistent-interactive-sessions` |
-| FR-05 多会话并发     | `p1-relay-session-lifecycle`, `p1-reconnect-and-catchup`, `p2-android-session-list`, `p3-error-ux-and-cleanup`                                      |
-| FR-06 流式输出与渲染 | `p0-android-prototype`, `p2-android-session-detail`, `p3-theme-and-animations`, `persistent-interactive-sessions`                                     |
-| FR-07 断线恢复       | `p1-reconnect-and-catchup`, `p3-error-ux-and-cleanup`                                                                                               |
-| FR-08 FCM 推送       | `p1-fcm-push`                                                                                                                                       |
-| FR-09 主题与外观     | `p2-android-workspace-settings`, `p3-theme-and-animations`                                                                                          |
-| FR-10 审批保留       | `p3-approval-path-reserved`                                                                                                                         |
+| FR-05 多会话并发     | `p1-relay-session-lifecycle`, `p1-reconnect-and-catchup`, `p2-android-session-list`, `p3-error-ux-and-cleanup`                                                                         |
+| FR-06 流式输出与渲染 | `p0-android-prototype`, `p2-android-session-detail`, `p3-theme-and-animations`, `persistent-interactive-sessions`                                                                      |
+| FR-07 断线恢复       | `p1-reconnect-and-catchup`, `p3-error-ux-and-cleanup`                                                                                                                                  |
+| FR-08 FCM 推送       | `p1-fcm-push`                                                                                                                                                                          |
+| FR-09 主题与外观     | `p2-android-workspace-settings`, `p3-theme-and-animations`                                                                                                                             |
+| FR-10 审批保留       | `p3-approval-path-reserved`                                                                                                                                                            |
 
 ## Change Index
 
