@@ -65,6 +65,10 @@ export class ClaudeRuntimeAdapter {
   }
 
   async createSession(command: CreateSessionCommand): Promise<{ provider_session_id: string }> {
+    if (this.activeByRelaySessionId.has(command.session_id)) {
+      throw new CompanionError("state_conflict", `Session ${command.session_id} is already active`);
+    }
+
     const providerConfig = this.getProviderConfig(command.provider);
     if (this.options.isAllowedDirectory && !this.options.isAllowedDirectory(command.provider, command.cwd)) {
       throw new CompanionError(
@@ -161,7 +165,7 @@ export class ClaudeRuntimeAdapter {
   async completeSession(relaySessionId: string): Promise<void> {
     const session = this.activeByRelaySessionId.get(relaySessionId);
     if (!session) {
-      return;
+      throw new CompanionError("session_not_found", `No active process for session ${relaySessionId}`);
     }
 
     session.completing = true;
@@ -258,8 +262,29 @@ export class ClaudeRuntimeAdapter {
   }
 
   async shutdown(): Promise<void> {
-    const relaySessionIds = Array.from(this.activeByRelaySessionId.keys());
-    await Promise.allSettled(relaySessionIds.map((relaySessionId) => this.cancel(relaySessionId)));
+    const sessions = Array.from(this.activeByRelaySessionId.values());
+    for (const session of sessions) {
+      this.clearIdleTimer(session);
+      await Promise.resolve(
+        this.options.sendEvent({
+          type: "event",
+          session_id: session.relaySessionId,
+          event_type: "session_error",
+          payload: {
+            error_code: "companion_restart",
+            message: "Companion shutting down; session process will be lost"
+          }
+        })
+      ).catch(() => {});
+      session.cancelled = true;
+      session.child.kill("SIGTERM");
+    }
+    await Promise.allSettled(sessions.map((s) => waitForExit(s.exitPromise, this.killGraceMs)));
+    for (const session of sessions) {
+      if (session.child.exitCode === null) {
+        session.child.kill("SIGKILL");
+      }
+    }
   }
 
   getActiveSessionCount(): number {
