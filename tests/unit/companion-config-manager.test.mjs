@@ -224,7 +224,7 @@ test("ConfigManager addRoot rejects regular files", () => {
   }
 });
 
-test("ConfigManager removeRoot persists deletions and reports missing roots", () => {
+test("ConfigManager removeRoot persists deletions and is idempotent for absent roots", () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-config-manager-remove-"));
   const configPath = path.join(tempDir, "companion.json");
   const rootPath = path.join(tempDir, "workspace");
@@ -242,10 +242,9 @@ test("ConfigManager removeRoot persists deletions and reports missing roots", ()
 
     assert.deepEqual(manager.getRoots("book"), []);
     assert.deepEqual(JSON.parse(readFileSync(configPath, "utf8")).workspace_roots, []);
-    assert.throws(() => manager.removeRoot("book", rootPath), {
-      code: "not_found",
-      message: "Workspace root not found"
-    });
+    // Idempotent: removing an already-absent root is a no-op
+    manager.removeRoot("book", rootPath);
+    assert.deepEqual(manager.getRoots("book"), []);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

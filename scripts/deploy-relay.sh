@@ -128,7 +128,7 @@ fi
 
 pm2 startOrReload ecosystem.config.cjs --update-env
 for attempt in {1..10}; do
-  if curl -sf http://localhost:3000/healthz; then
+  if curl -sf --connect-timeout 2 --max-time 5 http://localhost:3000/healthz; then
     exit 0
   fi
   sleep 1
@@ -151,7 +151,7 @@ fi
 
 pm2 startOrReload ecosystem.config.cjs --update-env
 for attempt in {1..10}; do
-  if curl -sf http://localhost:3000/healthz; then
+  if curl -sf --connect-timeout 2 --max-time 5 http://localhost:3000/healthz; then
     exit 0
   fi
   sleep 1
