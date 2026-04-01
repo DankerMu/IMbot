@@ -57,11 +57,11 @@ test("VALID_TRANSITIONS allows running to idle", () => {
 });
 
 test("VALID_TRANSITIONS defines idle outbound edges", () => {
-  assert.deepEqual(wire.VALID_TRANSITIONS.idle, ["running", "completed", "cancelled"]);
+  assert.deepEqual(wire.VALID_TRANSITIONS.idle, ["running", "completed", "failed", "cancelled"]);
 });
 
-test("VALID_TRANSITIONS idle cannot go to failed directly", () => {
-  assert.ok(!wire.VALID_TRANSITIONS.idle.includes("failed"));
+test("VALID_TRANSITIONS idle can go to failed on process crash", () => {
+  assert.ok(wire.VALID_TRANSITIONS.idle.includes("failed"));
 });
 
 test("VALID_TRANSITIONS idle cannot go to queued", () => {

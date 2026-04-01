@@ -54,11 +54,11 @@ function insertSession(db, sessionId, status = "running") {
 test("relay lifecycle transitions match the expected state machine table", () => {
   assert.deepEqual(TRANSITIONS.queued, ["running", "failed"]);
   assert.deepEqual(TRANSITIONS.running, ["idle", "completed", "failed", "cancelled"]);
-  assert.deepEqual(TRANSITIONS.idle, ["running", "completed", "cancelled"]);
+  assert.deepEqual(TRANSITIONS.idle, ["running", "completed", "failed", "cancelled"]);
   assert.equal(isValidTransition("completed", "running"), true);
   assert.equal(isValidTransition("failed", "running"), true);
   assert.equal(isValidTransition("cancelled", "running"), false);
-  assert.equal(isValidTransition("idle", "failed"), false);
+  assert.equal(isValidTransition("idle", "failed"), true);
   assert.equal(isValidTransition("queued", "cancelled"), false);
 });
 
