@@ -29,7 +29,8 @@ class RelaySessionParsingTest {
                 """
                 {
                   "id": "sess-2",
-                  "provider": "claude"
+                  "provider": "claude",
+                  "status": "queued"
                 }
                 """.trimIndent(),
             ).requireRelaySessionObject()
@@ -40,5 +41,10 @@ class RelaySessionParsingTest {
     @Test(expected = IllegalStateException::class)
     fun `rejects responses without a session object`() {
         JSONObject("""{"ok":true}""").requireRelaySessionObject()
+    }
+
+    @Test(expected = IllegalStateException::class)
+    fun `rejects non-session objects that happen to have an id`() {
+        JSONObject("""{"id":"req-1","error":"not found"}""").requireRelaySessionObject()
     }
 }

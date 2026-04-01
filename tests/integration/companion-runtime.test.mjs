@@ -150,6 +150,10 @@ function readPrompt(values) {
 
   for (let index = 0; index < values.length; index += 1) {
     const value = values[index];
+    if (value === "--") {
+      return index + 1 < values.length ? values[index + 1] : null;
+    }
+
     if (value === "-p" || value === "--print" || value === "--verbose") {
       continue;
     }

@@ -7,7 +7,7 @@
 | Relay | `https://imbot.23-95-164-218.sslip.io` (VPS: 23.95.164.218:3000, pm2) |
 | Companion | MacBook launchd `com.imbot.companion` (host_id: macbook-1) |
 | Android | 模拟器 `emulator-5554` (IMbot_API_35, API 35) |
-| Token | `c8892c7cba3b5392d9d450b55e47c81ac69cb629d8ec35cd765bd71770ff6ef2` |
+| Token | `$IMBOT_TOKEN`（从环境变量或 `~/.imbot/companion.json` 获取） |
 | Providers | claude (已验证), book (已验证), openclaw (gateway handshake 失败，跳过) |
 | ADB | `$HOME/Library/Android/sdk/platform-tools/adb` |
 | Emulator | `$HOME/Library/Android/sdk/emulator/emulator` |
@@ -94,7 +94,7 @@ cd /Users/danker/Desktop/AI-vault/IMbot/packages/android
 **同时验证后端**:
 ```bash
 # 检查 relay 是否收到 session
-curl -sf -H "Authorization: Bearer c8892c7cba3b5392d9d450b55e47c81ac69cb629d8ec35cd765bd71770ff6ef2" \
+curl -sf -H "Authorization: Bearer $IMBOT_TOKEN" \
   https://imbot.23-95-164-218.sslip.io/v1/sessions | python3 -m json.tool
 # 期望: 至少 1 个 session, status 为 "queued" 或 "running"
 
@@ -267,7 +267,7 @@ go_back() { $ADB shell input keyevent 4; }
 # Relay API 调用
 relay_api() {
   local path="$1"
-  curl -sf -H "Authorization: Bearer c8892c7cba3b5392d9d450b55e47c81ac69cb629d8ec35cd765bd71770ff6ef2" \
+  curl -sf -H "Authorization: Bearer $IMBOT_TOKEN" \
     "https://imbot.23-95-164-218.sslip.io/v1${path}"
 }
 ```

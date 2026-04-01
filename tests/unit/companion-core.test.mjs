@@ -313,8 +313,38 @@ test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () =
       "stream-json",
       "--permission-mode",
       "bypassPermissions",
+      "--",
       "hello"
     ]);
+
+    await adapter.shutdown();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ClaudeRuntimeAdapter separates hyphen-prefixed prompts from CLI flags with --", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-claude-hyphen-"));
+  const projectDir = path.join(tempDir, "AI-vault");
+  mkdirSync(projectDir, { recursive: true });
+
+  try {
+    const { adapter, spawnCalls } = createAdapterHarness(tempDir, () => true);
+
+    await adapter.createSession({
+      cmd: "create_session",
+      req_id: "req-hyphen",
+      session_id: "relay-hyphen-1",
+      provider: "claude",
+      cwd: projectDir,
+      prompt: "--help me with something",
+      permission_mode: "bypassPermissions"
+    });
+
+    assert.equal(spawnCalls.length, 1);
+    const dashDashIndex = spawnCalls[0].args.indexOf("--");
+    assert.ok(dashDashIndex >= 0, "args must contain -- separator");
+    assert.equal(spawnCalls[0].args[dashDashIndex + 1], "--help me with something");
 
     await adapter.shutdown();
   } finally {

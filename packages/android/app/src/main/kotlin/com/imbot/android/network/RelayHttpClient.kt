@@ -792,7 +792,7 @@ private fun JSONObject.toRelaySession(): RelaySession {
 internal fun JSONObject.requireRelaySessionObject(): JSONObject {
     return optJSONObject("session")
         ?: takeIf {
-            optString("id").isNotBlank()
+            optString("id").isNotBlank() && has("status")
         }
         ?: error("Relay response is missing session")
 }

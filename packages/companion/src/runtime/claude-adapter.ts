@@ -79,7 +79,7 @@ export class ClaudeRuntimeAdapter {
       args.push("--model", command.model);
     }
 
-    args.push(command.prompt);
+    args.push("--", command.prompt);
 
     const session = this.spawnSession({
       relaySessionId: command.session_id,
