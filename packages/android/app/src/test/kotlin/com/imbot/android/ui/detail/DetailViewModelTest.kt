@@ -62,7 +62,8 @@ class DetailViewModelTest {
             assertEquals(1, relay.getSessionEventsCalls)
             assertEquals(listOf(TEST_SESSION.id), ws.subscriptions)
             assertEquals(TEST_SESSION, viewModel.uiState.value.session)
-            assertTrue(viewModel.uiState.value.canSend)
+            // running status: input disabled (waiting for Claude to finish)
+            assertFalse(viewModel.uiState.value.canSend)
         }
 
     @Test
@@ -88,6 +89,7 @@ class DetailViewModelTest {
         runTest(mainDispatcherRule.dispatcher) {
             val relay =
                 FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "idle"))
                     sendMessageResult = Result.failure(IllegalStateException("发送失败"))
                 }
             val viewModel = createViewModel(relay = relay)
@@ -197,7 +199,7 @@ class DetailViewModelTest {
             advanceUntilIdle()
 
             assertEquals("running", viewModel.uiState.value.session?.status)
-            assertTrue(viewModel.uiState.value.canSend)
+            assertFalse(viewModel.uiState.value.canSend)
             assertStatusChange(viewModel.uiState.value.messages.single(), status = "running", message = null)
 
             ws.emitEvent(
@@ -239,7 +241,7 @@ class DetailViewModelTest {
             advanceUntilIdle()
 
             assertEquals("running", viewModel.uiState.value.session?.status)
-            assertTrue(viewModel.uiState.value.canSend)
+            assertFalse(viewModel.uiState.value.canSend)
             assertStatusChange(
                 viewModel.uiState.value.messages.single(),
                 status = "running",
@@ -401,6 +403,7 @@ class DetailViewModelTest {
             val gate = CompletableDeferred<Result<Unit>>()
             val relay =
                 FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "idle"))
                     sendMessageHandler = { _, _, _, _ -> gate.await() }
                 }
             val viewModel = createViewModel(relay = relay)

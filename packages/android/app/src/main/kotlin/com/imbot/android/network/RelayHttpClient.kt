@@ -616,6 +616,39 @@ open class RelayHttpClient
                 }
             }
 
+        open suspend fun completeSession(
+            relayUrl: String,
+            token: String,
+            sessionId: String,
+        ): Result<RelaySession> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .addPathSegments("v1/sessions")
+                                    .addPathSegment(sessionId)
+                                    .addPathSegment("complete")
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .post("{}".toRequestBody(JSON_MEDIA_TYPE))
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            throw relayFailure(response, bodyText, "Complete session")
+                        }
+
+                        val root = bodyText.toJsonObjectOrNull() ?: error("Relay returned malformed JSON")
+                        root.requireRelaySessionObject().toRelaySession()
+                    }
+                }
+            }
+
         private companion object {
             val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
             const val DEFAULT_SESSION_PAGE_LIMIT = 200
@@ -770,7 +803,7 @@ private fun relayFailure(
     )
 }
 
-private fun JSONObject.toRelaySession(): RelaySession {
+internal fun JSONObject.toRelaySession(): RelaySession {
     val id = optString("id")
     require(id.isNotBlank()) { "Relay response is missing session.id" }
 

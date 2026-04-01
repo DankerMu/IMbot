@@ -35,7 +35,8 @@ fun InputBar(
     modifier: Modifier = Modifier,
 ) {
     var draft by rememberSaveable { mutableStateOf("") }
-    val canSubmit = draft.isNotBlank() && canSend && !isSending
+    val inputEnabled = canInputToSession(status) && canSend && !isSending
+    val canSubmit = draft.isNotBlank() && inputEnabled
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -54,7 +55,7 @@ fun InputBar(
                 value = draft,
                 onValueChange = { draft = it },
                 modifier = Modifier.weight(1f),
-                enabled = canSend && !isSending,
+                enabled = inputEnabled,
                 minLines = 1,
                 maxLines = 4,
                 placeholder = {

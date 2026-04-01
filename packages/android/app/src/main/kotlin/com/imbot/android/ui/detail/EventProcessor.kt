@@ -70,6 +70,12 @@ class EventProcessor(
                     message = null,
                     seq = event.seq,
                 )
+            "session_idle" ->
+                appendStatusChange(
+                    status = "idle",
+                    message = "本轮完成，可继续对话",
+                    seq = event.seq,
+                )
             "session_result" ->
                 appendStatusChange(
                     status = event.payload.stringValue("status").orEmpty(),

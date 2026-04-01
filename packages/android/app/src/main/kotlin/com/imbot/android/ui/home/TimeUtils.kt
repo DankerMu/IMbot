@@ -61,6 +61,6 @@ internal fun summarizePrompt(
     }
 }
 
-internal fun isLiveStatus(status: String): Boolean = status == "queued" || status == "running"
+internal fun isLiveStatus(status: String): Boolean = status == "queued" || status == "running" || status == "idle"
 
-internal fun isRunningStatus(status: String): Boolean = status == "running"
+internal fun isRunningStatus(status: String): Boolean = status == "running" || status == "idle"

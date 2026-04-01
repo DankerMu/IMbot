@@ -27,6 +27,7 @@ data class ProviderColors(
 data class StatusColors(
     val queued: Color,
     val running: Color,
+    val idle: Color,
     val completed: Color,
     val failed: Color,
     val cancelled: Color,
@@ -36,6 +37,7 @@ val LightStatusColors =
     StatusColors(
         queued = Color(0xFF9CA3AF),
         running = Color(0xFF10B981),
+        idle = Color(0xFF2196F3),
         completed = Color(0xFF059669),
         failed = Color(0xFFEF4444),
         cancelled = Color(0xFF6B7280),
@@ -45,6 +47,7 @@ val DarkStatusColors =
     StatusColors(
         queued = Color(0xFF6B7280),
         running = Color(0xFF34D399),
+        idle = Color(0xFF64B5F6),
         completed = Color(0xFF6EE7B7),
         failed = Color(0xFFFCA5A5),
         cancelled = Color(0xFF9CA3AF),
@@ -71,6 +74,7 @@ fun statusColorFor(
     when (status.lowercase()) {
         "queued" -> colors.queued
         "running" -> colors.running
+        "idle" -> colors.idle
         "completed" -> colors.completed
         "failed" -> colors.failed
         "cancelled" -> colors.cancelled

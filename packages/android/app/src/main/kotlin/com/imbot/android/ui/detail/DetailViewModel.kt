@@ -43,6 +43,7 @@ data class DetailUiState(
     val canSend: Boolean = false,
     val isSending: Boolean = false,
     val isCancelling: Boolean = false,
+    val isCompleting: Boolean = false,
     val isDeleting: Boolean = false,
     val scrollState: DetailScrollState = DetailScrollState(),
     val connectionBanner: ConnectionBannerUiState? = null,
@@ -195,8 +196,12 @@ class DetailViewModel
                 ).onSuccess {
                     _uiState.update { current ->
                         current.copy(
+                            session =
+                                current.session?.copy(
+                                    status = "running",
+                                ),
                             isSending = false,
-                            canSend = canSendToSession(current.session?.status),
+                            canSend = false,
                         )
                     }
                 }.onFailure { error ->
@@ -208,7 +213,7 @@ class DetailViewModel
                     _uiState.update { current ->
                         current.copy(
                             isSending = false,
-                            canSend = canSendToSession(current.session?.status),
+                            canSend = canInputToSession(current.session?.status),
                             error = error.message ?: "发送消息失败",
                         )
                     }
@@ -219,7 +224,7 @@ class DetailViewModel
         fun cancelSession() {
             val state = _uiState.value
             val session = state.session
-            val canCancel = session != null && !state.isCancelling && canSendToSession(session.status)
+            val canCancel = session != null && !state.isCancelling && canCancelSession(session.status)
             val settings = if (canCancel) requireValidSettings() else null
             if (!canCancel || session == null || settings == null) {
                 return
@@ -248,6 +253,44 @@ class DetailViewModel
                         current.copy(
                             isCancelling = false,
                             error = error.message ?: "取消会话失败",
+                        )
+                    }
+                }
+            }
+        }
+
+        fun completeSession() {
+            val state = _uiState.value
+            val session = state.session
+            val canComplete = session != null && !state.isCompleting && canCompleteSession(session.status)
+            if (!canComplete || session == null) {
+                return
+            }
+
+            val settings = requireValidSettings() ?: return
+            _uiState.update { current ->
+                current.copy(
+                    isCompleting = true,
+                )
+            }
+
+            viewModelScope.launch {
+                relayHttpClient.completeSession(
+                    relayUrl = settings.relayUrl,
+                    token = settings.token,
+                    sessionId = sessionId,
+                ).onSuccess { updatedSession ->
+                    publishSession(updatedSession)
+                    _uiState.update { current ->
+                        current.copy(
+                            isCompleting = false,
+                        )
+                    }
+                }.onFailure { error ->
+                    _uiState.update { current ->
+                        current.copy(
+                            isCompleting = false,
+                            error = error.message ?: "结束会话失败",
                         )
                     }
                 }
@@ -484,7 +527,7 @@ class DetailViewModel
             _uiState.update { current ->
                 current.copy(
                     session = session,
-                    canSend = canSendToSession(session.status) && !current.isSending,
+                    canSend = canInputToSession(session.status) && !current.isSending,
                 )
             }
         }
@@ -497,6 +540,15 @@ class DetailViewModel
                     publishSession(
                         currentSession.copy(
                             status = "running",
+                            errorMessage = currentSession.errorMessage,
+                        ),
+                    )
+                }
+
+                "session_idle" -> {
+                    publishSession(
+                        currentSession.copy(
+                            status = "idle",
                             errorMessage = currentSession.errorMessage,
                         ),
                     )

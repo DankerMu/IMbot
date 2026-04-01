@@ -100,12 +100,14 @@ class ThemeResolutionTest {
     fun `status colors match foundation spec in light and dark`() {
         assertEquals(LightStatusColors.queued, statusColorFor("queued", LightStatusColors))
         assertEquals(LightStatusColors.running, statusColorFor("running", LightStatusColors))
+        assertEquals(LightStatusColors.idle, statusColorFor("idle", LightStatusColors))
         assertEquals(LightStatusColors.completed, statusColorFor("completed", LightStatusColors))
         assertEquals(LightStatusColors.failed, statusColorFor("failed", LightStatusColors))
         assertEquals(LightStatusColors.cancelled, statusColorFor("cancelled", LightStatusColors))
 
         assertEquals(DarkStatusColors.queued, statusColorFor("queued", DarkStatusColors))
         assertEquals(DarkStatusColors.running, statusColorFor("running", DarkStatusColors))
+        assertEquals(DarkStatusColors.idle, statusColorFor("idle", DarkStatusColors))
         assertEquals(DarkStatusColors.completed, statusColorFor("completed", DarkStatusColors))
         assertEquals(DarkStatusColors.failed, statusColorFor("failed", DarkStatusColors))
         assertEquals(DarkStatusColors.cancelled, statusColorFor("cancelled", DarkStatusColors))
