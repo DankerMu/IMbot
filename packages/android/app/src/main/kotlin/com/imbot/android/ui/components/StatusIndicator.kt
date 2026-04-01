@@ -124,6 +124,7 @@ fun StatusIndicator(
 private fun statusLabel(status: String): String =
     when (status) {
         "running" -> "运行中"
+        "idle" -> "空闲"
         "queued" -> "排队中"
         "completed" -> "已完成"
         "failed" -> "失败"

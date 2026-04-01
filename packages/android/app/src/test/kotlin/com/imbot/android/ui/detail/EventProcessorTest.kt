@@ -315,6 +315,29 @@ class EventProcessorTest {
     }
 
     @Test
+    fun `session_idle appends idle status change with follow up hint`() {
+        val result =
+            processor.process(
+                event(
+                    seq = 1,
+                    eventType = "session_idle",
+                ),
+            )
+
+        assertEquals(
+            listOf(
+                MessageItem.StatusChange(
+                    id = "id-1",
+                    status = "idle",
+                    message = "本轮完成，可继续对话",
+                    seq = 1,
+                ),
+            ),
+            result,
+        )
+    }
+
+    @Test
     fun `session_result appends status change from payload`() {
         val result =
             processor.process(

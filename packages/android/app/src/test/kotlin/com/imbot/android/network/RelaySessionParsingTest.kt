@@ -38,6 +38,28 @@ class RelaySessionParsingTest {
         assertEquals("sess-2", session.getString("id"))
     }
 
+    @Test
+    fun `parses idle session status from relay payload`() {
+        val session =
+            JSONObject(
+                """
+                {
+                  "id": "sess-3",
+                  "provider": "claude",
+                  "host_id": "macbook-1",
+                  "workspace_cwd": "/tmp/demo",
+                  "status": "idle",
+                  "created_at": "2026-04-01T10:00:00Z",
+                  "updated_at": "2026-04-01T10:05:00Z",
+                  "last_active_at": "2026-04-01T10:05:00Z"
+                }
+                """.trimIndent(),
+            ).toRelaySession()
+
+        assertEquals("sess-3", session.id)
+        assertEquals("idle", session.status)
+    }
+
     @Test(expected = IllegalStateException::class)
     fun `rejects responses without a session object`() {
         JSONObject("""{"ok":true}""").requireRelaySessionObject()

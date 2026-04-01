@@ -79,7 +79,13 @@ internal fun resumeAutoScroll(current: DetailScrollState): ScrollMutation =
         shouldScrollToBottom = true,
     )
 
-internal fun canSendToSession(status: String?): Boolean = status == "running"
+internal fun canSendToSession(status: String?): Boolean = status == "running" || status == "idle"
+
+internal fun canInputToSession(status: String?): Boolean = status == "idle"
+
+internal fun canCancelSession(status: String?): Boolean = status == "running"
+
+internal fun canCompleteSession(status: String?): Boolean = status == "idle"
 
 internal fun detailStatusColor(
     status: String,
@@ -88,7 +94,8 @@ internal fun detailStatusColor(
 
 internal fun inputPlaceholderForStatus(status: String?): String =
     when (status) {
-        "running" -> "输入消息..."
+        "running" -> "AI 正在回复..."
+        "idle" -> "继续对话..."
         "queued" -> "会话启动中，暂时无法发送"
         "completed" -> "会话已结束"
         "failed" -> "会话已失败"
@@ -103,6 +110,7 @@ internal fun messageItemKindForEventType(eventType: String): MessageItemKind? =
         "tool_call_started", "tool_call_completed" -> MessageItemKind.ToolCall
         "session_status_changed",
         "session_started",
+        "session_idle",
         "session_result",
         "session_error",
         "approval_required",
@@ -189,6 +197,7 @@ internal fun providerColor(
 internal fun statusLabel(status: String): String =
     when (status) {
         "running" -> "运行中"
+        "idle" -> "空闲"
         "queued" -> "排队中"
         "completed" -> "已完成"
         "failed" -> "失败"

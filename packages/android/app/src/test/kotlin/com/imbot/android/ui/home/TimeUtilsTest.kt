@@ -64,4 +64,10 @@ class TimeUtilsTest {
 
         assertEquals("/", summary)
     }
+
+    @Test
+    fun `idle status is treated as live and sorted with running sessions`() {
+        assertEquals(true, isLiveStatus("idle"))
+        assertEquals(true, isRunningStatus("idle"))
+    }
 }

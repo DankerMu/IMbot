@@ -24,6 +24,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
@@ -94,6 +95,7 @@ fun SessionDetailScreen(
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showCancelDialog by remember { mutableStateOf(false) }
+    var showCompleteDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var initialLoadHandled by rememberSaveable(sessionId) { mutableStateOf(false) }
     val renderedKeys = remember(sessionId) { mutableSetOf<String>() }
@@ -170,6 +172,39 @@ fun SessionDetailScreen(
                 TextButton(
                     onClick = {
                         showCancelDialog = false
+                    },
+                ) {
+                    Text("保留")
+                }
+            },
+        )
+    }
+
+    if (showCompleteDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showCompleteDialog = false
+            },
+            title = {
+                Text("结束当前会话？")
+            },
+            text = {
+                Text("Relay 会结束当前空闲会话，结束后将无法继续对话。")
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showCompleteDialog = false
+                        viewModel.completeSession()
+                    },
+                ) {
+                    Text("结束会话")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showCompleteDialog = false
                     },
                 ) {
                     Text("保留")
@@ -258,7 +293,7 @@ fun SessionDetailScreen(
                                 menuExpanded = false
                             },
                         ) {
-                            if (canSendToSession(uiState.session?.status)) {
+                            if (canCancelSession(uiState.session?.status)) {
                                 DropdownMenuItem(
                                     text = {
                                         Text("取消会话")
@@ -273,6 +308,24 @@ fun SessionDetailScreen(
                                     onClick = {
                                         menuExpanded = false
                                         showCancelDialog = true
+                                    },
+                                )
+                            }
+                            if (canCompleteSession(uiState.session?.status)) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("结束会话")
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Filled.CheckCircle,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    enabled = !uiState.isCompleting,
+                                    onClick = {
+                                        menuExpanded = false
+                                        showCompleteDialog = true
                                     },
                                 )
                             }

@@ -81,6 +81,7 @@ class DetailUtilsTest {
     @Test
     fun `status color mapping matches requirement`() {
         assertEquals(Color(0xFF10B981), detailStatusColor("running"))
+        assertEquals(Color(0xFF2196F3), detailStatusColor("idle"))
         assertEquals(Color(0xFF059669), detailStatusColor("completed"))
         assertEquals(Color(0xFFEF4444), detailStatusColor("failed"))
         assertEquals(Color(0xFF6B7280), detailStatusColor("cancelled"))
@@ -89,10 +90,32 @@ class DetailUtilsTest {
 
     @Test
     fun `input placeholder text follows session status`() {
-        assertEquals("输入消息...", inputPlaceholderForStatus("running"))
+        assertEquals("AI 正在回复...", inputPlaceholderForStatus("running"))
+        assertEquals("继续对话...", inputPlaceholderForStatus("idle"))
         assertEquals("会话已结束", inputPlaceholderForStatus("completed"))
         assertEquals("会话已失败", inputPlaceholderForStatus("failed"))
         assertEquals("会话已取消", inputPlaceholderForStatus("cancelled"))
+    }
+
+    @Test
+    fun `idle status supports follow up input while running only supports live actions`() {
+        assertTrue(canSendToSession("running"))
+        assertTrue(canSendToSession("idle"))
+        assertFalse(canSendToSession("completed"))
+
+        assertFalse(canInputToSession("running"))
+        assertTrue(canInputToSession("idle"))
+
+        assertTrue(canCancelSession("running"))
+        assertFalse(canCancelSession("idle"))
+
+        assertTrue(canCompleteSession("idle"))
+        assertFalse(canCompleteSession("running"))
+    }
+
+    @Test
+    fun `status labels include idle`() {
+        assertEquals("空闲", statusLabel("idle"))
     }
 
     @Test
@@ -104,6 +127,7 @@ class DetailUtilsTest {
         assertEquals(MessageItemKind.ToolCall, messageItemKindForEventType("tool_call_completed"))
         assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_status_changed"))
         assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_started"))
+        assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_idle"))
         assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_result"))
         assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("session_error"))
         assertEquals(MessageItemKind.StatusChange, messageItemKindForEventType("approval_required"))
