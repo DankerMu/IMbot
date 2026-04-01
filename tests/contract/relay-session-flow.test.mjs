@@ -98,6 +98,20 @@ function waitForClose(ws, label, timeoutMs = 5000) {
   });
 }
 
+async function waitForCondition(check, label, timeoutMs = 5000, intervalMs = 25) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    if (await check()) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+
+  throw new Error(`Timed out waiting for ${label}`);
+}
+
 function sendHeartbeat(ws, hostId = "macbook-1", providers = ["claude"]) {
   ws.send(
     JSON.stringify({
@@ -279,6 +293,156 @@ test("relay creates a session, persists events, and broadcasts companion traffic
   assert.equal(eventsPayload.has_more, false);
   assert.equal(
     eventsPayload.events.some((event) => event.type === "assistant_delta"),
+    true
+  );
+
+  android.close();
+  companion.close();
+});
+
+test("relay persists and broadcasts session_idle events before updating the session status to idle", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-idle-flow-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_HOST: "127.0.0.1",
+    RELAY_LOG_LEVEL: "error",
+    RELAY_COMPANION_TIMEOUT_MS: "2000"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  await runtime.app.listen({
+    host: "127.0.0.1",
+    port: 0
+  });
+
+  const address = runtime.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const baseWsUrl = `ws://127.0.0.1:${port}`;
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const android = new WebSocket(`${baseWsUrl}/v1/ws?token=${config.staticToken}`);
+  await waitForOpen(android, "android");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+  sendHeartbeat(companion);
+
+  const createResponsePromise = fetch(`${baseUrl}/v1/sessions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      provider: "claude",
+      host_id: "macbook-1",
+      cwd: "/tmp/project",
+      prompt: "go idle",
+      permission_mode: "bypassPermissions"
+    })
+  });
+
+  const createCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "create_session",
+    "create_session command"
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: createCommand.req_id,
+      status: "ok",
+      data: {
+        provider_session_id: "provider-session-idle"
+      }
+    })
+  );
+
+  const createResponse = await createResponsePromise;
+  const createPayload = await createResponse.json();
+  assert.equal(createResponse.status, 201);
+
+  const sessionId = createPayload.session.id;
+  android.send(
+    JSON.stringify({
+      action: "subscribe",
+      session_id: sessionId
+    })
+  );
+
+  const idleEventPromise = waitForJsonMessage(
+    android,
+    (message) =>
+      message.type === "event" &&
+      message.session_id === sessionId &&
+      message.event_type === "session_idle",
+    "session_idle broadcast"
+  );
+  const idleStatusPromise = waitForJsonMessage(
+    android,
+    (message) =>
+      message.type === "event" &&
+      message.session_id === sessionId &&
+      message.event_type === "session_status_changed" &&
+      message.payload.status === "idle",
+    "idle status broadcast"
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_idle",
+      payload: {
+        result: {
+          turn: 1
+        }
+      }
+    })
+  );
+
+  const idleEvent = await idleEventPromise;
+  const idleStatus = await idleStatusPromise;
+  assert.deepEqual(idleEvent.payload, {
+    result: {
+      turn: 1
+    }
+  });
+  assert.deepEqual(idleStatus.payload, {
+    status: "idle",
+    error_code: null,
+    error_message: null
+  });
+
+  await waitForCondition(() => {
+    const session = runtime.db.prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId);
+    return session?.status === "idle";
+  }, "session idle");
+
+  const storedEvents = runtime.db
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+    .all(sessionId);
+  assert.equal(storedEvents.some((event) => event.type === "session_idle"), true);
+  assert.equal(
+    storedEvents.some((event) => {
+      if (event.type !== "session_status_changed") {
+        return false;
+      }
+
+      return JSON.parse(event.payload).status === "idle";
+    }),
     true
   );
 

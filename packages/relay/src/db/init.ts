@@ -5,6 +5,14 @@ import Database from "better-sqlite3";
 
 export type RelayDatabase = Database.Database;
 
+const SESSION_INDEXES_SQL = `
+CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider);
+CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
+CREATE INDEX IF NOT EXISTS idx_sessions_host ON sessions(host_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_cwd ON sessions(workspace_cwd);
+CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active_at);
+`;
+
 const SCHEMA_SQL = `
 CREATE TABLE IF NOT EXISTS hosts (
   id TEXT PRIMARY KEY,
@@ -40,7 +48,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   model TEXT,
   permission_mode TEXT NOT NULL DEFAULT 'bypassPermissions',
   status TEXT NOT NULL DEFAULT 'queued'
-    CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+    CHECK (status IN ('queued', 'running', 'idle', 'completed', 'failed', 'cancelled')),
   error_message TEXT,
   error_code TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -48,11 +56,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   last_active_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider);
-CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
-CREATE INDEX IF NOT EXISTS idx_sessions_host ON sessions(host_id);
-CREATE INDEX IF NOT EXISTS idx_sessions_cwd ON sessions(workspace_cwd);
-CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active_at);
+${SESSION_INDEXES_SQL}
 
 CREATE TABLE IF NOT EXISTS session_events (
   id TEXT PRIMARY KEY,
@@ -100,6 +104,119 @@ CREATE TABLE IF NOT EXISTS audit_logs (
 CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at);
 `;
 
+function supportsIdleSessionStatus(db: RelayDatabase): boolean {
+  db.exec("SAVEPOINT migrate_sessions_idle_check");
+
+  try {
+    db.prepare(
+      `
+      INSERT OR IGNORE INTO hosts (id, name, type, status)
+      VALUES ('__migrate_probe_host__', '__migrate_probe_host__', 'relay_local', 'online')
+      `
+    ).run();
+    db.prepare(
+      `
+      INSERT INTO sessions (id, provider, host_id, workspace_cwd, status)
+      VALUES ('__migrate_probe_session__', 'claude', '__migrate_probe_host__', '/tmp', 'idle')
+      `
+    ).run();
+    return true;
+  } catch {
+    return false;
+  } finally {
+    db.exec("ROLLBACK TO migrate_sessions_idle_check");
+    db.exec("RELEASE migrate_sessions_idle_check");
+  }
+}
+
+function migrateSchema(db: RelayDatabase): void {
+  if (supportsIdleSessionStatus(db)) {
+    return;
+  }
+
+  const foreignKeysEnabled = db.pragma("foreign_keys", { simple: true }) === 1;
+  if (foreignKeysEnabled) {
+    db.pragma("foreign_keys = OFF");
+  }
+
+  try {
+    db.exec(`
+      BEGIN IMMEDIATE;
+
+      CREATE TABLE sessions_new (
+        id TEXT PRIMARY KEY,
+        provider TEXT NOT NULL CHECK (provider IN ('claude', 'book', 'openclaw')),
+        provider_session_id TEXT,
+        host_id TEXT NOT NULL REFERENCES hosts(id),
+        workspace_root TEXT,
+        workspace_cwd TEXT NOT NULL,
+        initial_prompt TEXT,
+        model TEXT,
+        permission_mode TEXT NOT NULL DEFAULT 'bypassPermissions',
+        status TEXT NOT NULL DEFAULT 'queued'
+          CHECK (status IN ('queued', 'running', 'idle', 'completed', 'failed', 'cancelled')),
+        error_message TEXT,
+        error_code TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        last_active_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      INSERT INTO sessions_new (
+        id,
+        provider,
+        provider_session_id,
+        host_id,
+        workspace_root,
+        workspace_cwd,
+        initial_prompt,
+        model,
+        permission_mode,
+        status,
+        error_message,
+        error_code,
+        created_at,
+        updated_at,
+        last_active_at
+      )
+      SELECT
+        id,
+        provider,
+        provider_session_id,
+        host_id,
+        workspace_root,
+        workspace_cwd,
+        initial_prompt,
+        model,
+        permission_mode,
+        status,
+        error_message,
+        error_code,
+        created_at,
+        updated_at,
+        last_active_at
+      FROM sessions;
+
+      DROP TABLE sessions;
+      ALTER TABLE sessions_new RENAME TO sessions;
+      ${SESSION_INDEXES_SQL}
+
+      COMMIT;
+    `);
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // Ignore rollback failures and surface the original migration error.
+    }
+    throw error;
+  } finally {
+    if (foreignKeysEnabled) {
+      db.pragma("foreign_keys = ON");
+    }
+  }
+}
+
 export function initializeDatabase(dbPath: string): RelayDatabase {
   const parentDir = path.dirname(dbPath);
   fs.mkdirSync(parentDir, { recursive: true });
@@ -108,6 +225,7 @@ export function initializeDatabase(dbPath: string): RelayDatabase {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA_SQL);
+  migrateSchema(db);
   db
     .prepare(
       `
@@ -128,4 +246,3 @@ export function getDatabaseStatus(db: RelayDatabase): "ok" | "error" {
     return "error";
   }
 }
-

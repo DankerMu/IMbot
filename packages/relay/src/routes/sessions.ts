@@ -190,6 +190,11 @@ export function registerSessionRoutes(
     return deps.orchestrator.cancel(id);
   });
 
+  app.post("/sessions/:id/complete", { schema: { params: sessionIdParamsSchema } }, async (request) => {
+    const { id } = request.params as { id: string };
+    return deps.orchestrator.complete(id);
+  });
+
   app.delete("/sessions/:id", { schema: { params: sessionIdParamsSchema } }, async (request, reply) => {
     const { id } = request.params as { id: string };
     await deps.orchestrator.delete(id);
