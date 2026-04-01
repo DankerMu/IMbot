@@ -3,6 +3,7 @@ import type {
   CompanionCommand,
   CompanionHeartbeatMessage,
   CompanionMessage,
+  InteractiveProvider,
   Provider
 } from "@imbot/wire";
 import { ERROR_CODES, PROVIDERS } from "@imbot/wire";
@@ -154,6 +155,38 @@ export class CompanionManager {
     });
 
     return this.extractBrowseResult(ack);
+  }
+
+  async addRoot(
+    hostId: string,
+    provider: InteractiveProvider,
+    targetPath: string,
+    label?: string
+  ): Promise<void> {
+    const ack = await this.sendCommand(hostId, {
+      cmd: "add_root",
+      req_id: this.createRequestId(),
+      provider,
+      path: targetPath,
+      label
+    });
+
+    this.extractAckData(ack);
+  }
+
+  async removeRoot(
+    hostId: string,
+    provider: InteractiveProvider,
+    targetPath: string
+  ): Promise<void> {
+    const ack = await this.sendCommand(hostId, {
+      cmd: "remove_root",
+      req_id: this.createRequestId(),
+      provider,
+      path: targetPath
+    });
+
+    this.extractAckData(ack);
   }
 
   async sendCommand(hostId: string, command: CompanionCommand): Promise<CompanionMessage> {

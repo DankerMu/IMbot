@@ -499,6 +499,46 @@ test("ClaudeRuntimeAdapter uses the current Claude resume flags and avoids remov
   }
 });
 
+test("ClaudeRuntimeAdapter emits session_idle once a resumed session reports ready", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-resume-idle-"));
+  const projectDir = path.join(tempDir, "AI-vault");
+  mkdirSync(projectDir, { recursive: true });
+
+  try {
+    const { adapter, sessionIndex, events } = createAdapterHarness(tempDir, () => true);
+
+    sessionIndex.set("relay-resume-idle", {
+      provider_session_id: "provider-session-existing",
+      cwd: projectDir,
+      provider: "claude",
+      created_at: "2026-03-30T00:00:00.000Z"
+    });
+
+    await adapter.resumeSession({
+      cmd: "resume_session",
+      req_id: "req-resume-idle",
+      session_id: "relay-resume-idle",
+      provider_session_id: "provider-session-existing",
+      cwd: projectDir
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(events.at(-1), {
+      type: "event",
+      session_id: "relay-resume-idle",
+      event_type: "session_idle",
+      payload: {
+        result: null
+      }
+    });
+
+    await adapter.shutdown();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("ClaudeRuntimeAdapter rejects resume_session for book outside configured roots", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-book-resume-"));
   const bookRoot = path.join(tempDir, "novel");
@@ -546,7 +586,7 @@ test("ClaudeRuntimeAdapter writes send_message payloads to stdin as stream-json"
   mkdirSync(projectDir, { recursive: true });
 
   try {
-    const { adapter, children } = createAdapterHarness(tempDir, () => true);
+    const { adapter, children, events } = createAdapterHarness(tempDir, () => true);
 
     await adapter.createSession({
       cmd: "create_session",
@@ -575,6 +615,14 @@ test("ClaudeRuntimeAdapter writes send_message payloads to stdin as stream-json"
         }
       }
     ]);
+    assert.deepEqual(events.at(-1), {
+      type: "event",
+      session_id: "relay-send-1",
+      event_type: "user_message",
+      payload: {
+        text: "followup"
+      }
+    });
 
     await adapter.shutdown();
   } finally {

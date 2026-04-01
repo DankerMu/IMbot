@@ -55,7 +55,7 @@ CREATE TABLE sessions (
   model                TEXT,                 -- e.g. "opus", "sonnet"
   permission_mode      TEXT NOT NULL DEFAULT 'bypassPermissions',
   status               TEXT NOT NULL DEFAULT 'queued'
-                       CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+                       CHECK (status IN ('queued', 'running', 'idle', 'completed', 'failed', 'cancelled')),
   error_message        TEXT,                 -- populated on failure
   error_code           TEXT,                 -- machine-readable error
   created_at           TEXT NOT NULL DEFAULT (datetime('now')),
@@ -143,6 +143,7 @@ export type EventType =
   | 'tool_call_completed'
   | 'approval_required'     // 保留
   | 'approval_resolved'     // 保留
+  | 'session_idle'            // CLI turn 完成，进程存活等待输入
   | 'session_status_changed'
   | 'session_result'
   | 'session_error'
@@ -152,13 +153,18 @@ export type EventType =
 ## Session Status Transitions
 
 ```
-queued ──────► running ──────► completed
-  │              │
-  │              ├──────────► failed
+queued ──────► running ◄─────► idle
+  │              │               │
+  │              ├──────────► completed ◄── idle (timeout/complete)
+  │              │               │
+  │              ├──────────► failed ◄──── idle (crash)
   │              │
   │              └──────────► cancelled
   │
   └─(host offline / timeout)─► failed
+
+completed ──(resume)──► running
+failed ────(resume)──► running
 ```
 
 **Transition rules**:
@@ -167,11 +173,18 @@ queued ──────► running ──────► completed
 |------|----|---------|-------------|
 | `queued` | `running` | companion ack 成功 | emit `session_started` event |
 | `queued` | `failed` | companion ack 失败 / timeout 30s | emit `session_error` event, FCM push |
-| `running` | `completed` | runtime 正常结束 | emit `session_result` event, FCM push |
+| `running` | `idle` | CLI turn 完成，进程存活 | emit `session_idle` event |
+| `running` | `completed` | runtime 正常结束（进程退出） | emit `session_result` event, FCM push |
 | `running` | `failed` | runtime error / upstream error | emit `session_error` event, FCM push |
-| `running` | `cancelled` / provider terminal (`completed` or `failed`) | 用户取消；若 provider 在 cancel 完成前先结束，则保留 provider 终态 | send cancel command；仅在 `cancelled` 路径 emit `session_status_changed` event |
+| `running` | `cancelled` / provider terminal | 用户取消；若 provider 先结束，保留 provider 终态 | send cancel command |
+| `idle` | `running` | `POST /message` | 通过 stdin JSON 发送消息 |
+| `idle` | `completed` | `POST /complete` 或 idle timeout (30min) | SIGTERM → emit `session_result` |
+| `idle` | `failed` | companion 断开 | emit `session_error` (companion_restart) |
+| `idle` | `cancelled` | `POST /cancel` | send cancel command |
+| `completed` | `running` | `POST /resume` | 重新 spawn 进程 |
+| `failed` | `running` | `POST /resume` | 重新 spawn 进程 |
 
-当 `POST /cancel` 与 provider `session_result` / `session_error` 竞态时，provider 终态胜出，session 不会被本地覆盖成 `cancelled`。
+> **idle vs completed**: `idle` = 进程存活，等待下一条消息（stream-json 模式）。`completed` = 进程已退出。`idle` 下发消息 ~2s 响应；`completed` 下 resume 需要重新 spawn（~9-13s）。
 
 ## Seq Allocation
 

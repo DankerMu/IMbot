@@ -10,14 +10,22 @@
 | `queued` | companion ack ok | `running` | — | emit `session_started`, 更新 DB |
 | `queued` | companion ack error | `failed` | — | emit `session_error`, FCM push |
 | `queued` | 30s timeout | `failed` | — | emit `session_error` (timeout), FCM push |
+| `running` | CLI turn 完成（进程仍存活） | `idle` | — | emit `session_idle` event |
 | `running` | runtime 正常结束 | `completed` | — | emit `session_result`, FCM push |
 | `running` | runtime error | `failed` | — | emit `session_error`, FCM push |
-| `running` | `POST /cancel` | `cancelled` / provider terminal (`completed` or `failed`) | — | send cancel command; if provider terminal event wins the race, preserve provider terminal state |
+| `running` | `POST /cancel` | `cancelled` / provider terminal | — | send cancel command; if provider terminal event wins the race, preserve provider terminal state |
 | `running` | companion 断开 | `failed` | — | emit `session_error` (host_disconnected) |
-| `completed` | `POST /resume` | `running` | host online | 发送 resume command |
+| `idle` | `POST /message` | `running` | — | 通过 stdin 发送 JSON 消息，transition → running |
+| `idle` | `POST /complete` | `completed` | — | send complete_session → SIGTERM → emit session_result |
+| `idle` | `POST /cancel` | `cancelled` | — | send cancel command |
+| `idle` | idle timeout (30min) | `completed` | — | SIGTERM process, emit session_result |
+| `idle` | companion 断开 | `failed` | — | emit `session_error` (companion_restart) |
+| `completed` | `POST /resume` | `running` | host online | 发送 resume command（进程已死，重新 spawn） |
 | `failed` | `POST /resume` | `running` | host online + error 可恢复 | 发送 resume command |
 | `cancelled` | — | — | 终态，不可转换 | — |
 | `*` (inactive 30d) | purge job | 删除 | — | CASCADE 删除 events |
+
+> **Note**: `idle` 表示 CLI 进程存活但当前 turn 已完成，等待下一条用户消息。与 `completed`（进程已退出）不同。Companion 使用 `--input-format stream-json --output-format stream-json` 模式实现持久双向交互。
 
 ### Implementation Pseudocode
 
@@ -184,9 +192,12 @@ Android                    Relay                     Companion              CLI 
   │                         │                          │                      │
   │                         │ cmd:create_session        │                      │
   │                         │─────────────────────────►│                      │
-  │                         │                          │ spawn claude          │
+  │                         │                          │ spawn claude -p       │
+  │                         │                          │ --input-format        │
+  │                         │                          │ stream-json           │
   │                         │                          │ --output-format       │
-  │                         │                          │ stream-json -p prompt │
+  │                         │                          │ stream-json           │
+  │                         │                          │ (prompt via stdin)    │
   │                         │                          │─────────────────────►│
   │                         │                          │                      │
   │                         │ ack:ok                    │                      │
@@ -199,6 +210,21 @@ Android                    Relay                     Companion              CLI 
   │ ◄──── WS: event         │◄── event: assistant_delta│◄─────────────────────│
   │ ◄──── WS: event         │◄── event: assistant_delta│◄─────────────────────│
   │ ...                     │                          │                      │
+  │ ◄──── WS: event         │◄── event: session_idle   │◄── CLI turn done     │
+  │                         │ transition → idle         │    (process alive)   │
+  │                         │                          │                      │
+  │ POST /message {text}    │                          │                      │
+  │────────────────────────►│ transition → running      │                      │
+  │                         │ cmd:send_message          │                      │
+  │                         │─────────────────────────►│ stdin JSON message   │
+  │                         │                          │─────────────────────►│
+  │ ◄──── WS: event         │◄── event: assistant_delta│◄─────────────────────│
+  │ ...                     │                          │                      │
+  │ ◄──── WS: event         │◄── event: session_idle   │◄── turn done again  │
+  │                         │                          │                      │
+  │ POST /complete          │                          │                      │
+  │────────────────────────►│ cmd:complete_session      │                      │
+  │                         │─────────────────────────►│ SIGTERM → exit       │
   │ ◄──── WS: event         │◄── event: session_result │◄─────────────────────│
   │                         │ transition → completed    │                      │
   │ ◄──── WS: status        │                          │                      │

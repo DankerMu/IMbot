@@ -84,6 +84,7 @@ function validateRelayUrl(relayUrl: string): void {
 validateRelayUrl(config.relayUrl);
 
 let currentWs: WebSocket | null = null;
+let announcedReady = false;
 
 process.on("SIGINT", () => {
   console.error("\nClosing...");
@@ -102,19 +103,27 @@ function connect(): void {
 
   const ws = new WebSocket(wsUrl);
   currentWs = ws;
+  announcedReady = false;
 
   ws.on("open", () => {
-    console.error("Connected. Streaming events...\n");
     ws.send(JSON.stringify({ action: "auth", token: config.token }));
     if (sessionFilter) {
       ws.send(JSON.stringify({ action: "subscribe", session_id: sessionFilter }));
     }
+    // A ping after auth/subscribe gives the CLI a real readiness barrier because the relay
+    // processes client messages in order and replies with pong after prior actions were handled.
+    ws.send(JSON.stringify({ action: "ping" }));
   });
 
   ws.on("message", (data: WebSocket.RawData) => {
     try {
       const msg = JSON.parse(data.toString()) as Record<string, unknown>;
-      if (msg.type === "event") {
+      if (msg.type === "pong") {
+        if (!announcedReady) {
+          announcedReady = true;
+          console.error("Connected. Streaming events...\n");
+        }
+      } else if (msg.type === "event") {
         const sessionId = msg.session_id as string;
         if (sessionFilter && sessionId !== sessionFilter) return;
         const prefix = sessionFilter ? "" : `[${sessionId.slice(0, 8)}] `;

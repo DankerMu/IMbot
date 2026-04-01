@@ -234,7 +234,10 @@
 
 ### POST /v1/sessions/:id/message
 
-继续对话，发送新消息。
+继续对话，发送新消息。session 处于 `running` 或 `idle` 状态时可用。
+
+- `idle` 状态：先 transition → `running`，再通过 stdin JSON 发送消息给存活进程。若发送失败则回滚到 `idle`。
+- `running` 状态：直接转发消息。
 
 **Request**:
 ```json
@@ -245,9 +248,22 @@
 
 **Errors**:
 - `404 not_found`。
-- `409 state_conflict`: session 不在 running 状态。
+- `409 state_conflict`: session 不在 `running` 或 `idle` 状态。
 - `502 host_offline`。
 - `502 provider_unreachable`: OpenClaw gateway 不可用。
+
+### POST /v1/sessions/:id/complete
+
+主动结束 idle 会话。仅 `idle` 状态可用。向 companion 发送 `complete_session` 命令，companion 对 CLI 进程发送 SIGTERM。
+
+**Request**: `{}`（无 body）
+
+**Response 200**: session 对象（status 变为 `completed`）。
+
+**Errors**:
+- `404 not_found`。
+- `409 state_conflict`: session 不在 `idle` 状态。
+- `502 host_offline`。
 
 ### POST /v1/sessions/:id/cancel
 
@@ -255,7 +271,7 @@
 
 **Response 200**: session 对象。正常情况下 `status` 变为 `cancelled`；如果 provider 在 cancel 完成前先发送终态事件，则响应返回 provider 的终态 `completed` 或 `failed`。
 
-**Errors**: `404`, `409` (session 不在 running 状态，包括 `queued`)。
+**Errors**: `404`, `409` (session 不在 `running` 状态)。
 
 ### DELETE /v1/sessions/:id
 
@@ -264,7 +280,7 @@
 **Response 204**: 无 body。
 **Errors**:
 - `404`。
-- `409 state_conflict`: session 仍处于 `queued` 或 `running`，必须先进入终态后再删除。
+- `409 state_conflict`: session 仍处于 `queued`、`running` 或 `idle`，必须先进入终态后再删除。
 
 ### GET /v1/sessions/:id/events
 
@@ -363,6 +379,7 @@ type CompanionCommand =
   | { cmd: 'resume_session'; req_id: string; session_id: string; provider_session_id: string; cwd: string }
   | { cmd: 'send_message'; req_id: string; session_id: string; text: string }
   | { cmd: 'cancel_session'; req_id: string; session_id: string }
+  | { cmd: 'complete_session'; req_id: string; session_id: string }
   | { cmd: 'list_sessions'; req_id: string; cwd: string; provider: 'claude' | 'book' }
   | { cmd: 'browse_directory'; req_id: string; path: string };
 ```

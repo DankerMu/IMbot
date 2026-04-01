@@ -369,6 +369,22 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
     })
   );
 
+  const addRootCommand = await waitForJsonMessage(
+    companion,
+    (message) =>
+      message.cmd === "add_root" &&
+      message.provider === "claude" &&
+      message.path === macbookRootPath,
+    "macbook add root sync"
+  );
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: addRootCommand.req_id,
+      status: "ok"
+    })
+  );
+
   const addMacbookRootResponse = await addMacbookRootPromise;
   const addMacbookRootPayload = await addMacbookRootResponse.json();
   assert.equal(addMacbookRootResponse.status, 201);
@@ -592,6 +608,79 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
   assert.deepEqual(await offlineBrowseResponse.json(), {
     error: "host_offline"
   });
+
+  const removeMacbookRootResponse = await fetch(
+    `${baseUrl}/v1/hosts/macbook-1/roots/${addMacbookRootPayload.root.id}`,
+    {
+      method: "DELETE",
+      headers: authHeaders(config.staticToken)
+    }
+  );
+  assert.equal(removeMacbookRootResponse.status, 502);
+  assert.deepEqual(await removeMacbookRootResponse.json(), {
+    error: "host_offline"
+  });
+
+  const macbookRootsAfterFailedDelete = await fetch(`${baseUrl}/v1/hosts/macbook-1/roots`, {
+    headers: authHeaders(config.staticToken)
+  });
+  const macbookRootsPayload = await macbookRootsAfterFailedDelete.json();
+  assert.equal(
+    macbookRootsPayload.roots.some((root) => root.id === addMacbookRootPayload.root.id),
+    true
+  );
+
+  const companionReconnect = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companionReconnect, "companion reconnect");
+  const hostOnlineAgainPromise = waitForJsonMessage(
+    android,
+    (message) =>
+      message.type === "host_status" &&
+      message.host_id === "macbook-1" &&
+      message.status === "online",
+    "host online again"
+  );
+  sendHeartbeat(companionReconnect);
+  await hostOnlineAgainPromise;
+
+  const removeMacbookRootPromise = fetch(
+    `${baseUrl}/v1/hosts/macbook-1/roots/${addMacbookRootPayload.root.id}`,
+    {
+      method: "DELETE",
+      headers: authHeaders(config.staticToken)
+    }
+  );
+  const removeRootCommand = await waitForJsonMessage(
+    companionReconnect,
+    (message) =>
+      message.cmd === "remove_root" &&
+      message.provider === "claude" &&
+      message.path === macbookRootPath,
+    "macbook remove root sync"
+  );
+  companionReconnect.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: removeRootCommand.req_id,
+      status: "ok"
+    })
+  );
+
+  const removeMacbookRootSyncedResponse = await removeMacbookRootPromise;
+  assert.equal(removeMacbookRootSyncedResponse.status, 204);
+
+  const macbookRootsAfterDelete = await fetch(`${baseUrl}/v1/hosts/macbook-1/roots`, {
+    headers: authHeaders(config.staticToken)
+  });
+  const macbookRootsAfterDeletePayload = await macbookRootsAfterDelete.json();
+  assert.equal(
+    macbookRootsAfterDeletePayload.roots.some((root) => root.id === addMacbookRootPayload.root.id),
+    false
+  );
+
+  companionReconnect.close();
 
   const removeRelayRootResponse = await fetch(
     `${baseUrl}/v1/hosts/relay-local/roots/${addRelayRootPayload.root.id}`,

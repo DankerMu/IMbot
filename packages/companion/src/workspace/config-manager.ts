@@ -113,7 +113,7 @@ export class ConfigManager {
       (root) => root.provider !== provider || !arePathsEquivalent(root.path, normalizedPath)
     );
     if (updated.length === this.roots.length) {
-      throw new CompanionError("not_found", "Workspace root not found");
+      return;
     }
 
     const previous = this.roots;

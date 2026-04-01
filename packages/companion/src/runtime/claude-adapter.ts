@@ -34,6 +34,7 @@ interface RuntimeSession {
   closed: boolean;
   idleTimer: NodeJS.Timeout | null;
   isIdle: boolean;
+  emitIdleOnReady: boolean;
   exitPromise: Promise<void>;
   resolveExit: () => void;
 }
@@ -142,6 +143,7 @@ export class ClaudeRuntimeAdapter {
         command.provider_session_id
       ],
       knownProviderSessionId: command.provider_session_id,
+      emitIdleOnReady: true,
       indexEntry: {
         provider_session_id: command.provider_session_id,
         cwd: command.cwd,
@@ -159,7 +161,9 @@ export class ClaudeRuntimeAdapter {
     const session = this.requireActiveSession(relaySessionId);
     session.isIdle = false;
     this.clearIdleTimer(session);
-    await this.writeUserMessage(session, text);
+    await this.writeUserMessage(session, text, {
+      emitUserMessageEvent: true
+    });
   }
 
   async completeSession(relaySessionId: string): Promise<void> {
@@ -183,7 +187,13 @@ export class ClaudeRuntimeAdapter {
     await session.exitPromise;
   }
 
-  private async writeUserMessage(session: RuntimeSession, text: string): Promise<void> {
+  private async writeUserMessage(
+    session: RuntimeSession,
+    text: string,
+    options?: {
+      readonly emitUserMessageEvent?: boolean;
+    }
+  ): Promise<void> {
     if (!session.child.stdin.writable) {
       throw new CompanionError(
         "session_not_found",
@@ -238,6 +248,19 @@ export class ClaudeRuntimeAdapter {
         finish(resolve);
       });
     });
+
+    if (options?.emitUserMessageEvent) {
+      await Promise.resolve(
+        this.options.sendEvent({
+          type: "event",
+          session_id: session.relaySessionId,
+          event_type: "user_message",
+          payload: {
+            text
+          }
+        })
+      );
+    }
   }
 
   async cancel(relaySessionId: string): Promise<void> {
@@ -312,6 +335,7 @@ export class ClaudeRuntimeAdapter {
     readonly binary: string;
     readonly args: string[];
     readonly knownProviderSessionId?: string;
+    readonly emitIdleOnReady?: boolean;
     readonly indexEntry?: SessionIndexEntry;
   }): RuntimeSession {
     const child = this.spawn(params.binary, params.args, {
@@ -355,6 +379,7 @@ export class ClaudeRuntimeAdapter {
       closed: false,
       idleTimer: null,
       isIdle: false,
+      emitIdleOnReady: params.emitIdleOnReady ?? false,
       exitPromise,
       resolveExit
     };
@@ -406,6 +431,22 @@ export class ClaudeRuntimeAdapter {
     if (mapped.kind === "provider_session_id") {
       if (!session.providerSessionId) {
         this.registerProviderSessionId(session, mapped.providerSessionId);
+      }
+
+      if (session.emitIdleOnReady) {
+        session.emitIdleOnReady = false;
+        session.isIdle = true;
+        this.startIdleTimer(session);
+        await Promise.resolve(
+          this.options.sendEvent({
+            type: "event",
+            session_id: session.relaySessionId,
+            event_type: "session_idle",
+            payload: {
+              result: null
+            }
+          })
+        );
       }
 
       return;

@@ -1,122 +1,88 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+IMbot: spec-first, single-user remote-control system for Claude Code / book / OpenClaw. Android → relay (Fastify + SQLite) → companion (MacBook). See `docs/PRD.md` for product scope.
 
-## Project Overview
-
-IMbot is a spec-first, single-user remote-control system for Claude Code / book / OpenClaw. Three surfaces: Android app → relay server (Fastify + SQLite on VPS) → MacBook companion. The relay is the central hub; companion spawns CLI processes; Android is the mobile UI (Jetpack Compose).
-
-Providers: `claude` (MacBook), `book` (MacBook, novel dir), `openclaw` (relay-local gateway on localhost:18789).
-
-## Build & Test Commands
+## Quick Reference
 
 ```bash
-# Full build (wire first, then relay + companion)
-npm run build
-
-# Typecheck only (includes wire build)
-npm run typecheck          # alias: npm run lint
-
-# Tests — all require build first (handled by scripts)
-npm test                   # unit + contract
-npm run test:unit          # node --test tests/unit/*.test.mjs
-npm run test:contract      # node --test tests/contract/*.test.mjs
-npm run test:integration   # node --test tests/integration/*.test.mjs
-
-# Single test file
-npm run build && node --test tests/unit/wire.test.mjs
-
-# Per-package build
-npm run build:wire
-npm run build:relay
-npm run build:companion
-
-# Clean dist artifacts
-npm run clean
+npm run build                # wire → relay → companion → viewer
+npm test                     # unit + contract
+npm run test:unit            # node --test tests/unit/*.test.mjs
+npm run test:contract        # node --test tests/contract/*.test.mjs
+npm run test:integration     # node --test tests/integration/*.test.mjs
+npm run typecheck            # alias: npm run lint
 ```
 
-Node ≥22 required. Tests use Node's built-in test runner (no Jest/Vitest).
+Node ≥22, built-in test runner (no Jest/Vitest). Build order: wire → relay/companion/viewer.
 
-## Monorepo Structure
+## Monorepo
 
 ```
-packages/
-  wire/       — @imbot/wire: shared TypeScript types (enums, models, messages, commands)
-  relay/      — @imbot/relay: Fastify server, SQLite, WS hub, session orchestrator
-  companion/  — @imbot/companion: WS client, CLI adapter, heartbeat, workspace browser
-packages/android/  — (future) Kotlin/Compose Android app
-tests/
-  unit/       — unit tests (*.test.mjs)
-  contract/   — contract tests between packages
-  integration/— runtime integration tests
+packages/wire/       — @imbot/wire: shared types, enums, state transitions
+packages/relay/      — @imbot/relay: Fastify, SQLite, WS hub, orchestrator
+packages/companion/  — @imbot/companion: WS client, CLI adapter (stream-json)
+packages/viewer/     — @imbot/viewer: CLI session event streamer
+packages/android/    — Kotlin/Compose Android app
+tests/{unit,contract,integration}/
 ```
 
-**Build order matters**: wire → relay/companion (wire must build first as others depend on `@imbot/wire` dist).
+## Conventions
 
-## Architecture
-
-- **Relay** (`packages/relay/src/app.ts`): Fastify app assembling WsHub, CompanionManager, SessionOrchestrator, OpenClawBridge, AuditLogger. Routes under `/v1` prefix have auth guard (static token). WS routes for android and companion are unauthenticated at HTTP level (token in WS handshake).
-- **Companion** (`packages/companion/src/index.ts`): Connects to relay via WS, dispatches commands (`create_session`, `resume_session`, `send_message`, `cancel_session`, `browse_directory`), spawns Claude/book CLI processes via `ClaudeRuntimeAdapter`.
-- **Wire** (`packages/wire/src/`): Shared contract — `enums.ts` (providers, session statuses, event types, error codes with HTTP mapping, valid state transitions), `models.ts` (Session, Host, WorkspaceRoot, SessionEvent), `messages.ts`, `commands.ts`.
-
-Session state machine: `queued → running → completed/failed/cancelled` (completed/failed can transition back to running for resume).
-
-## Spec-First Workflow
-
-This repo is **spec-first**. Read before coding:
-1. `docs/PRD.md` — product scope and milestones
-2. `docs/engineering-spec/SPEC_INDEX.md` — architecture, API, data model
-3. `openspec/README.md` — execution slices (p0–p3 delivery bands)
-
-OpenSpec skills (`/opsx:*`) manage the change lifecycle: `/opsx:new` → `/opsx:continue` → `/opsx:apply` → `/opsx:verify` → `/opsx:archive`.
-
-If a change only implements an existing spec, do not rewrite product intent.
-
-## CI Pipeline
-
-Two workflow files enforce quality on every PR:
-
-**Implementation Gates** (`.github/workflows/implementation-gates.yml`):
-- `node-static-quality`: lint → typecheck → test:unit → test:contract → build
-- `node-integration`: test:integration
-- `android-static-quality` / `android-instrumented-smoke`: Gradle-based (activated via `.github/ci-gates.json`)
-
-**Repo Governance** (`.github/workflows/repo-governance.yml`):
-- `pr-review-evidence`: validates agent review evidence in PR body
-- `spec-governance`: validates spec-first repo structure
-- `markdown-quality`: markdownlint + prettier on governed files
-- `shell-quality`: shellcheck on all `.sh` files
-- `workflow-quality`: actionlint on GitHub Actions
-
-Gate activation config: `.github/ci-gates.json` (toggle `node_static`, `node_integration`, etc.)
-
-## PR Requirements
-
-Use `.github/pull_request_template.md`. Key requirements:
-- At least two reviewer agents must cross-review before merge
-- Review evidence (reviewer name, head SHA, linked PR comments) recorded in PR body `Agent Review` section
-- No unresolved conversations before merge
-- Linked reviewer comments are immutable evidence; post new comments for corrections
-
-## Key Conventions
-
-- Auth: static token (single-user, no RBAC)
-- DB: SQLite via better-sqlite3 (not Postgres)
-- WS: native `ws` package (not Socket.IO)
+- Single-user, static token auth (no RBAC)
+- SQLite via better-sqlite3, WS via `ws` (not Socket.IO)
+- TypeScript strict, ES2022, Node16 module resolution
+- Session state machine: `queued → running ⇄ idle → completed/failed/cancelled`
+- Companion uses `--input-format stream-json --output-format stream-json` for persistent sessions
 - Default permission mode: `bypassPermissions`
-- TypeScript strict mode, ES2022 target, Node16 module resolution
-- No web client, no iOS, no multi-tenant
+- Implementation via `cc-cx-workflow` skill (Claude Code orchestrates, Codex implements)
+- PR requires two agent cross-reviews → `.github/pull_request_template.md`
+- CI gates: `.github/ci-gates.json` → `.github/workflows/implementation-gates.yml` + `repo-governance.yml`
 
-## Implementation Workflow
+## Document Index
 
-Issue implementation uses the `cc-cx-workflow` skill (Claude Code orchestrates, Codex implements via `codeagent-wrapper`).
+### Product & Architecture
 
-The full pipeline: DAG analysis → codeagent implement → build/test → PR → parallel cross-review → fix → mop-up → CI → merge. Invoke with "处理下一个 issue" or "implement #XX".
+| Document | Path |
+|----------|------|
+| PRD (产品需求) | `docs/PRD.md` |
+| Engineering Spec 总入口 | `docs/engineering-spec/SPEC_INDEX.md` |
+| Architecture (组件架构) | `docs/engineering-spec/02_Technical_Design/ARCHITECTURE.md` |
+| Data Model (SQL schema, 状态转换) | `docs/engineering-spec/02_Technical_Design/DATA_MODEL.md` |
+| API Spec (REST + WS + Companion 协议) | `docs/engineering-spec/02_Technical_Design/API_SPEC.md` |
+| Business Logic (状态机, 事件流) | `docs/engineering-spec/02_Technical_Design/BUSINESS_LOGIC.md` |
+| Auth Design | `docs/engineering-spec/03_Security/AUTH_DESIGN.md` |
+| Configuration | `docs/engineering-spec/04_Operations/CONFIGURATION.md` |
+| Deployment | `docs/engineering-spec/04_Operations/DEPLOYMENT.md` |
+| Test Plan | `docs/engineering-spec/05_Testing/TEST_PLAN.md` |
+| Task Breakdown | `docs/engineering-spec/06_Implementation/TASK_BREAKDOWN.md` |
+| Requirements Matrix | `docs/engineering-spec/01_Requirements/REQUIREMENTS_MATRIX.md` |
 
-Key rules that apply repo-wide:
-- Give Codex clear goals, spec references (`@file`), and repo constraints — it handles implementation details itself
-- Always use `--backend codex` and `--full-output` (for reviews)
-- Only Claude Code performs GitHub write actions (merge, close, comment, push)
-- Codeagent review tasks are **read-only**
-- Merge only after CI passes + review evidence (full 40-char SHA) + user approval
-- `codeagent-wrapper` path: `~/.claude/bin/codeagent-wrapper` (if not in PATH)
+### UI/UX Spec
+
+| Document | Path |
+|----------|------|
+| UI/UX Overview | `docs/specs/ui-ux-rd-spec/OVERVIEW.md` |
+| Foundation / Components / Patterns | `docs/specs/ui-ux-rd-spec/01_Foundation/` ~ `03_Patterns/` |
+| Pages (6 screens) | `docs/specs/ui-ux-rd-spec/04_Pages/` |
+| Accessibility | `docs/specs/ui-ux-rd-spec/05_A11y/A11Y.md` |
+
+### OpenSpec (Execution Layer)
+
+| Document | Path |
+|----------|------|
+| OpenSpec 变更索引 | `openspec/README.md` |
+| Archived (p0–p1, 9 changes) | `openspec/changes/archive/` |
+| Active (p1–p3) | `openspec/changes/p1-*`, `p2-*`, `p3-*` |
+| Persistent Sessions ✅ | `openspec/changes/persistent-interactive-sessions/` |
+
+### Process & Operations
+
+| Document | Path |
+|----------|------|
+| CI Pipeline (workflow, gate, branch protection) | `docs/CI_PIPELINE.md` |
+| PR Workflow (模板, agent review, 合并规则) | `docs/PR_WORKFLOW.md` |
+| Implementation Workflow (8 阶段流水线) | `docs/IMPLEMENTATION_WORKFLOW.md` |
+| E2E Test Plan (T1–T10) | `docs/E2E_TEST_PLAN.md` |
+| CI & Issue DAG Plan (历史) | `docs/plans/2026-03-29-github-ci-and-issue-dag.md` |
+| References (happy 项目) | `docs/REFERENCES.md` |
+| Interactive CLI Spike | `docs/spike-interactive-cli.md` |
