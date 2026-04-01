@@ -30,7 +30,10 @@ interface RuntimeSession {
   stderrTail: string;
   resultEmitted: boolean;
   cancelled: boolean;
+  completing: boolean;
   closed: boolean;
+  idleTimer: NodeJS.Timeout | null;
+  isIdle: boolean;
   exitPromise: Promise<void>;
   resolveExit: () => void;
 }
@@ -43,6 +46,7 @@ export interface ClaudeRuntimeAdapterOptions {
   readonly logger?: LoggerLike;
   readonly spawn?: SpawnFunction;
   readonly killGraceMs?: number;
+  readonly idleTimeoutMs?: number;
 }
 
 export class ClaudeRuntimeAdapter {
@@ -51,14 +55,20 @@ export class ClaudeRuntimeAdapter {
   private readonly activeByProviderSessionId = new Map<string, RuntimeSession>();
   private readonly activeByRelaySessionId = new Map<string, RuntimeSession>();
   private readonly killGraceMs: number;
+  private readonly idleTimeoutMs: number;
 
   constructor(private readonly options: ClaudeRuntimeAdapterOptions) {
     this.logger = options.logger ?? console;
     this.spawn = options.spawn ?? spawnChildProcess;
     this.killGraceMs = options.killGraceMs ?? 5000;
+    this.idleTimeoutMs = options.idleTimeoutMs ?? 1800000;
   }
 
   async createSession(command: CreateSessionCommand): Promise<{ provider_session_id: string }> {
+    if (this.activeByRelaySessionId.has(command.session_id)) {
+      throw new CompanionError("state_conflict", `Session ${command.session_id} is already active`);
+    }
+
     const providerConfig = this.getProviderConfig(command.provider);
     if (this.options.isAllowedDirectory && !this.options.isAllowedDirectory(command.provider, command.cwd)) {
       throw new CompanionError(
@@ -68,9 +78,11 @@ export class ClaudeRuntimeAdapter {
     }
     const args = [
       "-p",
-      "--verbose",
+      "--input-format",
+      "stream-json",
       "--output-format",
       "stream-json",
+      "--verbose",
       "--permission-mode",
       command.permission_mode
     ];
@@ -78,8 +90,6 @@ export class ClaudeRuntimeAdapter {
     if (command.model) {
       args.push("--model", command.model);
     }
-
-    args.push("--", command.prompt);
 
     const session = this.spawnSession({
       relaySessionId: command.session_id,
@@ -90,6 +100,7 @@ export class ClaudeRuntimeAdapter {
     });
 
     const providerSessionId = await session.providerSessionIdPromise;
+    await this.writeUserMessage(session, command.prompt);
     return {
       provider_session_id: providerSessionId
     };
@@ -120,7 +131,16 @@ export class ClaudeRuntimeAdapter {
       provider: indexed.provider,
       cwd: command.cwd,
       binary: providerConfig.binary,
-      args: ["-p", "--verbose", "--output-format", "stream-json", "-r", command.provider_session_id],
+      args: [
+        "-p",
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+        "--verbose",
+        "-r",
+        command.provider_session_id
+      ],
       knownProviderSessionId: command.provider_session_id,
       indexEntry: {
         provider_session_id: command.provider_session_id,
@@ -137,16 +157,49 @@ export class ClaudeRuntimeAdapter {
 
   async sendMessage(relaySessionId: string, text: string): Promise<void> {
     const session = this.requireActiveSession(relaySessionId);
+    session.isIdle = false;
+    this.clearIdleTimer(session);
+    await this.writeUserMessage(session, text);
+  }
 
+  async completeSession(relaySessionId: string): Promise<void> {
+    const session = this.activeByRelaySessionId.get(relaySessionId);
+    if (!session) {
+      throw new CompanionError("session_not_found", `No active process for session ${relaySessionId}`);
+    }
+
+    session.completing = true;
+    session.isIdle = false;
+    this.clearIdleTimer(session);
+    session.child.kill("SIGTERM");
+
+    const didExit = await waitForExit(session.exitPromise, this.killGraceMs);
+    if (didExit) {
+      return;
+    }
+
+    this.logger.warn?.(`Session ${relaySessionId} did not exit after SIGTERM; sending SIGKILL`);
+    session.child.kill("SIGKILL");
+    await session.exitPromise;
+  }
+
+  private async writeUserMessage(session: RuntimeSession, text: string): Promise<void> {
     if (!session.child.stdin.writable) {
       throw new CompanionError(
         "session_not_found",
-        `No running process for session ${session.providerSessionId ?? relaySessionId}`
+        `No running process for session ${session.providerSessionId ?? session.relaySessionId}`
       );
     }
 
     await new Promise<void>((resolve, reject) => {
-      const payload = `${text}\n`;
+      const payload =
+        JSON.stringify({
+          type: "user",
+          message: {
+            role: "user",
+            content: text
+          }
+        }) + "\n";
       let settled = false;
 
       const finish = (callback: () => void) => {
@@ -209,8 +262,29 @@ export class ClaudeRuntimeAdapter {
   }
 
   async shutdown(): Promise<void> {
-    const relaySessionIds = Array.from(this.activeByRelaySessionId.keys());
-    await Promise.allSettled(relaySessionIds.map((relaySessionId) => this.cancel(relaySessionId)));
+    const sessions = Array.from(this.activeByRelaySessionId.values());
+    for (const session of sessions) {
+      this.clearIdleTimer(session);
+      await Promise.resolve(
+        this.options.sendEvent({
+          type: "event",
+          session_id: session.relaySessionId,
+          event_type: "session_error",
+          payload: {
+            error_code: "companion_restart",
+            message: "Companion shutting down; session process will be lost"
+          }
+        })
+      ).catch(() => {});
+      session.cancelled = true;
+      session.child.kill("SIGTERM");
+    }
+    await Promise.allSettled(sessions.map((s) => waitForExit(s.exitPromise, this.killGraceMs)));
+    for (const session of sessions) {
+      if (session.child.exitCode === null) {
+        session.child.kill("SIGKILL");
+      }
+    }
   }
 
   getActiveSessionCount(): number {
@@ -219,6 +293,16 @@ export class ClaudeRuntimeAdapter {
 
   getActiveSessionIds(): string[] {
     return Array.from(this.activeByRelaySessionId.keys());
+  }
+
+  getActiveSessions(): Array<{
+    readonly sessionId: string;
+    readonly status: "running" | "idle";
+  }> {
+    return Array.from(this.activeByRelaySessionId.values()).map((session) => ({
+      sessionId: session.relaySessionId,
+      status: session.isIdle ? "idle" : "running"
+    }));
   }
 
   private spawnSession(params: {
@@ -267,7 +351,10 @@ export class ClaudeRuntimeAdapter {
       stderrTail: "",
       resultEmitted: false,
       cancelled: false,
+      completing: false,
       closed: false,
+      idleTimer: null,
+      isIdle: false,
       exitPromise,
       resolveExit
     };
@@ -325,6 +412,21 @@ export class ClaudeRuntimeAdapter {
     }
 
     if (mapped.eventType === "session_result") {
+      if (session.child.exitCode === null && !session.completing) {
+        session.isIdle = true;
+        session.resultEmitted = false;
+        this.startIdleTimer(session);
+        await Promise.resolve(
+          this.options.sendEvent({
+            type: "event",
+            session_id: session.relaySessionId,
+            event_type: "session_idle",
+            payload: mapped.payload
+          })
+        );
+        return;
+      }
+
       session.resultEmitted = true;
     }
 
@@ -339,6 +441,7 @@ export class ClaudeRuntimeAdapter {
   }
 
   private async handleClose(session: RuntimeSession, code: number | null, signal: NodeJS.Signals | null): Promise<void> {
+    this.clearIdleTimer(session);
     session.closed = true;
     session.stdout.close();
 
@@ -369,8 +472,27 @@ export class ClaudeRuntimeAdapter {
       return;
     }
 
+    if (session.completing) {
+      if (!session.resultEmitted) {
+        session.resultEmitted = true;
+        await Promise.resolve(
+          this.options.sendEvent({
+            type: "event",
+            session_id: session.relaySessionId,
+            event_type: "session_result",
+            payload: {
+              result: null
+            }
+          })
+        );
+      }
+
+      return;
+    }
+
     if (code === 0) {
       if (!session.resultEmitted) {
+        session.resultEmitted = true;
         await Promise.resolve(
           this.options.sendEvent({
             type: "event",
@@ -458,6 +580,24 @@ export class ClaudeRuntimeAdapter {
     }
 
     return providerConfig;
+  }
+
+  private startIdleTimer(session: RuntimeSession): void {
+    this.clearIdleTimer(session);
+    session.idleTimer = setTimeout(() => {
+      this.logger.warn?.(`Session ${session.relaySessionId} idle timeout; completing`);
+      void this.completeSession(session.relaySessionId).catch((error) => {
+        this.logger.error?.(error);
+      });
+    }, this.idleTimeoutMs);
+    session.idleTimer.unref?.();
+  }
+
+  private clearIdleTimer(session: RuntimeSession): void {
+    if (session.idleTimer) {
+      clearTimeout(session.idleTimer);
+      session.idleTimer = null;
+    }
   }
 }
 

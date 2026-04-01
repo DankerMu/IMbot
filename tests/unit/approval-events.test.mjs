@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import { mkdtempSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
+const companion = require("../../packages/companion/dist/index.js");
 const { initializeDatabase } = require("../../packages/relay/dist/db/init.js");
 const { WsHub } = require("../../packages/relay/dist/ws/hub.js");
 const { CompanionManager } = require("../../packages/relay/dist/companion/manager.js");
@@ -40,6 +43,74 @@ const silentLogger = {
   warn() {},
   error() {}
 };
+
+class MockChildProcess extends EventEmitter {
+  constructor() {
+    super();
+    this.stdin = new PassThrough();
+    this.stdout = new PassThrough();
+    this.stderr = new PassThrough();
+    this.exitCode = null;
+  }
+
+  emitJson(message) {
+    this.stdout.write(`${JSON.stringify(message)}\n`);
+  }
+
+  kill(signal = "SIGTERM") {
+    queueMicrotask(() => {
+      this.close(signal === "SIGINT" ? 130 : 0, null);
+    });
+    return true;
+  }
+
+  close(code = 0, signal = null) {
+    this.exitCode = code;
+    this.stdout.end();
+    this.stderr.end();
+    this.stdin.end();
+    this.emit("close", code, signal);
+  }
+}
+
+function createAdapterHarness(tempDir) {
+  const sessionIndex = new companion.SessionIndex({
+    filePath: path.join(tempDir, "sessions.json"),
+    logger: silentLogger
+  });
+  const events = [];
+  const children = [];
+  const adapter = new companion.ClaudeRuntimeAdapter({
+    providers: {
+      claude: {
+        binary: "claude"
+      }
+    },
+    sessionIndex,
+    logger: silentLogger,
+    sendEvent: (message) => {
+      events.push(message);
+    },
+    spawn: () => {
+      const child = new MockChildProcess();
+      children.push(child);
+      queueMicrotask(() => {
+        child.emitJson({
+          type: "system",
+          subtype: "init",
+          session_id: "provider-session-1"
+        });
+      });
+      return child;
+    }
+  });
+
+  return {
+    adapter,
+    children,
+    events
+  };
+}
 
 function createTestHarness(t, prefix) {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -187,6 +258,44 @@ test("mapRuntimeEvent extracts assistant text from Claude stream-json message co
       text: "first line\nsecond line"
     }
   });
+});
+
+test("ClaudeRuntimeAdapter emits session_idle instead of session_result when the process remains alive", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-approval-session-idle-"));
+  const projectDir = path.join(tempDir, "project");
+  const { adapter, children, events } = createAdapterHarness(tempDir);
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await adapter.createSession({
+    cmd: "create_session",
+    req_id: "req-session-idle",
+    session_id: "relay-session-1",
+    provider: "claude",
+    cwd: projectDir,
+    prompt: "hello",
+    permission_mode: "bypassPermissions"
+  });
+
+  children[0].emitJson({
+    type: "result",
+    result: "turn complete"
+  });
+  await Promise.resolve();
+  await Promise.resolve();
+
+  assert.deepEqual(events.at(-1), {
+    type: "event",
+    session_id: "relay-session-1",
+    event_type: "session_idle",
+    payload: {
+      result: "turn complete"
+    }
+  });
+  assert.equal(events.some((event) => event.event_type === "session_result"), false);
 });
 
 test("relay stores and broadcasts approval events in order without changing session status", async (t) => {

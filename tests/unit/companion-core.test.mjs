@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawn as spawnChildProcess } from "node:child_process";
+import { EventEmitter } from "node:events";
 import {
   existsSync,
   mkdirSync,
@@ -14,6 +14,7 @@ import {
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
+import { PassThrough } from "node:stream";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
@@ -59,7 +60,8 @@ function createRuntimeConfig(tempDir) {
         binary: "book"
       }
     },
-    sessionIndexPath: path.join(tempDir, "sessions.json")
+    sessionIndexPath: path.join(tempDir, "sessions.json"),
+    idleTimeoutMs: 1800000
   };
 }
 
@@ -95,6 +97,7 @@ test("loadCompanionConfig reads env overrides and validates configured providers
         relay_url: "ws://127.0.0.1:3010",
         token: "test-token",
         host_id: "macbook-1",
+        idle_timeout_ms: 60000,
         providers: {
           claude: {
             binary: "/usr/local/bin/claude"
@@ -119,6 +122,7 @@ test("loadCompanionConfig reads env overrides and validates configured providers
     assert.deepEqual(Object.keys(config.providers), ["claude"]);
     assert.equal(config.providers.claude.binary, "/usr/local/bin/claude");
     assert.equal(config.sessionIndexPath, sessionIndexPath);
+    assert.equal(config.idleTimeoutMs, 60000);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -155,27 +159,86 @@ test("loadCompanionConfig resolves bare provider binaries from common user paths
   try {
     const config = companion.loadCompanionConfig({
       COMPANION_CONFIG: configPath,
+      COMPANION_IDLE_TIMEOUT_MS: "90000",
       HOME: homeDir,
       PATH: "/usr/bin:/bin"
     });
 
     assert.equal(config.providers.claude.binary, claudeBinary);
+    assert.equal(config.idleTimeoutMs, 90000);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
 
-function createAdapterHarness(tempDir, isAllowedDirectory) {
+class MockChildProcess extends EventEmitter {
+  constructor() {
+    super();
+    this.stdin = new PassThrough();
+    this.stdout = new PassThrough();
+    this.stderr = new PassThrough();
+    this.exitCode = null;
+    this.signalCode = null;
+    this.kills = [];
+    this.stdinBuffer = "";
+    this.stdin.setEncoding("utf8");
+    this.stdin.on("data", (chunk) => {
+      this.stdinBuffer += String(chunk);
+    });
+  }
+
+  emitJson(message) {
+    this.stdout.write(`${JSON.stringify(message)}\n`);
+  }
+
+  getWrittenLines() {
+    return this.stdinBuffer
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+  }
+
+  kill(signal = "SIGTERM") {
+    this.kills.push(signal);
+    queueMicrotask(() => {
+      if (signal === "SIGINT") {
+        this.close(130, null);
+        return;
+      }
+
+      if (signal === "SIGTERM") {
+        this.close(0, null);
+        return;
+      }
+
+      this.close(null, signal);
+    });
+    return true;
+  }
+
+  close(code = 0, signal = null) {
+    this.exitCode = code;
+    this.signalCode = signal;
+    this.stdout.end();
+    this.stderr.end();
+    this.stdin.end();
+    this.emit("close", code, signal);
+  }
+}
+
+function parseWrittenMessages(child) {
+  return child.getWrittenLines().map((line) => JSON.parse(line));
+}
+
+function createAdapterHarness(tempDir, isAllowedDirectory, harnessOptions = {}) {
   const sessionIndexPath = path.join(tempDir, "sessions.json");
   const sessionIndex = new companion.SessionIndex({
     filePath: sessionIndexPath,
     logger: silentLogger
   });
   const spawnCalls = [];
-  const runtimeScript = [
-    "process.stdout.write(JSON.stringify({ type: 'system', session_id: 'provider-session-test' }) + '\\n');",
-    "process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');"
-  ].join("");
+  const children = [];
+  const events = [];
 
   const adapter = new companion.ClaudeRuntimeAdapter({
     providers: {
@@ -188,26 +251,46 @@ function createAdapterHarness(tempDir, isAllowedDirectory) {
     },
     sessionIndex,
     logger: silentLogger,
-    sendEvent: () => {},
+    idleTimeoutMs: harnessOptions.idleTimeoutMs,
+    sendEvent: (message) => {
+      events.push(message);
+    },
     isAllowedDirectory,
-    spawn: (binary, args, options) => {
+    spawn: (binary, args, spawnOptions) => {
+      const child = new MockChildProcess();
       spawnCalls.push({
         binary,
         args,
-        cwd: options.cwd
+        cwd: spawnOptions.cwd
+      });
+      children.push(child);
+
+      queueMicrotask(() => {
+        if (harnessOptions.autoInit !== false) {
+          child.emitJson({
+            type: "system",
+            subtype: "init",
+            session_id: harnessOptions.providerSessionId ?? "provider-session-test"
+          });
+        }
+
+        harnessOptions.onSpawn?.(child, {
+          binary,
+          args,
+          cwd: spawnOptions.cwd
+        });
       });
 
-      return spawnChildProcess(process.execPath, ["-e", runtimeScript], {
-        cwd: options.cwd,
-        stdio: ["pipe", "pipe", "pipe"]
-      });
+      return child;
     }
   });
 
   return {
     adapter,
     sessionIndex,
-    spawnCalls
+    spawnCalls,
+    children,
+    events
   };
 }
 
@@ -286,7 +369,7 @@ test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () =
   mkdirSync(claudeProject, { recursive: true });
 
   try {
-    const { adapter, spawnCalls } = createAdapterHarness(
+    const { adapter, spawnCalls, children } = createAdapterHarness(
       tempDir,
       (provider, cwd) => provider !== "book" || cwd.startsWith(path.join(tempDir, "novel"))
     );
@@ -308,13 +391,22 @@ test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () =
     assert.equal(spawnCalls[0].binary, "claude");
     assert.deepEqual(spawnCalls[0].args, [
       "-p",
-      "--verbose",
+      "--input-format",
+      "stream-json",
       "--output-format",
       "stream-json",
+      "--verbose",
       "--permission-mode",
-      "bypassPermissions",
-      "--",
-      "hello"
+      "bypassPermissions"
+    ]);
+    assert.deepEqual(parseWrittenMessages(children[0]), [
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: "hello"
+        }
+      }
     ]);
 
     await adapter.shutdown();
@@ -323,13 +415,13 @@ test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () =
   }
 });
 
-test("ClaudeRuntimeAdapter separates hyphen-prefixed prompts from CLI flags with --", async () => {
+test("ClaudeRuntimeAdapter spawns stream-json mode and writes the first prompt to stdin as JSON", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-claude-hyphen-"));
   const projectDir = path.join(tempDir, "AI-vault");
   mkdirSync(projectDir, { recursive: true });
 
   try {
-    const { adapter, spawnCalls } = createAdapterHarness(tempDir, () => true);
+    const { adapter, spawnCalls, children } = createAdapterHarness(tempDir, () => true);
 
     await adapter.createSession({
       cmd: "create_session",
@@ -342,9 +434,16 @@ test("ClaudeRuntimeAdapter separates hyphen-prefixed prompts from CLI flags with
     });
 
     assert.equal(spawnCalls.length, 1);
-    const dashDashIndex = spawnCalls[0].args.indexOf("--");
-    assert.ok(dashDashIndex >= 0, "args must contain -- separator");
-    assert.equal(spawnCalls[0].args[dashDashIndex + 1], "--help me with something");
+    assert.equal(spawnCalls[0].args.includes("--"), false);
+    assert.deepEqual(parseWrittenMessages(children[0]), [
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: "--help me with something"
+        }
+      }
+    ]);
 
     await adapter.shutdown();
   } finally {
@@ -382,9 +481,11 @@ test("ClaudeRuntimeAdapter uses the current Claude resume flags and avoids remov
     assert.equal(spawnCalls[0].binary, "claude");
     assert.deepEqual(spawnCalls[0].args, [
       "-p",
-      "--verbose",
+      "--input-format",
+      "stream-json",
       "--output-format",
       "stream-json",
+      "--verbose",
       "-r",
       "provider-session-existing"
     ]);
@@ -434,6 +535,183 @@ test("ClaudeRuntimeAdapter rejects resume_session for book outside configured ro
       }
     );
     assert.equal(spawnCalls.length, 0);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ClaudeRuntimeAdapter writes send_message payloads to stdin as stream-json", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-send-message-"));
+  const projectDir = path.join(tempDir, "AI-vault");
+  mkdirSync(projectDir, { recursive: true });
+
+  try {
+    const { adapter, children } = createAdapterHarness(tempDir, () => true);
+
+    await adapter.createSession({
+      cmd: "create_session",
+      req_id: "req-send-create",
+      session_id: "relay-send-1",
+      provider: "claude",
+      cwd: projectDir,
+      prompt: "hello",
+      permission_mode: "bypassPermissions"
+    });
+    await adapter.sendMessage("relay-send-1", "followup");
+
+    assert.deepEqual(parseWrittenMessages(children[0]), [
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: "hello"
+        }
+      },
+      {
+        type: "user",
+        message: {
+          role: "user",
+          content: "followup"
+        }
+      }
+    ]);
+
+    await adapter.shutdown();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ClaudeRuntimeAdapter emits session_idle for live results, resets idle timers on send_message, and completes on timeout", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-idle-timeout-"));
+  const projectDir = path.join(tempDir, "AI-vault");
+  mkdirSync(projectDir, { recursive: true });
+
+  const originalSetTimeout = global.setTimeout;
+  const originalClearTimeout = global.clearTimeout;
+  const scheduled = [];
+
+  global.setTimeout = ((fn, ms, ...args) => {
+    const handle = {
+      cleared: false,
+      ms,
+      unrefCalled: false,
+      fn: () => fn(...args),
+      unref() {
+        this.unrefCalled = true;
+        return this;
+      }
+    };
+    scheduled.push(handle);
+    return handle;
+  });
+  global.clearTimeout = ((handle) => {
+    if (handle) {
+      handle.cleared = true;
+    }
+  });
+
+  try {
+    const { adapter, children, events } = createAdapterHarness(tempDir, () => true, {
+      idleTimeoutMs: 1234
+    });
+
+    await adapter.createSession({
+      cmd: "create_session",
+      req_id: "req-idle-create",
+      session_id: "relay-idle-1",
+      provider: "claude",
+      cwd: projectDir,
+      prompt: "hello",
+      permission_mode: "bypassPermissions"
+    });
+
+    const child = children[0];
+    child.emitJson({
+      type: "result",
+      result: "turn one"
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(events.at(-1), {
+      type: "event",
+      session_id: "relay-idle-1",
+      event_type: "session_idle",
+      payload: {
+        result: "turn one"
+      }
+    });
+    assert.equal(scheduled.length >= 1, true);
+    assert.equal(scheduled[0].ms, 1234);
+    assert.equal(scheduled[0].cleared, false);
+    assert.equal(scheduled[0].unrefCalled, true);
+
+    await adapter.sendMessage("relay-idle-1", "followup");
+    assert.equal(scheduled[0].cleared, true);
+
+    child.emitJson({
+      type: "result",
+      result: "turn two"
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const secondIdleTimer = scheduled.find((handle, index) => index > 0 && handle.ms === 1234 && !handle.cleared);
+    assert.ok(secondIdleTimer, "second idle timer should be scheduled");
+
+    secondIdleTimer.fn();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    assert.deepEqual(child.kills, ["SIGTERM"]);
+    assert.equal(events.some((event) => event.event_type === "session_result"), true);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("ClaudeRuntimeAdapter completeSession sends SIGTERM and waits for exit", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-complete-"));
+  const projectDir = path.join(tempDir, "AI-vault");
+  mkdirSync(projectDir, { recursive: true });
+
+  try {
+    const { adapter, children, events } = createAdapterHarness(tempDir, () => true);
+
+    await adapter.createSession({
+      cmd: "create_session",
+      req_id: "req-complete-create",
+      session_id: "relay-complete-1",
+      provider: "claude",
+      cwd: projectDir,
+      prompt: "hello",
+      permission_mode: "bypassPermissions"
+    });
+
+    const child = children[0];
+    child.kill = (signal = "SIGTERM") => {
+      child.kills.push(signal);
+      return true;
+    };
+
+    let completed = false;
+    const completion = adapter.completeSession("relay-complete-1").then(() => {
+      completed = true;
+    });
+
+    await Promise.resolve();
+    assert.deepEqual(child.kills, ["SIGTERM"]);
+    assert.equal(completed, false);
+
+    child.close(0, null);
+    await completion;
+
+    assert.equal(completed, true);
+    assert.equal(events.some((event) => event.event_type === "session_result"), true);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -764,7 +1042,7 @@ test("CompanionRuntime add_root and remove_root handlers dispatch correctly", as
   }
 });
 
-test("CompanionRuntime reports running sessions after reconnect", async () => {
+test("CompanionRuntime replays active running and idle session statuses after reconnect", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-reconnect-"));
   const sentMessages = [];
 
@@ -777,7 +1055,16 @@ test("CompanionRuntime reports running sessions after reconnect", async () => {
     runtime.relayClient.send = (message) => {
       sentMessages.push(message);
     };
-    runtime.adapter.getActiveSessionIds = () => ["relay-running-1", "relay-running-2"];
+    runtime.adapter.getActiveSessions = () => [
+      {
+        sessionId: "relay-running-1",
+        status: "running"
+      },
+      {
+        sessionId: "relay-idle-1",
+        status: "idle"
+      }
+    ];
 
     runtime.relayClient.emit("connected");
 
@@ -800,10 +1087,10 @@ test("CompanionRuntime reports running sessions after reconnect", async () => {
       },
       {
         type: "event",
-        session_id: "relay-running-2",
+        session_id: "relay-idle-1",
         event_type: "session_status_changed",
         payload: {
-          status: "running"
+          status: "idle"
         }
       }
     ]);
