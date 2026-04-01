@@ -66,11 +66,42 @@ function toWsUrl(relayUrl: string): string {
   return url;
 }
 
+function validateRelayUrl(relayUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(relayUrl);
+  } catch {
+    console.error(`Error: invalid relay URL: ${relayUrl}`);
+    process.exit(1);
+  }
+  const isLocal = parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1" || parsed.hostname === "::1";
+  if (!isLocal && parsed.protocol !== "wss:" && parsed.protocol !== "https:") {
+    console.error("Error: relay URL must use wss:// for non-localhost hosts");
+    process.exit(1);
+  }
+}
+
+validateRelayUrl(config.relayUrl);
+
+let currentWs: WebSocket | null = null;
+
+process.on("SIGINT", () => {
+  console.error("\nClosing...");
+  currentWs?.close();
+  process.exit(0);
+});
+
+process.on("SIGTERM", () => {
+  currentWs?.close();
+  process.exit(0);
+});
+
 function connect(): void {
   const wsUrl = `${toWsUrl(config.relayUrl)}?token=${encodeURIComponent(config.token)}`;
   console.error(`Connecting to ${toWsUrl(config.relayUrl)}...`);
 
   const ws = new WebSocket(wsUrl);
+  currentWs = ws;
 
   ws.on("open", () => {
     console.error("Connected. Streaming events...\n");
@@ -111,17 +142,6 @@ function connect(): void {
 
   ws.on("error", (err: Error) => {
     console.error(`WebSocket error: ${err.message}`);
-  });
-
-  process.on("SIGINT", () => {
-    console.error("\nClosing...");
-    ws.close();
-    process.exit(0);
-  });
-
-  process.on("SIGTERM", () => {
-    ws.close();
-    process.exit(0);
   });
 }
 
