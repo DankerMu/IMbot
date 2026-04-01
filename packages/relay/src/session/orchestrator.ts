@@ -279,13 +279,16 @@ export class SessionOrchestrator {
         await this.transition(session.id, "completed");
       }
 
-      this.auditLogger.write("session.complete", {
-        session_id: session.id,
-        host_id: session.host_id,
-        detail: {
-          previous_status: previousStatus
-        }
-      });
+      const finalSession = this.requireSession(session.id);
+      if (finalSession.status === "completed") {
+        this.auditLogger.write("session.complete", {
+          session_id: session.id,
+          host_id: session.host_id,
+          detail: {
+            previous_status: previousStatus
+          }
+        });
+      }
 
       return this.requireSession(session.id);
     });
