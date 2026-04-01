@@ -1,4 +1,4 @@
-@file:Suppress("FunctionName")
+@file:Suppress("FunctionName", "TooManyFunctions")
 
 package com.imbot.android.ui.detail
 
@@ -211,8 +211,10 @@ internal fun buildMarkdownInlineHtml(text: String): String {
 
         val token = match.value
         when {
-            token.startsWith("**") && token.endsWith("**") ->
-                builder.append("<strong>${buildMarkdownInlineHtml(token.removePrefix("**").removeSuffix("**"))}</strong>")
+            token.startsWith("**") && token.endsWith("**") -> {
+                val inner = buildMarkdownInlineHtml(token.removePrefix("**").removeSuffix("**"))
+                builder.append("<strong>$inner</strong>")
+            }
 
             token.startsWith("*") && token.endsWith("*") ->
                 builder.append("<em>${buildMarkdownInlineHtml(token.removePrefix("*").removeSuffix("*"))}</em>")
@@ -417,9 +419,9 @@ private fun TextAlign.toCssValue(): String =
 private fun Color.toCssColor(includeAlpha: Boolean = false): String {
     val argb = toArgb()
     return if (includeAlpha) {
-        String.format("#%08X", argb)
+        String.format(java.util.Locale.ROOT, "#%08X", argb)
     } else {
-        String.format("#%06X", argb and 0xFFFFFF)
+        String.format(java.util.Locale.ROOT, "#%06X", argb and 0xFFFFFF)
     }
 }
 

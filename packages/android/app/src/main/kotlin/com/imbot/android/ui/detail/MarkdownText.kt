@@ -1,4 +1,4 @@
-@file:Suppress("FunctionName")
+@file:Suppress("FunctionName", "TooManyFunctions")
 
 package com.imbot.android.ui.detail
 
@@ -305,24 +305,9 @@ internal fun parseMarkdownBlocks(markdown: String): List<MarkdownBlock> {
                 line = trimmed,
                 nextLine = lines.getOrNull(index + 1)?.trim(),
             ) -> {
-                val headerCells = splitTableCells(trimmed)
-                val alignments = parseTableAlignments(lines[index + 1].trim())
-                index += 2
-                val rows = mutableListOf<List<String>>()
-                while (index < lines.size) {
-                    val rowTrimmed = lines[index].trim()
-                    if (!looksLikeTableRow(rowTrimmed, expectedColumns = headerCells.size)) {
-                        break
-                    }
-                    rows += splitTableCells(rowTrimmed)
-                    index++
-                }
-                blocks +=
-                    MarkdownBlock.Table(
-                        header = headerCells,
-                        alignments = alignments,
-                        rows = rows,
-                    )
+                val (table, nextIndex) = parseTableBlock(lines, index, trimmed)
+                blocks += table
+                index = nextIndex
             }
             trimmed == "$$" || (trimmed.startsWith("$$") && !trimmed.removePrefix("$$").contains("$$")) -> {
                 val expressionLines = mutableListOf<String>()
@@ -405,6 +390,24 @@ internal fun parseMarkdownBlocks(markdown: String): List<MarkdownBlock> {
     return blocks
 }
 
+private fun parseTableBlock(
+    lines: List<String>,
+    startIndex: Int,
+    headerLine: String,
+): Pair<MarkdownBlock.Table, Int> {
+    val headerCells = splitTableCells(headerLine)
+    val alignments = parseTableAlignments(lines[startIndex + 1].trim())
+    var index = startIndex + 2
+    val rows = mutableListOf<List<String>>()
+    while (index < lines.size) {
+        val rowTrimmed = lines[index].trim()
+        if (!looksLikeTableRow(rowTrimmed, expectedColumns = headerCells.size)) break
+        rows += splitTableCells(rowTrimmed)
+        index++
+    }
+    return MarkdownBlock.Table(header = headerCells, alignments = alignments, rows = rows) to index
+}
+
 internal fun containsInlineMath(text: String): Boolean =
     INLINE_TOKEN_REGEX.findAll(text).any { match ->
         val token = match.value
@@ -430,16 +433,11 @@ private fun shouldContinueParagraph(
 private fun looksLikeTableStart(
     line: String,
     nextLine: String?,
-): Boolean {
-    if (nextLine.isNullOrBlank()) {
-        return false
-    }
-    val headerCells = splitTableCells(line)
-    if (headerCells.size < 2) {
-        return false
-    }
-    return isTableSeparatorRow(nextLine, expectedColumns = headerCells.size)
-}
+): Boolean =
+    !nextLine.isNullOrBlank() &&
+        splitTableCells(line).let { cells ->
+            cells.size >= 2 && isTableSeparatorRow(nextLine, expectedColumns = cells.size)
+        }
 
 private fun looksLikeTableRow(
     line: String,

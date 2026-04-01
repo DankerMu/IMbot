@@ -55,6 +55,7 @@ import com.imbot.android.viewmodel.MainNavigationEvent
 import com.imbot.android.viewmodel.MainViewModel
 import kotlinx.coroutines.flow.collectLatest
 
+@Suppress("CyclomaticComplexMethod")
 @Composable
 fun AppNavigation(
     homeViewModel: HomeViewModel,

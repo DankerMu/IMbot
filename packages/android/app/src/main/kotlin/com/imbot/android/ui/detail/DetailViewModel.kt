@@ -61,7 +61,7 @@ sealed interface DetailEvent {
 }
 
 @HiltViewModel
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LargeClass")
 class DetailViewModel
     @Inject
     constructor(
