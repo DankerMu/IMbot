@@ -34,7 +34,7 @@ export const VALID_TRANSITIONS: Readonly<Record<SessionStatus, readonly SessionS
   idle: ["running", "completed", "failed", "cancelled"],
   completed: ["running"],
   failed: ["running"],
-  cancelled: []
+  cancelled: ["running"]
 };
 
 export const PROVIDERS = ["claude", "book", "openclaw"] as const;

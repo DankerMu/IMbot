@@ -228,7 +228,8 @@
 
 **Errors**:
 - `404 not_found`。
-- `409 state_conflict`: session 处于 `running`、`queued` 或 `cancelled` 状态，无法恢复。
+- `409 state_conflict`: session 处于 `running`、`queued` 或 `idle` 状态，无法恢复。
+- `409 session_not_resumable`: session 缺少 `provider_session_id`，即使状态允许也无法恢复。
 - `502 host_offline`。
 - `502 provider_unreachable`: OpenClaw gateway 不可用或拒绝恢复。
 
@@ -269,7 +270,7 @@
 
 取消正在运行的会话。
 
-**Response 200**: session 对象。正常情况下 `status` 变为 `cancelled`；如果 provider 在 cancel 完成前先发送终态事件，则响应返回 provider 的终态 `completed` 或 `failed`。
+**Response 200**: session 对象。正常情况下 `status` 变为 `cancelled`；如果 provider 在 cancel 完成前先发送终态事件，则响应返回 provider 的终态 `completed` 或 `failed`。若 `provider_session_id` 仍然存在，`cancelled` session 后续仍可通过 `POST /resume` 恢复。
 
 **Errors**: `404`, `409` (session 不在 `running` 状态)。
 

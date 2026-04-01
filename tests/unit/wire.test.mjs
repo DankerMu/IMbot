@@ -72,7 +72,7 @@ test("VALID_TRANSITIONS preserves existing transitions unchanged", () => {
   assert.deepEqual(wire.VALID_TRANSITIONS.queued, ["running", "failed"]);
   assert.deepEqual(wire.VALID_TRANSITIONS.completed, ["running"]);
   assert.deepEqual(wire.VALID_TRANSITIONS.failed, ["running"]);
-  assert.deepEqual(wire.VALID_TRANSITIONS.cancelled, []);
+  assert.deepEqual(wire.VALID_TRANSITIONS.cancelled, ["running"]);
 });
 
 test("ExponentialBackoff returns increasing delays up to the max", () => {

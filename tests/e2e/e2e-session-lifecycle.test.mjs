@@ -134,7 +134,9 @@ test("E2E-15 ~ E2E-18: cancel, delete, and active-session delete protections", {
 
     if (terminal.status === "cancelled") {
       const resumeResponse = await apiPost(`/sessions/${session.id}/resume`);
-      assertError(resumeResponse, 409, "state_conflict");
+      assertStatus(resumeResponse, 200);
+      const resumedIdle = await waitForStatus(session.id, ["idle"], LONG_TIMEOUT_MS);
+      assert.equal(resumedIdle.status, "idle");
     } else {
       subtest.diagnostic(`Session reached ${terminal.status} before cancel settled; observed status=${runningOrIdle.status}`);
     }

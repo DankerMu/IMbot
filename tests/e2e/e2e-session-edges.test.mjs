@@ -50,9 +50,9 @@ test("E2E-22: complete succeeds while a session is still running", { timeout: 12
   await waitForStatus(session.id, ["completed"], LONG_TIMEOUT_MS);
 });
 
-test("E2E-23: cancelled sessions cannot be resumed", { timeout: 120_000 }, async (t) => {
+test("E2E-23: cancelled sessions can be resumed back to idle", { timeout: 180_000 }, async (t) => {
   const fixture = await createBookSession(t, {
-    prompt: "cancel then reject resume",
+    prompt: "cancel then resume",
     cleanup: true
   });
   if (!fixture) {
@@ -65,7 +65,8 @@ test("E2E-23: cancelled sessions cannot be resumed", { timeout: 120_000 }, async
   await waitForStatus(session.id, ["cancelled"], LONG_TIMEOUT_MS);
 
   const resume = await apiPost(`/sessions/${session.id}/resume`);
-  assertError(resume, 409, "state_conflict");
+  assertStatus(resume, 200);
+  await waitForStatus(session.id, ["idle"], LONG_TIMEOUT_MS);
 });
 
 test("E2E-24: unknown sessions return 404 across lifecycle endpoints", async () => {

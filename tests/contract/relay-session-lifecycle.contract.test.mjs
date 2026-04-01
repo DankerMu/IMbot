@@ -458,6 +458,171 @@ test("relay cancels idle sessions through the existing cancel endpoint", async (
   });
 });
 
+test("relay resumes cancelled sessions when the provider session mapping still exists", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime(
+    "imbot-relay-cancelled-resume-"
+  );
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId, providerSessionId } = await createRunningSession({ baseUrl, config }, companion);
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_idle",
+      payload: {
+        result: "idle before cancelled resume"
+      }
+    })
+  );
+
+  await waitForSessionStatus(runtime, sessionId, "idle", "session idle before cancelled resume");
+
+  const cancelResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/cancel`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  const cancelCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "cancel_session" && message.session_id === sessionId,
+    "cancel_session before cancelled resume"
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: cancelCommand.req_id,
+      status: "ok"
+    })
+  );
+
+  const cancelResponse = await cancelResponsePromise;
+  const cancelledSession = await cancelResponse.json();
+  assert.equal(cancelResponse.status, 200);
+  assert.equal(cancelledSession.status, "cancelled");
+  await waitForSessionStatus(runtime, sessionId, "cancelled", "cancelled session before resume");
+
+  const resumeResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  const resumeCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "resume_session" && message.session_id === sessionId,
+    "resume_session after cancel"
+  );
+  assert.equal(resumeCommand.provider_session_id, providerSessionId);
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: resumeCommand.req_id,
+      status: "ok",
+      data: {
+        provider_session_id: providerSessionId
+      }
+    })
+  );
+
+  const resumeResponse = await resumeResponsePromise;
+  const resumedSession = await resumeResponse.json();
+  assert.equal(resumeResponse.status, 200);
+  assert.equal(resumedSession.status, "running");
+  await waitForSessionStatus(runtime, sessionId, "running", "running after cancelled resume");
+
+  const resumeAudit = runtime.db
+    .prepare("SELECT detail FROM audit_logs WHERE action = 'session.resume' AND session_id = ? ORDER BY created_at DESC LIMIT 1")
+    .get(sessionId);
+  assert.deepEqual(JSON.parse(resumeAudit.detail), {
+    previous_status: "cancelled"
+  });
+});
+
+test("relay rejects resuming a cancelled session without provider_session_id", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime(
+    "imbot-relay-cancelled-no-provider-"
+  );
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createRunningSession({ baseUrl, config }, companion);
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_idle",
+      payload: { result: "idle before cancel" }
+    })
+  );
+
+  await waitForSessionStatus(runtime, sessionId, "idle", "session idle");
+
+  const cancelResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/cancel`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${config.staticToken}` }
+  });
+
+  const cancelCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "cancel_session" && message.session_id === sessionId,
+    "cancel_session command"
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: cancelCommand.req_id,
+      status: "ok"
+    })
+  );
+
+  const cancelResponse = await cancelResponsePromise;
+  assert.equal(cancelResponse.status, 200);
+  await waitForSessionStatus(runtime, sessionId, "cancelled", "cancelled session");
+
+  // Clear the provider_session_id to simulate a session that lost its mapping
+  runtime.db
+    .prepare("UPDATE sessions SET provider_session_id = NULL WHERE id = ?")
+    .run(sessionId);
+
+  const resumeResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${config.staticToken}` }
+  });
+
+  assert.equal(resumeResponse.status, 409);
+  assert.deepEqual(await resumeResponse.json(), { error: "session_not_resumable" });
+
+  // Session status should remain cancelled
+  const session = runtime.db.prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId);
+  assert.deepEqual(session, { status: "cancelled" });
+});
+
 test("relay supports resume, message, cancel, delete, catch-up, and lifecycle audit logging", async (t) => {
   const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-lifecycle-");
   const companion = new WebSocket(
@@ -624,15 +789,6 @@ test("relay supports resume, message, cancel, delete, catch-up, and lifecycle au
   });
   assert.equal(cancelledMessageResponse.status, 409);
   assert.deepEqual(await cancelledMessageResponse.json(), { error: "state_conflict" });
-
-  const cancelledResumeResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}/resume`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${config.staticToken}`
-    }
-  });
-  assert.equal(cancelledResumeResponse.status, 409);
-  assert.deepEqual(await cancelledResumeResponse.json(), { error: "state_conflict" });
 
   const createAudit = runtime.db
     .prepare("SELECT detail FROM audit_logs WHERE action = 'session.create' AND session_id = ?")

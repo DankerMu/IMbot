@@ -22,10 +22,10 @@
 | `idle` | companion 断开 | `failed` | — | emit `session_error` (companion_restart) |
 | `completed` | `POST /resume` | `running` | host online | 发送 resume command（进程已死，重新 spawn） |
 | `failed` | `POST /resume` | `running` | host online + error 可恢复 | 发送 resume command |
-| `cancelled` | — | — | 终态，不可转换 | — |
+| `cancelled` | `POST /resume` | `running` | host online + `provider_session_id` 仍存在 | 发送 resume command |
 | `*` (inactive 30d) | purge job | 删除 | — | CASCADE 删除 events |
 
-> **Note**: `idle` 表示 CLI 进程存活但当前 turn 已完成，等待下一条用户消息。与 `completed`（进程已退出）不同。Companion 使用 `--input-format stream-json --output-format stream-json` 模式实现持久双向交互。
+> **Note**: `idle` 表示 CLI 进程存活但当前 turn 已完成，等待下一条用户消息。与 `completed`（进程已退出）不同。`cancelled` 表示当前本地进程已被用户停止，但如果 `provider_session_id` 仍保留，仍可重新 `resume`。Companion 使用 `--input-format stream-json --output-format stream-json` 模式实现持久双向交互。
 
 ### Implementation Pseudocode
 

@@ -221,7 +221,7 @@ Android 手机 ──HTTPS/WSS──► relay VPS（纽约）
 **接受标准**：
 - [ ] 历史 session 列表正确反映本地 runtime 的真实 session 数据。
 - [ ] 恢复后可正常继续对话。
-- [ ] 已完成的 session 可查看历史但不可恢复。
+- [ ] 保留 `provider_session_id` 的已结束 session 进入详情后可恢复继续对话。
 
 ### FR-05: 多会话并发
 

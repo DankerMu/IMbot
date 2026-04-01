@@ -7,6 +7,7 @@ import com.imbot.android.data.SettingsRepository
 import com.imbot.android.network.HealthzHost
 import com.imbot.android.network.HealthzResponse
 import com.imbot.android.network.RelayApiException
+import com.imbot.android.network.RelayHost
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelayWsClient
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -105,7 +106,7 @@ class OnboardingViewModel
                     )
                 }
 
-                relayHttpClient.testConnection(
+                loadAuthenticatedHealth(
                     relayUrl = relayUrl,
                     token = token,
                 ).onSuccess { response ->
@@ -152,6 +153,34 @@ class OnboardingViewModel
             }
         }
 
+        private suspend fun loadAuthenticatedHealth(
+            relayUrl: String,
+            token: String,
+        ): Result<HealthzResponse> =
+            runCatching {
+                val authenticatedHosts =
+                    relayHttpClient.getHosts(
+                        relayUrl = relayUrl,
+                        token = token,
+                    ).getOrThrow()
+
+                relayHttpClient.testConnection(
+                    relayUrl = relayUrl,
+                    token = token,
+                ).getOrElse { error ->
+                    if (error is RelayApiException &&
+                        (error.statusCode == 401 || error.code == "unauthenticated")
+                    ) {
+                        throw error
+                    }
+
+                    return@runCatching HealthzResponse(
+                        version = "unknown",
+                        hosts = authenticatedHosts.map(RelayHost::toHealthzHost),
+                    )
+                }.withAuthenticatedHosts(authenticatedHosts)
+            }
+
         private fun mapTestError(error: Throwable): String =
             when (error) {
                 is RelayApiException ->
@@ -181,3 +210,14 @@ internal fun HealthzResponse.openClawHost(): HealthzHost? =
     hosts.firstOrNull { host ->
         host.type == "relay_local" || host.type == "relay"
     }
+
+internal fun HealthzResponse.withAuthenticatedHosts(hosts: List<RelayHost>): HealthzResponse =
+    copy(hosts = hosts.map(RelayHost::toHealthzHost))
+
+internal fun RelayHost.toHealthzHost(): HealthzHost =
+    HealthzHost(
+        id = id,
+        name = name,
+        type = type,
+        status = status,
+    )

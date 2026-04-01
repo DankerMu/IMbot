@@ -92,9 +92,9 @@ class DetailUtilsTest {
     fun `input placeholder text follows session status`() {
         assertEquals("AI 正在回复...", inputPlaceholderForStatus("running"))
         assertEquals("继续对话...", inputPlaceholderForStatus("idle"))
-        assertEquals("会话已结束", inputPlaceholderForStatus("completed"))
-        assertEquals("会话已失败", inputPlaceholderForStatus("failed"))
-        assertEquals("会话已取消", inputPlaceholderForStatus("cancelled"))
+        assertEquals("会话已结束，可恢复后继续", inputPlaceholderForStatus("completed"))
+        assertEquals("会话已失败，可恢复后继续", inputPlaceholderForStatus("failed"))
+        assertEquals("会话已取消，可恢复后继续", inputPlaceholderForStatus("cancelled"))
     }
 
     @Test
@@ -105,6 +105,12 @@ class DetailUtilsTest {
 
         assertFalse(canInputToSession("running"))
         assertTrue(canInputToSession("idle"))
+        assertFalse(canInputToSession("completed"))
+
+        assertTrue(canResumeSession("completed"))
+        assertTrue(canResumeSession("failed"))
+        assertTrue(canResumeSession("cancelled"))
+        assertFalse(canResumeSession("idle"))
 
         assertTrue(canCancelSession("running"))
         assertFalse(canCancelSession("idle"))

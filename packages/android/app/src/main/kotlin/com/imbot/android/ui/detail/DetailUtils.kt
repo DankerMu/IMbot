@@ -4,17 +4,24 @@ package com.imbot.android.ui.detail
 
 import androidx.compose.ui.graphics.Color
 import com.imbot.android.network.RelaySession
-import com.imbot.android.ui.theme.LightStatusColors
 import com.imbot.android.ui.theme.ProviderColors
 import com.imbot.android.ui.theme.StatusColors
-import com.imbot.android.ui.theme.providerColorFor
-import com.imbot.android.ui.theme.statusColorFor
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 internal const val SCROLL_PAUSE_THRESHOLD_DP = 100f
+
+private val DefaultDetailStatusColors =
+    StatusColors(
+        queued = Color(0xFF9CA3AF),
+        running = Color(0xFF10B981),
+        idle = Color(0xFF2196F3),
+        completed = Color(0xFF059669),
+        failed = Color(0xFFEF4444),
+        cancelled = Color(0xFF6B7280),
+    )
 
 data class DetailScrollState(
     val autoScrollEnabled: Boolean = true,
@@ -83,23 +90,36 @@ internal fun canSendToSession(status: String?): Boolean = status == "running" ||
 
 internal fun canInputToSession(status: String?): Boolean = status == "idle"
 
+internal fun canResumeSession(status: String?): Boolean = status in RESUMABLE_STATUSES
+
+private val RESUMABLE_STATUSES = setOf("completed", "failed", "cancelled")
+
 internal fun canCancelSession(status: String?): Boolean = status == "running"
 
 internal fun canCompleteSession(status: String?): Boolean = status == "idle"
 
 internal fun detailStatusColor(
     status: String,
-    colors: StatusColors = LightStatusColors,
-): Color = statusColorFor(status = status, colors = colors)
+    colors: StatusColors = DefaultDetailStatusColors,
+): Color =
+    when (status.lowercase()) {
+        "queued" -> colors.queued
+        "running" -> colors.running
+        "idle" -> colors.idle
+        "completed" -> colors.completed
+        "failed" -> colors.failed
+        "cancelled" -> colors.cancelled
+        else -> colors.queued
+    }
 
 internal fun inputPlaceholderForStatus(status: String?): String =
     when (status) {
         "running" -> "AI 正在回复..."
         "idle" -> "继续对话..."
         "queued" -> "会话启动中，暂时无法发送"
-        "completed" -> "会话已结束"
-        "failed" -> "会话已失败"
-        "cancelled" -> "会话已取消"
+        "completed" -> "会话已结束，可恢复后继续"
+        "failed" -> "会话已失败，可恢复后继续"
+        "cancelled" -> "会话已取消，可恢复后继续"
         else -> "当前无法发送消息"
     }
 
@@ -192,7 +212,13 @@ internal fun providerShortLabel(provider: String): String =
 internal fun providerColor(
     provider: String,
     colors: ProviderColors = ProviderColors(),
-): Color = providerColorFor(provider = provider, colors = colors)
+): Color =
+    when (provider.lowercase()) {
+        "claude" -> colors.claude
+        "book" -> colors.book
+        "openclaw" -> colors.openclaw
+        else -> Color(0xFF9CA3AF)
+    }
 
 internal fun statusLabel(status: String): String =
     when (status) {

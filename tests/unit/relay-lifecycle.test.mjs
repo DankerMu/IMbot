@@ -173,7 +173,7 @@ test("relay lifecycle transitions match the expected state machine table", () =>
   assert.deepEqual(TRANSITIONS.idle, ["running", "completed", "failed", "cancelled"]);
   assert.equal(isValidTransition("completed", "running"), true);
   assert.equal(isValidTransition("failed", "running"), true);
-  assert.equal(isValidTransition("cancelled", "running"), false);
+  assert.equal(isValidTransition("cancelled", "running"), true);
   assert.equal(isValidTransition("idle", "failed"), true);
   assert.equal(isValidTransition("queued", "cancelled"), false);
 });

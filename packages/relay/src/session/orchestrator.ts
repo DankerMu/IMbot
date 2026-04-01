@@ -178,7 +178,7 @@ export class SessionOrchestrator {
   async resume(sessionId: string): Promise<Session> {
     return await this.runWithLifecycleLock(sessionId, "resume", async () => {
       const session = this.requireSession(sessionId);
-      if (session.status !== "completed" && session.status !== "failed") {
+      if (session.status !== "completed" && session.status !== "failed" && session.status !== "cancelled") {
         throw new RelayError("state_conflict", `Session ${sessionId} is not resumable from ${session.status}`);
       }
 
@@ -717,7 +717,7 @@ export class SessionOrchestrator {
   private async markSessionStarted(
     sessionId: string,
     providerSessionId: string | null,
-    expectedStatus: "queued" | "idle" | "completed" | "failed"
+    expectedStatus: "queued" | "idle" | "completed" | "failed" | "cancelled"
   ): Promise<void> {
     const now = new Date().toISOString();
     const result = this.db
