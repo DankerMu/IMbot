@@ -38,10 +38,10 @@ type SessionErrorContext = {
   error_message?: string;
 };
 
-type LifecycleMutation = "create" | "resume" | "cancel" | "delete";
+type LifecycleMutation = "create" | "resume" | "cancel" | "complete" | "delete";
 
 type PendingTerminalTransition = {
-  readonly status: "completed" | "failed";
+  readonly status: "idle" | "completed" | "failed";
   readonly context?: SessionErrorContext;
 };
 
@@ -205,8 +205,8 @@ export class SessionOrchestrator {
 
   async sendMessage(sessionId: string, text: string): Promise<void> {
     const session = this.requireSession(sessionId);
-    if (session.status !== "running") {
-      throw new RelayError("state_conflict", `Session ${sessionId} is not running`);
+    if (session.status !== "running" && session.status !== "idle") {
+      throw new RelayError("state_conflict", `Session ${sessionId} is not running or idle`);
     }
 
     if (this.activeLifecycleMutations.has(sessionId)) {
@@ -214,13 +214,24 @@ export class SessionOrchestrator {
     }
 
     this.assertProviderAvailable(session);
+    if (session.status === "idle") {
+      await this.transition(session.id, "running");
+      try {
+        await this.dispatchSendMessage(session, text);
+      } catch (error) {
+        await this.transitionWithConflictTolerance(session.id, "idle");
+        throw error;
+      }
+      return;
+    }
+
     await this.dispatchSendMessage(session, text);
   }
 
   async cancel(sessionId: string): Promise<Session> {
     return await this.runWithLifecycleLock(sessionId, "cancel", async () => {
       const session = this.requireSession(sessionId);
-      if (session.status !== "running") {
+      if (session.status !== "running" && session.status !== "idle") {
         throw new RelayError("state_conflict", `Session ${sessionId} cannot be cancelled from ${session.status}`);
       }
 
@@ -247,10 +258,46 @@ export class SessionOrchestrator {
     });
   }
 
+  async complete(sessionId: string): Promise<Session> {
+    return await this.runWithLifecycleLock(sessionId, "complete", async () => {
+      const session = this.requireSession(sessionId);
+      if (session.status !== "running" && session.status !== "idle") {
+        throw new RelayError("state_conflict", `Session ${sessionId} cannot be completed from ${session.status}`);
+      }
+
+      if (session.provider === "openclaw") {
+        throw new RelayError("state_conflict", `Session ${sessionId} cannot be completed for provider openclaw`);
+      }
+
+      this.assertProviderAvailable(session);
+
+      const previousStatus = session.status;
+      await this.dispatchComplete(session);
+
+      const terminalStateWon = await this.applyPendingTerminalTransition(session.id);
+      if (!terminalStateWon) {
+        await this.transition(session.id, "completed");
+      }
+
+      const finalSession = this.requireSession(session.id);
+      if (finalSession.status === "completed") {
+        this.auditLogger.write("session.complete", {
+          session_id: session.id,
+          host_id: session.host_id,
+          detail: {
+            previous_status: previousStatus
+          }
+        });
+      }
+
+      return this.requireSession(session.id);
+    });
+  }
+
   async delete(sessionId: string): Promise<void> {
     await this.runWithLifecycleLock(sessionId, "delete", async () => {
       const session = this.requireSession(sessionId);
-      if (session.status === "queued" || session.status === "running") {
+      if (session.status === "queued" || session.status === "running" || session.status === "idle") {
         throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
       }
 
@@ -301,10 +348,13 @@ export class SessionOrchestrator {
 
     const activeMutation = this.activeLifecycleMutations.get(message.session_id);
     const acceptsEvents =
-      session.status === "running" || activeMutation === "create" || activeMutation === "resume";
+      session.status === "running" ||
+      session.status === "idle" ||
+      activeMutation === "create" ||
+      activeMutation === "resume";
     if (!acceptsEvents) {
       this.logger.warn(
-        `Dropping ${message.event_type} for non-running session ${message.session_id} (${session.status})`
+        `Dropping ${message.event_type} for non-active session ${message.session_id} (${session.status})`
       );
       return;
     }
@@ -332,6 +382,11 @@ export class SessionOrchestrator {
       return;
     }
 
+    if (message.event_type === "session_idle") {
+      await this.transitionWithConflictTolerance(session.id, "idle");
+      return;
+    }
+
     if (message.event_type === "session_result") {
       await this.transitionWithConflictTolerance(session.id, "completed");
       return;
@@ -348,7 +403,7 @@ export class SessionOrchestrator {
         `
         SELECT *
         FROM sessions
-        WHERE host_id = ? AND status = 'running'
+        WHERE host_id = ? AND status IN ('running', 'idle')
         ORDER BY created_at ASC
         `
       )
@@ -511,7 +566,18 @@ export class SessionOrchestrator {
     eventType: EventType,
     payload: unknown
   ): PendingTerminalTransition | null {
-    if (activeMutation !== "create" && activeMutation !== "resume" && activeMutation !== "cancel") {
+    if (eventType === "session_idle" && (activeMutation === "create" || activeMutation === "resume")) {
+      return {
+        status: "idle"
+      };
+    }
+
+    if (
+      activeMutation !== "create" &&
+      activeMutation !== "resume" &&
+      activeMutation !== "cancel" &&
+      activeMutation !== "complete"
+    ) {
       return null;
     }
 
@@ -596,6 +662,16 @@ export class SessionOrchestrator {
     this.assertAckOk(ack);
   }
 
+  private async dispatchComplete(session: Session): Promise<void> {
+    const ack = await this.companionManager.sendCommand(session.host_id, {
+      cmd: "complete_session",
+      req_id: this.companionManager.createRequestId(),
+      session_id: session.id
+    });
+
+    this.assertAckOk(ack);
+  }
+
   private async createCompanionSession(session: Session): Promise<string | null> {
     const command = {
       cmd: "create_session" as const,
@@ -641,7 +717,7 @@ export class SessionOrchestrator {
   private async markSessionStarted(
     sessionId: string,
     providerSessionId: string | null,
-    expectedStatus: "queued" | "completed" | "failed"
+    expectedStatus: "queued" | "idle" | "completed" | "failed"
   ): Promise<void> {
     const now = new Date().toISOString();
     const result = this.db
@@ -734,7 +810,7 @@ export class SessionOrchestrator {
 
   private async runWithLifecycleLock<T>(
     sessionId: string,
-    mutation: "resume" | "cancel" | "delete",
+    mutation: "resume" | "cancel" | "complete" | "delete",
     action: () => Promise<T>
   ): Promise<T> {
     if (this.activeLifecycleMutations.has(sessionId)) {

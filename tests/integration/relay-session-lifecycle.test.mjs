@@ -215,3 +215,114 @@ test("relay marks running sessions as failed when the companion disconnects unex
     reason: "disconnect"
   });
 });
+
+test("relay also marks idle sessions as failed when the companion disconnects unexpectedly", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-idle-host-disconnect-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_HOST: "127.0.0.1",
+    RELAY_LOG_LEVEL: "error",
+    RELAY_COMPANION_TIMEOUT_MS: "2000",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  await runtime.app.listen({
+    host: "127.0.0.1",
+    port: 0
+  });
+
+  const address = runtime.app.server.address();
+  const port = typeof address === "object" && address ? address.port : 0;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const companion = new WebSocket(
+    `ws://127.0.0.1:${port}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+  companion.send(
+    JSON.stringify({
+      type: "heartbeat",
+      host_id: "macbook-1",
+      providers: ["claude"],
+      uptime: 1
+    })
+  );
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const createResponsePromise = fetch(`${baseUrl}/v1/sessions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      provider: "claude",
+      host_id: "macbook-1",
+      cwd: "/tmp/project",
+      prompt: "disconnect me while idle",
+      permission_mode: "bypassPermissions"
+    })
+  });
+
+  const createCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "create_session",
+    "create_session command"
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: createCommand.req_id,
+      status: "ok",
+      data: {
+        provider_session_id: "provider-session-idle-disconnect"
+      }
+    })
+  );
+
+  const createResponse = await createResponsePromise;
+  const createPayload = await createResponse.json();
+  assert.equal(createResponse.status, 201);
+  assert.equal(createPayload.session.status, "running");
+
+  const sessionId = createPayload.session.id;
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_idle",
+      payload: {
+        result: "turn complete"
+      }
+    })
+  );
+
+  await waitForCondition(() => {
+    const session = runtime.db.prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId);
+    return session?.status === "idle";
+  }, "session idle");
+
+  companion.close();
+
+  await waitForCondition(() => {
+    const session = runtime.db
+      .prepare("SELECT status, error_code, error_message FROM sessions WHERE id = ?")
+      .get(sessionId);
+    return (
+      session?.status === "failed" &&
+      session?.error_code === "host_disconnected" &&
+      session?.error_message === "Host companion disconnected unexpectedly"
+    );
+  }, "idle host disconnect cascade");
+});

@@ -6,6 +6,7 @@ import path from "node:path";
 import test from "node:test";
 
 const require = createRequire(import.meta.url);
+const Database = require("better-sqlite3");
 const relay = require("../../packages/relay/dist/index.js");
 const { initializeDatabase } = require("../../packages/relay/dist/db/init.js");
 const { allocateSeq } = require("../../packages/relay/dist/session/seq.js");
@@ -50,6 +51,121 @@ function insertSession(db, sessionId, status = "running") {
     `
   ).run(sessionId, "/tmp/project", "hello", status, now, now, now);
 }
+
+test("initializeDatabase migrates existing sessions tables so idle becomes a valid status", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-schema-migration-"));
+  const dbPath = path.join(tempDir, "imbot.db");
+  const legacyDb = new Database(dbPath);
+
+  legacyDb.pragma("foreign_keys = ON");
+  legacyDb.exec(`
+    CREATE TABLE hosts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('macbook', 'relay_local')),
+      status TEXT NOT NULL DEFAULT 'offline' CHECK (status IN ('online', 'offline')),
+      last_heartbeat_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL CHECK (provider IN ('claude', 'book', 'openclaw')),
+      provider_session_id TEXT,
+      host_id TEXT NOT NULL REFERENCES hosts(id),
+      workspace_root TEXT,
+      workspace_cwd TEXT NOT NULL,
+      initial_prompt TEXT,
+      model TEXT,
+      permission_mode TEXT NOT NULL DEFAULT 'bypassPermissions',
+      status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+      error_message TEXT,
+      error_code TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_active_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  const now = new Date().toISOString();
+  legacyDb
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+  legacyDb
+    .prepare(
+      `
+      INSERT INTO sessions (
+        id,
+        provider,
+        provider_session_id,
+        host_id,
+        workspace_root,
+        workspace_cwd,
+        initial_prompt,
+        model,
+        permission_mode,
+        status,
+        error_message,
+        error_code,
+        created_at,
+        updated_at,
+        last_active_at
+      ) VALUES (?, 'claude', 'provider-session-1', 'macbook-1', NULL, ?, ?, NULL, 'bypassPermissions', 'completed', NULL, NULL, ?, ?, ?)
+      `
+    )
+    .run("sess-legacy", "/tmp/project", "hello", now, now, now);
+  legacyDb.close();
+
+  const migratedDb = initializeDatabase(dbPath);
+
+  try {
+    const preservedSession = migratedDb.prepare("SELECT id, status FROM sessions WHERE id = ?").get("sess-legacy");
+    assert.deepEqual(preservedSession, {
+      id: "sess-legacy",
+      status: "completed"
+    });
+
+    migratedDb
+      .prepare(
+        `
+        INSERT INTO sessions (
+          id,
+          provider,
+          provider_session_id,
+          host_id,
+          workspace_root,
+          workspace_cwd,
+          initial_prompt,
+          model,
+          permission_mode,
+          status,
+          error_message,
+          error_code,
+          created_at,
+          updated_at,
+          last_active_at
+        ) VALUES (?, 'claude', 'provider-session-2', 'macbook-1', NULL, ?, ?, NULL, 'bypassPermissions', 'idle', NULL, NULL, ?, ?, ?)
+        `
+      )
+      .run("sess-idle", "/tmp/project", "followup", now, now, now);
+
+    const idleSession = migratedDb.prepare("SELECT id, status FROM sessions WHERE id = ?").get("sess-idle");
+    assert.deepEqual(idleSession, {
+      id: "sess-idle",
+      status: "idle"
+    });
+  } finally {
+    migratedDb.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 test("relay lifecycle transitions match the expected state machine table", () => {
   assert.deepEqual(TRANSITIONS.queued, ["running", "failed"]);
@@ -257,6 +373,109 @@ test("handleEvent recovers failed sessions when the companion reconnect reports 
   assert.deepEqual(assistantEvents, { count: 1 });
 });
 
+test("handleEvent stores and broadcasts session_idle before transitioning the session to idle", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-session-idle-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  const broadcasts = [];
+  const originalBroadcastToSession = runtime.hub.broadcastToSession.bind(runtime.hub);
+  runtime.hub.broadcastToSession = (sessionId, message) => {
+    broadcasts.push({ sessionId, message });
+    return originalBroadcastToSession(sessionId, message);
+  };
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const now = new Date().toISOString();
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+
+  insertSession(runtime.db, "sess-idle-event", "running");
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-idle-event",
+    event_type: "session_idle",
+    payload: {
+      result: {
+        turn: 1
+      }
+    }
+  });
+
+  const updatedSession = runtime.db.prepare("SELECT status FROM sessions WHERE id = ?").get("sess-idle-event");
+  assert.deepEqual(updatedSession, {
+    status: "idle"
+  });
+
+  const storedEvents = runtime.db
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+    .all("sess-idle-event");
+  assert.deepEqual(
+    storedEvents.map((event) => ({
+      type: event.type,
+      payload: JSON.parse(event.payload)
+    })),
+    [
+      {
+        type: "session_idle",
+        payload: {
+          result: {
+            turn: 1
+          }
+        }
+      },
+      {
+        type: "session_status_changed",
+        payload: {
+          status: "idle",
+          error_code: null,
+          error_message: null
+        }
+      }
+    ]
+  );
+
+  assert.equal(
+    broadcasts.some(
+      (entry) =>
+        entry.sessionId === "sess-idle-event" &&
+        entry.message.type === "event" &&
+        entry.message.event_type === "session_idle"
+    ),
+    true
+  );
+  assert.equal(
+    broadcasts.some(
+      (entry) =>
+        entry.sessionId === "sess-idle-event" &&
+        entry.message.type === "event" &&
+        entry.message.event_type === "session_status_changed" &&
+        entry.message.payload.status === "idle"
+    ),
+    true
+  );
+});
+
 test("handleEvent accepts provider events during create and resume lifecycle windows", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-active-mutation-events-"));
   const config = relay.loadConfig({
@@ -453,6 +672,129 @@ test("handleEvent defers terminal provider events during create and resume lifec
       }
     ]
   );
+});
+
+test("handleEvent defers session_idle during create and resume lifecycle windows until the session reaches running", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-active-mutation-idle-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const now = new Date().toISOString();
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+
+  insertSession(runtime.db, "sess-create-idle", "queued");
+  insertSession(runtime.db, "sess-resume-idle", "completed");
+
+  runtime.orchestrator.activeLifecycleMutations.set("sess-create-idle", "create");
+  runtime.orchestrator.activeLifecycleMutations.set("sess-resume-idle", "resume");
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-create-idle",
+    event_type: "session_idle",
+    payload: {
+      result: "created and immediately idle"
+    }
+  });
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-resume-idle",
+    event_type: "session_idle",
+    payload: {
+      result: "resumed and immediately idle"
+    }
+  });
+
+  assert.deepEqual(
+    runtime.db
+      .prepare("SELECT id, status FROM sessions WHERE id IN (?, ?) ORDER BY id ASC")
+      .all("sess-create-idle", "sess-resume-idle"),
+    [
+      { id: "sess-create-idle", status: "queued" },
+      { id: "sess-resume-idle", status: "completed" }
+    ]
+  );
+
+  await runtime.orchestrator.markSessionStarted("sess-create-idle", "provider-session-1", "queued");
+  await runtime.orchestrator.markSessionStarted("sess-resume-idle", "provider-session-1", "completed");
+
+  await runtime.orchestrator.applyPendingTerminalTransition("sess-create-idle");
+  await runtime.orchestrator.applyPendingTerminalTransition("sess-resume-idle");
+
+  assert.deepEqual(
+    runtime.db
+      .prepare("SELECT id, status FROM sessions WHERE id IN (?, ?) ORDER BY id ASC")
+      .all("sess-create-idle", "sess-resume-idle"),
+    [
+      { id: "sess-create-idle", status: "idle" },
+      { id: "sess-resume-idle", status: "idle" }
+    ]
+  );
+});
+
+test("handleHostDisconnected also fails idle sessions", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-idle-host-disconnect-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const now = new Date().toISOString();
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+
+  insertSession(runtime.db, "sess-idle-disconnect", "idle");
+
+  await runtime.orchestrator.handleHostDisconnected("macbook-1");
+
+  const failedSession = runtime.db
+    .prepare("SELECT status, error_code, error_message FROM sessions WHERE id = ?")
+    .get("sess-idle-disconnect");
+  assert.deepEqual(failedSession, {
+    status: "failed",
+    error_code: "host_disconnected",
+    error_message: "Host companion disconnected unexpectedly"
+  });
 });
 
 test("transition rejects a raced same-target update without emitting a duplicate status event", async (t) => {

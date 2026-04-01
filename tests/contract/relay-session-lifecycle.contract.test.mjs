@@ -170,6 +170,294 @@ async function createRunningSession({ baseUrl, config }, companion, overrides = 
   };
 }
 
+async function waitForSessionStatus(runtime, sessionId, status, label = `session ${status}`) {
+  await waitForCondition(() => {
+    const session = runtime.db.prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId);
+    return session?.status === status;
+  }, label);
+}
+
+test("relay supports the idle multi-turn lifecycle and completes idle sessions through the companion", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-idle-lifecycle-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createRunningSession({ baseUrl, config }, companion);
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_idle",
+      payload: {
+        result: "turn one complete"
+      }
+    })
+  );
+
+  await waitForSessionStatus(runtime, sessionId, "idle", "session idle after first turn");
+
+  const messageResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/message`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      text: "followup"
+    })
+  });
+
+  const sendCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "send_message" && message.session_id === sessionId,
+    "idle send_message command"
+  );
+  assert.equal(sendCommand.text, "followup");
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: sendCommand.req_id,
+      status: "ok"
+    })
+  );
+
+  const messageResponse = await messageResponsePromise;
+  assert.equal(messageResponse.status, 200);
+  assert.deepEqual(await messageResponse.json(), { ok: true });
+  assert.deepEqual(runtime.db.prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId), {
+    status: "running"
+  });
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_idle",
+      payload: {
+        result: "turn two complete"
+      }
+    })
+  );
+
+  await waitForSessionStatus(runtime, sessionId, "idle", "session idle after followup");
+
+  const completeResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/complete`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  const completeCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "complete_session" && message.session_id === sessionId,
+    "idle complete_session command"
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_result",
+      payload: {
+        result: "completed from idle"
+      }
+    })
+  );
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: completeCommand.req_id,
+      status: "ok"
+    })
+  );
+
+  const completeResponse = await completeResponsePromise;
+  const completedSession = await completeResponse.json();
+  assert.equal(completeResponse.status, 200);
+  assert.equal(completedSession.status, "completed");
+  await waitForSessionStatus(runtime, sessionId, "completed", "completed after idle complete");
+
+  const completeAudit = runtime.db
+    .prepare("SELECT detail FROM audit_logs WHERE action = 'session.complete' AND session_id = ?")
+    .get(sessionId);
+  assert.deepEqual(JSON.parse(completeAudit.detail), {
+    previous_status: "idle"
+  });
+});
+
+test("relay dispatches complete_session for running sessions", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-running-complete-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createRunningSession({ baseUrl, config }, companion);
+
+  const completeResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/complete`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  const completeCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "complete_session" && message.session_id === sessionId,
+    "running complete_session command"
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_result",
+      payload: {
+        result: "completed from running"
+      }
+    })
+  );
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: completeCommand.req_id,
+      status: "ok"
+    })
+  );
+
+  const completeResponse = await completeResponsePromise;
+  const completedSession = await completeResponse.json();
+  assert.equal(completeResponse.status, 200);
+  assert.equal(completedSession.status, "completed");
+  await waitForSessionStatus(runtime, sessionId, "completed", "completed after running complete");
+
+  const completeAudit = runtime.db
+    .prepare("SELECT detail FROM audit_logs WHERE action = 'session.complete' AND session_id = ?")
+    .get(sessionId);
+  assert.deepEqual(JSON.parse(completeAudit.detail), {
+    previous_status: "running"
+  });
+});
+
+test("relay rejects complete on terminal sessions with state_conflict", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-complete-terminal-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createRunningSession({ baseUrl, config }, companion);
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_result",
+      payload: {
+        result: "done"
+      }
+    })
+  );
+
+  await waitForSessionStatus(runtime, sessionId, "completed", "completed session");
+
+  const completeResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}/complete`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  assert.equal(completeResponse.status, 409);
+  assert.deepEqual(await completeResponse.json(), { error: "state_conflict" });
+});
+
+test("relay cancels idle sessions through the existing cancel endpoint", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-idle-cancel-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createRunningSession({ baseUrl, config }, companion);
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_idle",
+      payload: {
+        result: "idle before cancel"
+      }
+    })
+  );
+
+  await waitForSessionStatus(runtime, sessionId, "idle", "session idle before cancel");
+
+  const cancelResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/cancel`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+
+  const cancelCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "cancel_session" && message.session_id === sessionId,
+    "idle cancel_session command"
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: cancelCommand.req_id,
+      status: "ok"
+    })
+  );
+
+  const cancelResponse = await cancelResponsePromise;
+  const cancelledSession = await cancelResponse.json();
+  assert.equal(cancelResponse.status, 200);
+  assert.equal(cancelledSession.status, "cancelled");
+  await waitForSessionStatus(runtime, sessionId, "cancelled", "cancelled session");
+
+  const cancelAudit = runtime.db
+    .prepare("SELECT detail FROM audit_logs WHERE action = 'session.cancel' AND session_id = ?")
+    .get(sessionId);
+  assert.deepEqual(JSON.parse(cancelAudit.detail), {
+    previous_status: "idle"
+  });
+});
+
 test("relay supports resume, message, cancel, delete, catch-up, and lifecycle audit logging", async (t) => {
   const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-lifecycle-");
   const companion = new WebSocket(
