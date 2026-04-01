@@ -5,13 +5,15 @@
   "workspaces": [
     "packages/relay",
     "packages/companion",
+    "packages/viewer",
     "packages/wire"
   ],
   "scripts": {
     "build:wire": "npm run build --workspace @imbot/wire",
     "build:relay": "npm run build --workspace @imbot/relay",
     "build:companion": "npm run build --workspace @imbot/companion",
-    "build": "npm run build:wire && npm run build:relay && npm run build:companion",
+    "build:viewer": "npm run build --workspace @imbot/viewer",
+    "build": "npm run build:wire && npm run build:relay && npm run build:companion && npm run build:viewer",
     "clean": "node -e \"const fs=require('node:fs'); ['packages/wire/dist','packages/relay/dist','packages/companion/dist'].forEach((path)=>fs.rmSync(path,{recursive:true,force:true}));\"",
     "lint": "npm run typecheck",
     "typecheck": "npm run build:wire && npm run typecheck --workspace @imbot/relay && npm run typecheck --workspace @imbot/companion",
