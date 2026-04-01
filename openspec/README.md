@@ -29,9 +29,9 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 | FR-01 Provider 管理  | `p0-openclaw-bridge`, `p1-companion-session-management`, `p2-android-new-session`, `p2-android-session-list`                                                                           |
 | FR-02 Workspace 管理 | `p1-relay-workspace-api`, `p1-companion-session-management`, `p2-android-new-session`, `p2-android-workspace-settings`                                                                 |
 | FR-03 会话创建       | `p0-relay-minimal`, `p0-companion-minimal`, `p0-android-prototype`, `p2-android-new-session`                                                                                           |
-| FR-04 会话恢复       | `p1-relay-session-lifecycle`, `p1-companion-session-management`, `p0-openclaw-bridge`, `p2-android-workspace-settings`, `p2-android-session-detail`, `persistent-interactive-sessions` |
+| FR-04 会话恢复       | `p1-relay-session-lifecycle`, `p1-companion-session-management`, `p0-openclaw-bridge`, `p2-android-workspace-settings`, `p2-android-session-detail`, `persistent-interactive-sessions`, `p3-session-detail-hardening` |
 | FR-05 多会话并发     | `p1-relay-session-lifecycle`, `p1-reconnect-and-catchup`, `p2-android-session-list`, `p3-error-ux-and-cleanup`                                                                         |
-| FR-06 流式输出与渲染 | `p0-android-prototype`, `p2-android-session-detail`, `p3-theme-and-animations`, `persistent-interactive-sessions`                                                                      |
+| FR-06 流式输出与渲染 | `p0-android-prototype`, `p2-android-session-detail`, `p3-theme-and-animations`, `persistent-interactive-sessions`, `p3-session-detail-hardening`                                      |
 | FR-07 断线恢复       | `p1-reconnect-and-catchup`, `p3-error-ux-and-cleanup`                                                                                                                                  |
 | FR-08 FCM 推送       | `p1-fcm-push`                                                                                                                                                                          |
 | FR-09 主题与外观     | `p2-android-workspace-settings`, `p3-theme-and-animations`                                                                                                                             |
@@ -70,4 +70,5 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 
 - `p3-theme-and-animations` — theme system, transitions, motion, code theme
 - `p3-error-ux-and-cleanup` — three-layer error UX, purge job, connection stability
+- `p3-session-detail-hardening` — cancelled-session recovery, offline formula rendering, markdown table correctness
 - `p3-approval-path-reserved` — reserved non-bypass permission mode and approval event plumbing

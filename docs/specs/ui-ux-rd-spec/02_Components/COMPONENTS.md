@@ -146,7 +146,7 @@ User 消息（右对齐）:
 
 ### 技术选型
 
-推荐：**Markwon**（成熟的 Android Markdown 库）或自定义 Compose 实现。
+当前实现：**Compose 原生块级渲染 + 本地离线 KaTeX WebView**。普通 Markdown 保持 Compose 渲染，公式片段使用 APK 内置 KaTeX 资源离线渲染。
 
 ### 必须支持
 
@@ -161,6 +161,7 @@ User 消息（右对齐）:
 | Unordered / Ordered lists | P0 |
 | Tables | P1 |
 | Blockquotes | P1 |
+| Inline / Display math | P1 |
 | Images (URL) | P2 |
 
 ### 性能约束

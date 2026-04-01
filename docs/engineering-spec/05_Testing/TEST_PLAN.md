@@ -7,7 +7,7 @@
 | FR-01 Provider 管理  | UT-01, IT-01, E2E-01, E2E-05           |
 | FR-02 Workspace 管理 | UT-02, IT-02, E2E-01, E2E-02           |
 | FR-03 会话创建       | UT-03, IT-03, E2E-01                   |
-| FR-04 会话恢复       | UT-04, IT-04, E2E-02                   |
+| FR-04 会话恢复       | UT-04, IT-04, E2E-02, E2E-06          |
 | FR-05 多会话并发     | UT-05, IT-05, E2E-05                   |
 | FR-06 流式渲染       | UT-06, E2E-07, PERF-04                 |
 | FR-07 断线恢复       | UT-07, IT-07, E2E-03, PERF-02          |
@@ -133,8 +133,8 @@ These are intentionally separated from per-PR blockers because they are slower a
 | E2E-03 | 断线恢复       | 断开网络 60s → 恢复 → events 自动补拉 → UI 一致                         |
 | E2E-04 | Host offline   | 断开 companion → Android 看到 "MacBook offline" → 重连后恢复            |
 | E2E-05 | 多 provider    | 同时创建 Claude + OpenClaw session → 各自独立运行                       |
-| E2E-06 | 取消 session   | 创建 running session → 取消 → 正常情况下 status=cancelled               |
-| E2E-07 | Markdown 渲染  | 收到含代码块的 assistant_message → 语法高亮正确                         |
+| E2E-06 | 取消 session   | 创建 session → 取消 → 进入 cancelled；重新打开 detail / resume 后可继续 |
+| E2E-07 | Markdown 渲染  | assistant_message 含代码块、公式、表格 → Android 渲染正确               |
 | E2E-08 | 取消竞态       | running session 发 cancel，同时 provider 先结束 → 返回 provider 终态，且不写 `session.cancel` audit |
 
 ## Performance Tests

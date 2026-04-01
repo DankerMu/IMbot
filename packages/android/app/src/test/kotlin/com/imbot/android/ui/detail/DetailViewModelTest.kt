@@ -137,6 +137,38 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `resumeSession uses API session status on success and surfaces error on failure`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val successRelay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "completed"))
+                    resumeSessionResult = Result.success(TEST_SESSION.copy(status = "running"))
+                }
+            val successViewModel = createViewModel(relay = successRelay)
+            advanceUntilIdle()
+
+            successViewModel.resumeSession()
+            advanceUntilIdle()
+
+            assertEquals(1, successRelay.resumeSessionCalls)
+            assertEquals("running", successViewModel.uiState.value.session?.status)
+            assertFalse(successViewModel.uiState.value.canSend)
+
+            val failureRelay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "failed"))
+                    resumeSessionResult = Result.failure(IllegalStateException("恢复失败"))
+                }
+            val failureViewModel = createViewModel(relay = failureRelay)
+            advanceUntilIdle()
+
+            failureViewModel.resumeSession()
+            advanceUntilIdle()
+
+            assertEquals("恢复失败", failureViewModel.uiState.value.error)
+        }
+
+    @Test
     fun `deleteSession navigates back on success and surfaces error on failure`() =
         runTest(mainDispatcherRule.dispatcher) {
             val successRelay = FakeRelayHttpClient()
@@ -178,6 +210,40 @@ class DetailViewModelTest {
             advanceUntilIdle()
 
             assertEquals("completed", viewModel.uiState.value.session?.status)
+            assertFalse(viewModel.uiState.value.canSend)
+        }
+
+    @Test
+    fun `loading a completed session auto resumes it`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "completed"))
+                    resumeSessionResult = Result.success(TEST_SESSION.copy(status = "running"))
+                }
+
+            val viewModel = createViewModel(relay = relay)
+            advanceUntilIdle()
+
+            assertEquals(1, relay.resumeSessionCalls)
+            assertEquals("running", viewModel.uiState.value.session?.status)
+            assertFalse(viewModel.uiState.value.canSend)
+        }
+
+    @Test
+    fun `loading a cancelled session auto resumes it`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "cancelled"))
+                    resumeSessionResult = Result.success(TEST_SESSION.copy(status = "running"))
+                }
+
+            val viewModel = createViewModel(relay = relay)
+            advanceUntilIdle()
+
+            assertEquals(1, relay.resumeSessionCalls)
+            assertEquals("running", viewModel.uiState.value.session?.status)
             assertFalse(viewModel.uiState.value.canSend)
         }
 
@@ -534,12 +600,14 @@ private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
     var getSessionResult: Result<RelaySession> = Result.success(TEST_SESSION)
     var getSessionEventsResult: Result<RelayEventPage> = Result.success(RelayEventPage(events = emptyList(), hasMore = false))
     var sendMessageResult: Result<Unit> = Result.success(Unit)
+    var resumeSessionResult: Result<RelaySession> = Result.success(TEST_SESSION.copy(status = "running"))
     var cancelSessionResult: Result<RelaySession> = Result.success(TEST_SESSION.copy(status = "cancelled"))
     var deleteSessionResult: Result<Unit> = Result.success(Unit)
 
     var getSessionCalls = 0
     var getSessionEventsCalls = 0
     var sendMessageCalls = 0
+    var resumeSessionCalls = 0
     var cancelSessionCalls = 0
     var deleteSessionCalls = 0
 
@@ -547,6 +615,7 @@ private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
     var getSessionEventsHandler: suspend (String, String, String, Int, Int) -> Result<RelayEventPage> =
         { _, _, _, _, _ -> getSessionEventsResult }
     var sendMessageHandler: suspend (String, String, String, String) -> Result<Unit> = { _, _, _, _ -> sendMessageResult }
+    var resumeSessionHandler: suspend (String, String, String) -> Result<RelaySession> = { _, _, _ -> resumeSessionResult }
     var cancelSessionHandler: suspend (String, String, String) -> Result<RelaySession> = { _, _, _ -> cancelSessionResult }
     var deleteSessionHandler: suspend (String, String, String) -> Result<Unit> = { _, _, _ -> deleteSessionResult }
 
@@ -588,6 +657,15 @@ private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
     ): Result<Unit> {
         sendMessageCalls++
         return sendMessageHandler(relayUrl, token, sessionId, text)
+    }
+
+    override suspend fun resumeSession(
+        relayUrl: String,
+        token: String,
+        sessionId: String,
+    ): Result<RelaySession> {
+        resumeSessionCalls++
+        return resumeSessionHandler(relayUrl, token, sessionId)
     }
 
     override suspend fun cancelSession(

@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -67,6 +68,8 @@ fun AppNavigation(
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val currentRoute = currentDestination?.route
+    val latestCurrentRoute by rememberUpdatedState(currentRoute)
+    val latestCurrentDestinationId by rememberUpdatedState(currentDestination?.id)
     val showBottomBar = currentRoute in topLevelDestinations.map(TopLevelDestination::route)
 
     LaunchedEffect(startDestination) {
@@ -92,10 +95,21 @@ fun AppNavigation(
                     navController.navigate(AppRoute.PROTOTYPE) {
                         launchSingleTop = true
                     }
-                is MainNavigationEvent.OpenSessionDetail ->
-                    navController.navigate(AppRoute.sessionDetail(event.sessionId)) {
-                        launchSingleTop = true
+                is MainNavigationEvent.OpenSessionDetail -> {
+                    val targetRoute = AppRoute.sessionDetail(event.sessionId)
+                    val currentDetailDestinationId = latestCurrentDestinationId
+                    if (latestCurrentRoute == AppRoute.SESSION_DETAIL && currentDetailDestinationId != null) {
+                        navController.navigate(targetRoute) {
+                            popUpTo(currentDetailDestinationId) {
+                                inclusive = true
+                            }
+                        }
+                    } else {
+                        navController.navigate(targetRoute) {
+                            launchSingleTop = true
+                        }
                     }
+                }
             }
         }
     }

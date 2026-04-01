@@ -320,7 +320,7 @@ function waitForWsEvent(events, predicate, timeoutMs = 30000) {
 **断言**:
 - POST /cancel 返回 200
 - 最终 status 为 "cancelled"（或 provider 先完成则为 "completed"）
-- 如果 cancelled，后续 resume 应返回 409 state_conflict
+- 如果 cancelled，后续 resume 应返回 200，并最终回到 idle
 
 ### E2E-16: 空闲 Session 取消
 
@@ -332,6 +332,7 @@ function waitForWsEvent(events, predicate, timeoutMs = 30000) {
 **断言**:
 - 返回 200
 - session.status === "cancelled"
+- 重新 `POST /resume` 后 session 可回到 "idle"
 
 ### E2E-17: 删除终态 Session
 
@@ -409,7 +410,7 @@ function waitForWsEvent(events, predicate, timeoutMs = 30000) {
 3. `POST /v1/sessions/{id}/complete`
 
 **断言**:
-- 返回 409 state_conflict（complete 只接受 idle）
+- 返回 200，并最终进入 completed
 
 ### E2E-23: 对 cancelled session 执行 resume
 
@@ -418,7 +419,8 @@ function waitForWsEvent(events, predicate, timeoutMs = 30000) {
 2. `POST /v1/sessions/{id}/resume`
 
 **断言**:
-- 返回 409（cancelled 是终态，不可 resume）
+- 返回 200
+- 最终 status === "idle"
 
 ### E2E-24: Session 不存在
 
@@ -739,13 +741,10 @@ clear_app() { $ADB shell pm clear com.imbot.android; }
 **前置**: E2E-A05 完成的 session，在 detail 页面
 
 **步骤**:
-1. 确认 detail 界面底部输入框 placeholder 为 "会话已结束"
-2. dump UI → 确认存在 "恢复会话" 或输入框（completed 状态 Android 是否允许 resume？取决于 `canSendToSession`）
+1. 确认 detail 界面底部输入框 placeholder 为 "会话已结束，可恢复后继续"
+2. 进入 detail 后观察是否自动触发 resume，并最终回到 idle
 
-**说明**: `canSendToSession` 只接受 running 和 idle。completed 状态不能直接发消息。Resume 需要通过 REST API `POST /resume`。Android 端如果有 resume 按钮则点击，否则通过 REST 验证：
-1. `POST /v1/sessions/{id}/resume`
-2. 等待 idle
-3. 回到 Android 确认界面更新为 idle 状态
+**说明**: `canSendToSession` 只接受 running 和 idle。completed / failed / cancelled 状态不能直接发消息，但 detail 页面会自动尝试 `POST /resume`；若自动恢复失败，可通过 overflow 中的 "恢复会话" 或直接调用 REST 再试。
 
 **验收**: resume 后 session 回到 idle
 

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -308,6 +309,24 @@ fun SessionDetailScreen(
                                     onClick = {
                                         menuExpanded = false
                                         showCancelDialog = true
+                                    },
+                                )
+                            }
+                            if (canResumeSession(uiState.session?.status)) {
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("恢复会话")
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Filled.PlayArrow,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    enabled = !uiState.isResuming,
+                                    onClick = {
+                                        menuExpanded = false
+                                        viewModel.resumeSession()
                                     },
                                 )
                             }

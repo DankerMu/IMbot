@@ -42,6 +42,7 @@ data class DetailUiState(
     val error: String? = null,
     val canSend: Boolean = false,
     val isSending: Boolean = false,
+    val isResuming: Boolean = false,
     val isCancelling: Boolean = false,
     val isCompleting: Boolean = false,
     val isDeleting: Boolean = false,
@@ -149,6 +150,9 @@ class DetailViewModel
                                 isLoading = false,
                             )
                         }
+                        if (canResumeSession(_uiState.value.session?.status)) {
+                            resumeSession()
+                        }
                     }.onFailure { error ->
                         finishCatchUp(processBufferedEvents = false)
                         _uiState.update { current ->
@@ -253,6 +257,44 @@ class DetailViewModel
                         current.copy(
                             isCancelling = false,
                             error = error.message ?: "取消会话失败",
+                        )
+                    }
+                }
+            }
+        }
+
+        fun resumeSession() {
+            val state = _uiState.value
+            val session = state.session
+            val canResume = session != null && !state.isResuming && canResumeSession(session.status)
+            if (!canResume || session == null) {
+                return
+            }
+
+            val settings = requireValidSettings() ?: return
+            _uiState.update { current ->
+                current.copy(
+                    isResuming = true,
+                )
+            }
+
+            viewModelScope.launch {
+                relayHttpClient.resumeSession(
+                    relayUrl = settings.relayUrl,
+                    token = settings.token,
+                    sessionId = sessionId,
+                ).onSuccess { updatedSession ->
+                    publishSession(updatedSession)
+                    _uiState.update { current ->
+                        current.copy(
+                            isResuming = false,
+                        )
+                    }
+                }.onFailure { error ->
+                    _uiState.update { current ->
+                        current.copy(
+                            isResuming = false,
+                            error = error.message ?: "恢复会话失败",
                         )
                     }
                 }

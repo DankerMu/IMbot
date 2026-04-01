@@ -6,7 +6,7 @@ export const TRANSITIONS: Readonly<Record<SessionStatus, readonly SessionStatus[
   idle: ["running", "completed", "failed", "cancelled"],
   completed: ["running"],
   failed: ["running"],
-  cancelled: []
+  cancelled: ["running"]
 };
 
 export function isValidTransition(from: SessionStatus, to: SessionStatus): boolean {

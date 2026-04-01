@@ -8,7 +8,7 @@
 | ViewModel | `DetailViewModel` |
 | PRD ref | FR-03, FR-04, FR-05, FR-06, FR-07 |
 
-会话详情页。核心页面，展示消息流、工具调用、状态，支持继续对话。
+会话详情页。核心页面，展示消息流、工具调用、状态，支持继续对话，并在可恢复的终态会话上自动执行 resume。
 
 ## 布局
 
@@ -84,7 +84,8 @@ data class DetailUiState(
     val isConnected: Boolean = true,
     val isCatchingUp: Boolean = false,
     val error: String? = null,
-    val canSend: Boolean = false,       // true only when running
+    val canSend: Boolean = false,       // true only when idle
+    val isResuming: Boolean = false,
     val scrollToBottom: Boolean = true   // auto-scroll state
 )
 
@@ -137,16 +138,17 @@ sealed class MessageItem {
 | Action | Condition | Behavior |
 |--------|-----------|----------|
 | 取消会话 | status == running | 确认 Dialog → POST /cancel |
+| 恢复会话 | status == completed/failed/cancelled | 手动重试 POST /resume |
 | 删除会话 | any | 确认 Dialog → DELETE → 返回列表 |
 | 复制全部输出 | any | 复制所有 agent messages 到剪贴板 |
 
 ## 验收标准
 
 - [ ] 流式追加无闪烁，60fps。
-- [ ] 代码块语法高亮正确。
+- [ ] 代码块语法高亮正确，公式和表格渲染正确。
 - [ ] 自动滚动 / 手动查看切换顺畅。
 - [ ] 断线后 banner 出现，重连后消失，events 补拉完整。
-- [ ] Session running 时 InputBar 可用，completed/failed 时 disabled。
+- [ ] Session idle 时 InputBar 可用，running 时 disabled，completed/failed/cancelled 进入页面时会自动尝试恢复。
 - [ ] ToolCallCard 可折叠/展开。
 - [ ] 长消息（10K chars）不卡。
 - [ ] 回到底部 FAB 显示未读消息数。

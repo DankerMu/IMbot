@@ -165,6 +165,7 @@ queued ──────► running ◄─────► idle
 
 completed ──(resume)──► running
 failed ────(resume)──► running
+cancelled ─(resume)──► running
 ```
 
 **Transition rules**:
@@ -183,8 +184,9 @@ failed ────(resume)──► running
 | `idle` | `cancelled` | `POST /cancel` | send cancel command |
 | `completed` | `running` | `POST /resume` | 重新 spawn 进程 |
 | `failed` | `running` | `POST /resume` | 重新 spawn 进程 |
+| `cancelled` | `running` | `POST /resume`（`provider_session_id` 存在） | 重新 spawn 进程 |
 
-> **idle vs completed**: `idle` = 进程存活，等待下一条消息（stream-json 模式）。`completed` = 进程已退出。`idle` 下发消息 ~2s 响应；`completed` 下 resume 需要重新 spawn（~9-13s）。
+> **idle vs completed vs cancelled**: `idle` = 进程存活，等待下一条消息（stream-json 模式）。`completed` = 进程已退出。`cancelled` = 当前本地进程已被用户停止，但若保留 `provider_session_id`，仍可 resume。`idle` 下发消息 ~2s 响应；`completed` / `cancelled` 下 resume 需要重新 spawn（~9-13s）。
 
 ## Seq Allocation
 
