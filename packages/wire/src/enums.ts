@@ -10,6 +10,7 @@ export const EVENT_TYPES = [
   "approval_resolved",
   "session_status_changed",
   "session_result",
+  "session_idle",
   "session_error",
   "user_message"
 ] as const;
@@ -19,6 +20,7 @@ export type EventType = (typeof EVENT_TYPES)[number];
 export const SESSION_STATUSES = [
   "queued",
   "running",
+  "idle",
   "completed",
   "failed",
   "cancelled"
@@ -28,7 +30,8 @@ export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
 export const VALID_TRANSITIONS: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
   queued: ["running", "failed"],
-  running: ["completed", "failed", "cancelled"],
+  running: ["idle", "completed", "failed", "cancelled"],
+  idle: ["running", "completed", "cancelled"],
   completed: ["running"],
   failed: ["running"],
   cancelled: []
