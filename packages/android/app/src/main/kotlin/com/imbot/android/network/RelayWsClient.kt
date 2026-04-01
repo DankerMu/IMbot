@@ -429,10 +429,10 @@ internal fun String.toRelayWebSocketUrl(token: String): String? {
     val baseUrl = toRelayBaseHttpUrl() ?: return null
     val httpUrl =
         baseUrl.newBuilder()
-        .encodedPath("/v1/ws")
-        .setQueryParameter("token", token)
-        .build()
-        .toString()
+            .encodedPath("/v1/ws")
+            .setQueryParameter("token", token)
+            .build()
+            .toString()
 
     return when {
         httpUrl.startsWith("https://") -> httpUrl.replaceFirst("https://", "wss://")
