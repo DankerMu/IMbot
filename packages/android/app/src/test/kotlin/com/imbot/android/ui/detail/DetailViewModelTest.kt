@@ -231,6 +231,23 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `loading a failed session auto resumes it`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "failed"))
+                    resumeSessionResult = Result.success(TEST_SESSION.copy(status = "running"))
+                }
+
+            val viewModel = createViewModel(relay = relay)
+            advanceUntilIdle()
+
+            assertEquals(1, relay.resumeSessionCalls)
+            assertEquals("running", viewModel.uiState.value.session?.status)
+            assertFalse(viewModel.uiState.value.canSend)
+        }
+
+    @Test
     fun `loading a cancelled session auto resumes it`() =
         runTest(mainDispatcherRule.dispatcher) {
             val relay =

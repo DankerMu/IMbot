@@ -155,7 +155,28 @@ private fun KatexWebView(
                                     true
                                 }
 
-                                else -> false
+                                else -> true // block javascript:, file://, data: and all other schemes
+                            }
+                        }
+
+                        override fun shouldInterceptRequest(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                        ): android.webkit.WebResourceResponse? {
+                            val url = request?.url?.toString().orEmpty()
+                            val blocked = url.startsWith("file://") &&
+                                !url.startsWith("file:///android_asset/katex/")
+                            return if (blocked) {
+                                android.webkit.WebResourceResponse(
+                                    "text/plain",
+                                    "utf-8",
+                                    204,
+                                    "Blocked",
+                                    emptyMap(),
+                                    null,
+                                )
+                            } else {
+                                super.shouldInterceptRequest(view, request)
                             }
                         }
                     }
@@ -232,7 +253,7 @@ internal fun buildMarkdownInlineHtml(text: String): String {
                 val linkMatch = LINK_REGEX.matchEntire(token)
                 val label = linkMatch?.groupValues?.get(1).orEmpty()
                 val url = linkMatch?.groupValues?.get(2).orEmpty()
-                if (label.isNotBlank() && url.isNotBlank()) {
+                if (label.isNotBlank() && url.isNotBlank() && isSafeUrlScheme(url)) {
                     builder.append(
                         "<a href=\"${encodeHtml(url)}\">${buildMarkdownInlineHtml(label)}</a>",
                     )
@@ -423,6 +444,11 @@ private fun Color.toCssColor(includeAlpha: Boolean = false): String {
     } else {
         String.format(java.util.Locale.ROOT, "#%06X", argb and 0xFFFFFF)
     }
+}
+
+private fun isSafeUrlScheme(url: String): Boolean {
+    val lower = url.trimStart().lowercase()
+    return lower.startsWith("http://") || lower.startsWith("https://") || lower.startsWith("/") || lower.startsWith("#")
 }
 
 private fun openExternalUrl(

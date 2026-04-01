@@ -554,6 +554,75 @@ test("relay resumes cancelled sessions when the provider session mapping still e
   });
 });
 
+test("relay rejects resuming a cancelled session without provider_session_id", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime(
+    "imbot-relay-cancelled-no-provider-"
+  );
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createRunningSession({ baseUrl, config }, companion);
+
+  companion.send(
+    JSON.stringify({
+      type: "event",
+      session_id: sessionId,
+      event_type: "session_idle",
+      payload: { result: "idle before cancel" }
+    })
+  );
+
+  await waitForSessionStatus(runtime, sessionId, "idle", "session idle");
+
+  const cancelResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/cancel`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${config.staticToken}` }
+  });
+
+  const cancelCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "cancel_session" && message.session_id === sessionId,
+    "cancel_session command"
+  );
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: cancelCommand.req_id,
+      status: "ok"
+    })
+  );
+
+  const cancelResponse = await cancelResponsePromise;
+  assert.equal(cancelResponse.status, 200);
+  await waitForSessionStatus(runtime, sessionId, "cancelled", "cancelled session");
+
+  // Clear the provider_session_id to simulate a session that lost its mapping
+  runtime.db
+    .prepare("UPDATE sessions SET provider_session_id = NULL WHERE id = ?")
+    .run(sessionId);
+
+  const resumeResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${config.staticToken}` }
+  });
+
+  assert.equal(resumeResponse.status, 409);
+  assert.deepEqual(await resumeResponse.json(), { error: "session_not_resumable" });
+
+  // Session status should remain cancelled
+  const session = runtime.db.prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId);
+  assert.deepEqual(session, { status: "cancelled" });
+});
+
 test("relay supports resume, message, cancel, delete, catch-up, and lifecycle audit logging", async (t) => {
   const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-lifecycle-");
   const companion = new WebSocket(
