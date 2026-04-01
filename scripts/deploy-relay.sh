@@ -96,6 +96,24 @@ sync_artifacts() {
   run_cmd rsync -a --delete "${WIRE_DIR}/dist/" "${TARGET}:/opt/imbot/relay/node_modules/@imbot/wire/dist/"
 }
 
+rebuild_remote_modules() {
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    print_command ssh "${TARGET}" bash -s
+    cat <<'REMOTE'
+set -euo pipefail
+cd /opt/imbot/relay
+npm rebuild --omit=dev
+REMOTE
+    return 0
+  fi
+
+  ssh "${TARGET}" bash -s <<'REMOTE'
+set -euo pipefail
+cd /opt/imbot/relay
+npm rebuild --omit=dev
+REMOTE
+}
+
 run_remote_restart() {
   if [[ "${DRY_RUN}" == "true" ]]; then
     print_command ssh "${TARGET}" bash -s
@@ -109,7 +127,15 @@ if [[ ! -f .env ]]; then
 fi
 
 pm2 startOrReload ecosystem.config.cjs --update-env
-curl -sf http://localhost:3000/healthz
+for attempt in {1..10}; do
+  if curl -sf http://localhost:3000/healthz; then
+    exit 0
+  fi
+  sleep 1
+done
+
+printf 'Relay /healthz did not return success after restart.\n' >&2
+exit 1
 REMOTE
     return 0
   fi
@@ -124,7 +150,15 @@ if [[ ! -f .env ]]; then
 fi
 
 pm2 startOrReload ecosystem.config.cjs --update-env
-curl -sf http://localhost:3000/healthz
+for attempt in {1..10}; do
+  if curl -sf http://localhost:3000/healthz; then
+    exit 0
+  fi
+  sleep 1
+done
+
+printf 'Relay /healthz did not return success after restart.\n' >&2
+exit 1
 REMOTE
 }
 
@@ -146,6 +180,9 @@ main() {
 
   log_info "Syncing relay artifacts to ${TARGET}"
   sync_artifacts "${node_modules_source}"
+
+  log_info "Rebuilding remote native modules"
+  rebuild_remote_modules
 
   log_info "Restarting relay and checking /healthz"
   run_remote_restart

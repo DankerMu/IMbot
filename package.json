@@ -20,7 +20,8 @@
     "test:integration": "npm run build && node --test tests/integration/*.test.mjs",
     "test": "npm run test:unit && npm run test:contract",
     "test:unit": "npm run build && node --test tests/unit/*.test.mjs",
-    "test:contract": "npm run build && node --test tests/contract/*.test.mjs"
+    "test:contract": "npm run build && node --test tests/contract/*.test.mjs",
+    "test:e2e": "npm run build && node --test --test-concurrency=1 tests/e2e/*.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

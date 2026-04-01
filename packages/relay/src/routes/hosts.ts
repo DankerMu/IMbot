@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { PROVIDERS, type Host, type Provider, type WorkspaceRoot } from "@imbot/wire";
+import { PROVIDERS, type Host, type InteractiveProvider, type Provider, type WorkspaceRoot } from "@imbot/wire";
 import type { FastifyInstance } from "fastify";
 
 import { AuditLogger } from "../audit/logger";
@@ -134,6 +134,13 @@ export function registerHostRoutes(
         throw error;
       }
 
+      try {
+        await syncInteractiveRootAdd(host, root, deps.companionManager);
+      } catch (error) {
+        deps.db.prepare("DELETE FROM workspace_roots WHERE id = ? AND host_id = ?").run(root.id, hostId);
+        throw error;
+      }
+
       deps.auditLogger.write("root.add", {
         host_id: hostId,
         detail: {
@@ -157,7 +164,7 @@ export function registerHostRoutes(
     },
     async (request, reply) => {
       const { hostId, rootId } = request.params as { hostId: string; rootId: string };
-      requireHost(deps.db, hostId);
+      const host = requireHost(deps.db, hostId);
 
       const root =
         (deps.db
@@ -175,6 +182,20 @@ export function registerHostRoutes(
       }
 
       deps.db.prepare("DELETE FROM workspace_roots WHERE id = ? AND host_id = ?").run(rootId, hostId);
+
+      try {
+        await syncInteractiveRootRemoval(hostId, host, root, deps.companionManager);
+      } catch (error) {
+        deps.db
+          .prepare(
+            `
+            INSERT INTO workspace_roots (id, host_id, provider, path, label, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            `
+          )
+          .run(root.id, root.host_id, root.provider, root.path, root.label, root.created_at);
+        throw error;
+      }
 
       deps.auditLogger.write("root.remove", {
         host_id: hostId,
@@ -359,6 +380,44 @@ async function assertRootTargetExists(
   }
 
   return await companionManager.browseDirectory(host.id, targetPath);
+}
+
+async function syncInteractiveRootAdd(
+  host: Host,
+  root: WorkspaceRoot,
+  companionManager: CompanionManager
+): Promise<void> {
+  if (host.type !== "macbook") {
+    return;
+  }
+
+  await companionManager.addRoot(
+    host.id,
+    asInteractiveProvider(root.provider),
+    root.path,
+    root.label ?? undefined
+  );
+}
+
+async function syncInteractiveRootRemoval(
+  hostId: string,
+  host: Host,
+  root: WorkspaceRoot,
+  companionManager: CompanionManager
+): Promise<void> {
+  if (host.type !== "macbook") {
+    return;
+  }
+
+  await companionManager.removeRoot(hostId, asInteractiveProvider(root.provider), root.path);
+}
+
+function asInteractiveProvider(provider: Provider): InteractiveProvider {
+  if (provider === "openclaw") {
+    throw new RelayError("invalid_request", "openclaw roots do not sync through the companion");
+  }
+
+  return provider;
 }
 
 async function resolveLocalDirectoryPath(targetPath: string): Promise<string> {
