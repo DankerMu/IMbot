@@ -92,15 +92,56 @@ ensure_config_file() {
 
 render_plist() {
   local node_bin="$1"
-  local escaped_home escaped_node
 
-  escaped_home="$(escape_sed_replacement "${HOME}")"
-  escaped_node="$(escape_sed_replacement "${node_bin}")"
+  python3 - "${PLIST_TEMPLATE}" "${HOME}" "${node_bin}" <<'PY'
+import html
+import os
+import sys
 
-  sed \
-    -e "s|__HOME__|${escaped_home}|g" \
-    -e "s|__NODE_BIN__|${escaped_node}|g" \
-    "${PLIST_TEMPLATE}"
+template_path, home_dir, node_bin = sys.argv[1:4]
+
+with open(template_path, "r", encoding="utf-8") as handle:
+    template = handle.read()
+
+env_keys = [
+    "PATH",
+    "USER",
+    "LOGNAME",
+    "SHELL",
+    "LANG",
+    "TMPDIR",
+    "SSH_AUTH_SOCK",
+    "TERM",
+    "TERM_PROGRAM",
+    "COLORTERM",
+    "XPC_FLAGS",
+    "__CF_USER_TEXT_ENCODING",
+    "ALL_PROXY",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "NO_PROXY",
+    "no_proxy",
+    "NODE_EXTRA_CA_CERTS"
+]
+
+extra_lines: list[str] = []
+for key in env_keys:
+    value = os.environ.get(key, "").strip()
+    if not value:
+        continue
+
+    extra_lines.append(f"    <key>{html.escape(key)}</key>")
+    extra_lines.append(f"    <string>{html.escape(value)}</string>")
+
+rendered = (
+    template.replace("__HOME__", html.escape(home_dir))
+    .replace("__NODE_BIN__", html.escape(node_bin))
+    .replace("__EXTRA_ENV_VARS__", "\n".join(extra_lines))
+)
+sys.stdout.write(rendered)
+PY
 }
 
 install_launch_agent() {
@@ -133,6 +174,7 @@ main() {
   require_command npm
   require_command rsync
   require_command node
+  require_command python3
   require_command launchctl
 
   local node_modules_source

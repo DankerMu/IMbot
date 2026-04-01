@@ -67,7 +67,7 @@ export function loadCompanionConfig(env: NodeJS.ProcessEnv = process.env): Compa
   const relayUrl = requireString(rawConfig.relay_url, "relay_url");
   const token = requireString(rawConfig.token, "token");
   const hostId = requireString(rawConfig.host_id, "host_id");
-  const providers = parseProviders(rawConfig.providers);
+  const providers = parseProviders(rawConfig.providers, env);
 
   if (getConfiguredProviders({ providers }).length === 0) {
     throw new CompanionError(
@@ -94,7 +94,10 @@ function requireString(value: unknown, fieldName: string): string {
   return value.trim();
 }
 
-function parseProviders(value: unknown): Readonly<Partial<Record<InteractiveProvider, CompanionProviderConfig>>> {
+function parseProviders(
+  value: unknown,
+  env: NodeJS.ProcessEnv
+): Readonly<Partial<Record<InteractiveProvider, CompanionProviderConfig>>> {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     throw new CompanionError("invalid_config", "companion config field providers must be an object");
   }
@@ -116,12 +119,72 @@ function parseProviders(value: unknown): Readonly<Partial<Record<InteractiveProv
     }
 
     const binary = (rawProviderConfig as Record<string, unknown>).binary;
+    const configuredBinary = typeof binary === "string" && binary.trim() !== "" ? binary.trim() : provider;
     providers[provider] = {
-      binary: typeof binary === "string" && binary.trim() !== "" ? binary.trim() : provider
+      binary: resolveProviderBinary(configuredBinary, env)
     };
   }
 
   return providers;
+}
+
+function resolveProviderBinary(binary: string, env: NodeJS.ProcessEnv): string {
+  const expandedBinary = expandUserPath(binary, env);
+  if (path.isAbsolute(expandedBinary) || expandedBinary.includes(path.sep)) {
+    return path.normalize(expandedBinary);
+  }
+
+  for (const searchPath of collectBinarySearchPaths(env)) {
+    const candidate = path.join(searchPath, expandedBinary);
+    if (isExecutableFile(candidate)) {
+      return candidate;
+    }
+  }
+
+  return expandedBinary;
+}
+
+function collectBinarySearchPaths(env: NodeJS.ProcessEnv): string[] {
+  const searchPaths = [
+    ...(env.PATH?.split(path.delimiter) ?? []),
+    "~/.local/bin",
+    "~/bin",
+    "/opt/homebrew/bin",
+    "/usr/local/bin"
+  ];
+  const deduped = new Set<string>();
+
+  for (const rawSearchPath of searchPaths) {
+    const normalizedSearchPath = expandUserPath(rawSearchPath, env).trim();
+    if (normalizedSearchPath !== "") {
+      deduped.add(normalizedSearchPath);
+    }
+  }
+
+  return Array.from(deduped);
+}
+
+function expandUserPath(value: string, env: NodeJS.ProcessEnv): string {
+  const trimmed = value.trim();
+  const homeDir = env.HOME?.trim() || os.homedir();
+  if (trimmed === "~") {
+    return homeDir;
+  }
+
+  if (trimmed.startsWith("~/")) {
+    return path.join(homeDir, trimmed.slice(2));
+  }
+
+  return trimmed;
+}
+
+function isExecutableFile(filePath: string): boolean {
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    return fs.statSync(filePath).isFile();
+  } catch {
+    return false;
+  }
 }
 
 function normalizeRelayUrl(rawRelayUrl: string): string {

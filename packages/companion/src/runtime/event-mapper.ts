@@ -31,7 +31,7 @@ export function mapRuntimeEvent(raw: unknown): RuntimeMappedMessage | null {
   }
 
   if (type === "assistant") {
-    const text = getString(record.text) ?? getString(record.message) ?? getString(record.content);
+    const text = extractEventText(record);
     if (!text) {
       return null;
     }
@@ -47,7 +47,7 @@ export function mapRuntimeEvent(raw: unknown): RuntimeMappedMessage | null {
   }
 
   if (type === "assistant_message") {
-    const text = getString(record.text) ?? getString(record.message) ?? getString(record.content);
+    const text = extractEventText(record);
     if (!text) {
       return null;
     }
@@ -105,7 +105,7 @@ export function mapRuntimeEvent(raw: unknown): RuntimeMappedMessage | null {
   }
 
   if (type === "user" || type === "user_message") {
-    const text = getString(record.text) ?? getString(record.message);
+    const text = extractEventText(record);
     if (!text) {
       return null;
     }
@@ -133,4 +133,47 @@ export function mapRuntimeEvent(raw: unknown): RuntimeMappedMessage | null {
 
 function getString(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+function extractEventText(record: Record<string, unknown>): string | null {
+  return (
+    getString(record.text) ??
+    getString(record.message) ??
+    getString(record.content) ??
+    extractStructuredMessageText(record.message) ??
+    extractStructuredContentText(record.content)
+  );
+}
+
+function extractStructuredMessageText(value: unknown): string | null {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  const record = value as Record<string, unknown>;
+  return extractStructuredContentText(record.content);
+}
+
+function extractStructuredContentText(value: unknown): string | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const text = value
+    .flatMap((item) => {
+      if (item == null || typeof item !== "object" || Array.isArray(item)) {
+        return [];
+      }
+
+      const record = item as Record<string, unknown>;
+      if (record.type !== "text") {
+        return [];
+      }
+
+      const chunk = getString(record.text);
+      return chunk ? [chunk] : [];
+    })
+    .join("");
+
+  return text !== "" ? text : null;
 }

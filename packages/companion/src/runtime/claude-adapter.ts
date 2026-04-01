@@ -67,11 +67,10 @@ export class ClaudeRuntimeAdapter {
       );
     }
     const args = [
+      "-p",
+      "--verbose",
       "--output-format",
       "stream-json",
-      "--print-session-id",
-      "-p",
-      command.prompt,
       "--permission-mode",
       command.permission_mode
     ];
@@ -79,6 +78,8 @@ export class ClaudeRuntimeAdapter {
     if (command.model) {
       args.push("--model", command.model);
     }
+
+    args.push("--", command.prompt);
 
     const session = this.spawnSession({
       relaySessionId: command.session_id,
@@ -119,7 +120,7 @@ export class ClaudeRuntimeAdapter {
       provider: indexed.provider,
       cwd: command.cwd,
       binary: providerConfig.binary,
-      args: ["--resume", "--session-id", command.provider_session_id, "--output-format", "stream-json"],
+      args: ["-p", "--verbose", "--output-format", "stream-json", "-r", command.provider_session_id],
       knownProviderSessionId: command.provider_session_id,
       indexEntry: {
         provider_session_id: command.provider_session_id,

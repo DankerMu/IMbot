@@ -425,14 +425,20 @@ private fun JSONObject?.stringValue(key: String): String? {
     }?.takeIf { it.isNotBlank() }
 }
 
-private fun String.toRelayWebSocketUrl(token: String): String? {
+internal fun String.toRelayWebSocketUrl(token: String): String? {
     val baseUrl = toRelayBaseHttpUrl() ?: return null
-    return baseUrl.newBuilder()
-        .scheme(if (baseUrl.isHttps) "wss" else "ws")
-        .encodedPath("/v1/ws")
-        .setQueryParameter("token", token)
-        .build()
-        .toString()
+    val httpUrl =
+        baseUrl.newBuilder()
+            .encodedPath("/v1/ws")
+            .setQueryParameter("token", token)
+            .build()
+            .toString()
+
+    return when {
+        httpUrl.startsWith("https://") -> httpUrl.replaceFirst("https://", "wss://")
+        httpUrl.startsWith("http://") -> httpUrl.replaceFirst("http://", "ws://")
+        else -> null
+    }
 }
 
 private const val PING_INTERVAL_MS = 30_000L

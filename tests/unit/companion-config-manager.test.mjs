@@ -158,6 +158,50 @@ test("ConfigManager tolerates corrupt JSON config files and starts with empty ro
   }
 });
 
+test("ConfigManager loads legacy roots that omit added_at", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-config-manager-legacy-"));
+  const configPath = path.join(tempDir, "companion.json");
+  const rootPath = path.join(tempDir, "workspace");
+  mkdirSync(rootPath);
+  writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      {
+        ...createBaseConfig(),
+        workspace_roots: [
+          {
+            id: "root-ai-vault",
+            provider: "claude",
+            path: rootPath,
+            label: "AI-vault"
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+
+  try {
+    const manager = new companion.ConfigManager({
+      configPath,
+      logger: silentLogger
+    });
+
+    assert.deepEqual(manager.getRoots("claude"), [
+      {
+        provider: "claude",
+        path: path.resolve(rootPath),
+        label: "AI-vault",
+        added_at: "1970-01-01T00:00:00.000Z"
+      }
+    ]);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("ConfigManager addRoot rejects regular files", () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-config-manager-file-"));
   const configPath = path.join(tempDir, "companion.json");

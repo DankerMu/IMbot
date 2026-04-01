@@ -23,6 +23,7 @@
   <dict>
     <key>NODE_ENV</key>
     <string>production</string>
+__EXTRA_ENV_VARS__
   </dict>
 </dict>
 </plist>

@@ -37,4 +37,25 @@ class RelayUrlParsingTest {
     fun `rejects malformed relay urls`() {
         assertNull("relay.example.com".toRelayBaseHttpUrl())
     }
+
+    @Test
+    fun `converts https relay urls to websocket urls`() {
+        assertEquals(
+            "wss://relay.example.com/v1/ws?token=secret-token",
+            "https://relay.example.com".toRelayWebSocketUrl("secret-token"),
+        )
+    }
+
+    @Test
+    fun `converts wss relay urls to websocket urls`() {
+        assertEquals(
+            "wss://relay.example.com/v1/ws?token=secret-token",
+            "wss://relay.example.com".toRelayWebSocketUrl("secret-token"),
+        )
+    }
+
+    @Test
+    fun `rejects malformed relay urls when building websocket urls`() {
+        assertNull("relay.example.com".toRelayWebSocketUrl("secret-token"))
+    }
 }

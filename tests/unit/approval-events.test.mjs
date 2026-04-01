@@ -157,6 +157,38 @@ test("mapRuntimeEvent handles minimal approval event with only call_id", () => {
   });
 });
 
+test("mapRuntimeEvent extracts assistant text from Claude stream-json message content blocks", () => {
+  const mapped = mapRuntimeEvent({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "thinking",
+          thinking: "internal only"
+        },
+        {
+          type: "text",
+          text: "first line"
+        },
+        {
+          type: "text",
+          text: "\nsecond line"
+        }
+      ]
+    },
+    session_id: "provider-session-1"
+  });
+
+  assert.deepEqual(mapped, {
+    kind: "event",
+    eventType: "assistant_delta",
+    payload: {
+      text: "first line\nsecond line"
+    }
+  });
+});
+
 test("relay stores and broadcasts approval events in order without changing session status", async (t) => {
   const { db, hub, orchestrator } = createTestHarness(t, "imbot-approval-events-");
   insertRunningSession(db, "sess-approval");
