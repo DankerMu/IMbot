@@ -29,3 +29,10 @@
 - [x] 4.2 Update engineering spec lifecycle/API docs for resumable `cancelled`
 - [x] 4.3 Update Android UI/UX docs for auto-resume and offline formula/table rendering
 - [x] 4.4 Update E2E plan docs to reflect cancelled-resume behavior and markdown coverage
+
+## 5. Post-Review Hardening
+
+- [x] 5.1 Block javascript: URI XSS in KaTeX WebView markdown links (URL scheme allowlist)
+- [x] 5.2 Restrict file:// access in KaTeX WebView to katex/ assets only
+- [x] 5.3 Add auto-resume integration test for failed sessions in DetailViewModelTest
+- [x] 5.4 Add contract test for cancelled resume rejection without provider_session_id
