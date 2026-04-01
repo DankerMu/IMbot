@@ -26,13 +26,53 @@ function withMockedRandom(sequence, callback) {
 
 test("wire exports the expected protocol constants", () => {
   assert.deepEqual(wire.PROVIDERS, ["claude", "book", "openclaw"]);
-  assert.equal(wire.EVENT_TYPES.length, 11);
+  assert.equal(wire.EVENT_TYPES.length, 12);
   assert.deepEqual(wire.VALID_TRANSITIONS.running, [
+    "idle",
     "completed",
     "failed",
     "cancelled"
   ]);
   assert.equal(wire.ERROR_HTTP_STATUS.command_timeout, 504);
+});
+
+test("SESSION_STATUSES includes idle", () => {
+  assert.ok(wire.SESSION_STATUSES.includes("idle"));
+  assert.deepEqual(wire.SESSION_STATUSES, [
+    "queued",
+    "running",
+    "idle",
+    "completed",
+    "failed",
+    "cancelled"
+  ]);
+});
+
+test("EVENT_TYPES includes session_idle", () => {
+  assert.ok(wire.EVENT_TYPES.includes("session_idle"));
+});
+
+test("VALID_TRANSITIONS allows running to idle", () => {
+  assert.ok(wire.VALID_TRANSITIONS.running.includes("idle"));
+});
+
+test("VALID_TRANSITIONS defines idle outbound edges", () => {
+  assert.deepEqual(wire.VALID_TRANSITIONS.idle, ["running", "completed", "failed", "cancelled"]);
+});
+
+test("VALID_TRANSITIONS idle can go to failed on process crash", () => {
+  assert.ok(wire.VALID_TRANSITIONS.idle.includes("failed"));
+});
+
+test("VALID_TRANSITIONS idle cannot go to queued", () => {
+  assert.ok(!wire.VALID_TRANSITIONS.idle.includes("queued"));
+});
+
+test("VALID_TRANSITIONS preserves existing transitions unchanged", () => {
+  assert.deepEqual(wire.VALID_TRANSITIONS.queued, ["running", "failed"]);
+  assert.deepEqual(wire.VALID_TRANSITIONS.completed, ["running"]);
+  assert.deepEqual(wire.VALID_TRANSITIONS.failed, ["running"]);
+  assert.deepEqual(wire.VALID_TRANSITIONS.cancelled, []);
 });
 
 test("ExponentialBackoff returns increasing delays up to the max", () => {

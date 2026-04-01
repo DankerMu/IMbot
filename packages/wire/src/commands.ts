@@ -32,6 +32,12 @@ export type CancelSessionCommand = {
   session_id: string;
 };
 
+export type CompleteSessionCommand = {
+  cmd: "complete_session";
+  req_id: string;
+  session_id: string;
+};
+
 export type ListSessionsCommand = {
   cmd: "list_sessions";
   req_id: string;
@@ -73,6 +79,7 @@ export type CompanionCommand =
   | ResumeSessionCommand
   | SendMessageCommand
   | CancelSessionCommand
+  | CompleteSessionCommand
   | ListSessionsCommand
   | BrowseDirectoryCommand
   | AddRootCommand
