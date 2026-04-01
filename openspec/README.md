@@ -31,11 +31,11 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 | FR-03 会话创建       | `p0-relay-minimal`, `p0-companion-minimal`, `p0-android-prototype`, `p2-android-new-session`                                                                                                                          |
 | FR-04 会话恢复       | `p1-relay-session-lifecycle`, `p1-companion-session-management`, `p0-openclaw-bridge`, `p2-android-workspace-settings`, `p2-android-session-detail`, `persistent-interactive-sessions`, `p3-session-detail-hardening` |
 | FR-05 多会话并发     | `p1-relay-session-lifecycle`, `p1-reconnect-and-catchup`, `p2-android-session-list`, `p3-error-ux-and-cleanup`                                                                                                        |
-| FR-06 流式输出与渲染 | `p0-android-prototype`, `p2-android-session-detail`, `p3-theme-and-animations`, `persistent-interactive-sessions`, `p3-session-detail-hardening`                                                                      |
+| FR-06 流式输出与渲染 | `p0-android-prototype`, `p2-android-session-detail`, `p3-theme-and-animations`, `persistent-interactive-sessions`, `p3-session-detail-hardening`, `p3-message-rendering-polish`, `p3-message-copy`                    |
 | FR-07 断线恢复       | `p1-reconnect-and-catchup`, `p3-error-ux-and-cleanup`                                                                                                                                                                 |
 | FR-08 FCM 推送       | `p1-fcm-push`                                                                                                                                                                                                         |
-| FR-09 主题与外观     | `p2-android-workspace-settings`, `p3-theme-and-animations`                                                                                                                                                            |
-| FR-10 审批保留       | `p3-approval-path-reserved`                                                                                                                                                                                           |
+| FR-09 主题与外观     | `p2-android-workspace-settings`, `p3-theme-and-animations`, `p3-visual-redesign`, `p3-message-rendering-polish`                                                                                                       |
+| FR-10 审批保留       | `p3-approval-path-reserved`, `p3-mobile-skill-interaction`                                                                                                                                                            |
 
 ## Change Index
 
@@ -72,3 +72,7 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 - `p3-error-ux-and-cleanup` — three-layer error UX, purge job, connection stability
 - `p3-session-detail-hardening` — cancelled-session recovery, offline formula rendering, markdown table correctness
 - `p3-approval-path-reserved` — reserved non-bypass permission mode and approval event plumbing
+- `p3-mobile-skill-interaction` — slash command recognition, AskUserQuestion/approval interactive cards
+- `p3-message-rendering-polish` — Obsidian-level markdown rendering: typography, code blocks, quotes, tables, lists
+- `p3-message-copy` — per-message copy, text selection mode, long-press action menu
+- `p3-visual-redesign` — Apple-aesthetic UI overhaul: design tokens, all 6 pages, spring animations
