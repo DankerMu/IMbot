@@ -74,6 +74,7 @@ export async function createCompanionRuntime(options?: {
     sessionIndex,
     logger,
     killGraceMs: options?.killGraceMs,
+    idleTimeoutMs: config.idleTimeoutMs,
     isAllowedDirectory: (provider, cwd) => {
       if (provider !== "book") {
         return true;
@@ -100,6 +101,9 @@ export async function createCompanionRuntime(options?: {
   dispatcher.register("cancel_session", async (command) => {
     await adapter.cancel(command.session_id);
   });
+  dispatcher.register("complete_session", async (command) => {
+    await adapter.completeSession(command.session_id);
+  });
   dispatcher.register("list_sessions", async (command) => {
     return await discoverSessions(command.cwd, command.provider, {
       logger
@@ -123,13 +127,13 @@ export async function createCompanionRuntime(options?: {
   relayClient.on("connected", () => {
     heartbeat.start();
 
-    for (const sessionId of adapter.getActiveSessionIds()) {
+    for (const session of adapter.getActiveSessions()) {
       relayClient.send({
         type: "event",
-        session_id: sessionId,
+        session_id: session.sessionId,
         event_type: "session_status_changed",
         payload: {
-          status: "running"
+          status: session.status
         }
       });
     }

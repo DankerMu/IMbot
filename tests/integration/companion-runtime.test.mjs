@@ -133,63 +133,32 @@ function createMockCliBinary(tempDir) {
     `#!/usr/bin/env node
 const args = process.argv.slice(2);
 const resumeIndex = args.indexOf("-r");
-const sessionIdFlagIndex = args.indexOf("--session-id");
 const providerSessionId =
   process.env.MOCK_CLI_PROVIDER_SESSION_ID ||
-  (resumeIndex >= 0
-    ? args[resumeIndex + 1]
-    : sessionIdFlagIndex >= 0
-      ? args[sessionIdFlagIndex + 1]
-      : "provider-session-1");
-const behavior = process.env.MOCK_CLI_BEHAVIOR || "complete";
+  (resumeIndex >= 0 ? args[resumeIndex + 1] : "provider-session-1");
 const resultDelayMs = Number(process.env.MOCK_CLI_RESULT_DELAY_MS || "30");
 let stdinBuffer = "";
-
-function readPrompt(values) {
-  const flagsWithValue = new Set(["--output-format", "--permission-mode", "--model", "-r", "--session-id"]);
-
-  for (let index = 0; index < values.length; index += 1) {
-    const value = values[index];
-    if (value === "--") {
-      return index + 1 < values.length ? values[index + 1] : null;
-    }
-
-    if (value === "-p" || value === "--print" || value === "--verbose") {
-      continue;
-    }
-
-    if (flagsWithValue.has(value)) {
-      index += 1;
-      continue;
-    }
-
-    if (value.startsWith("-")) {
-      continue;
-    }
-
-    return value;
-  }
-
-  return null;
-}
+let turn = 0;
 
 function emit(message) {
   process.stdout.write(JSON.stringify(message) + "\\n");
 }
 
-emit({ type: "system", session_id: providerSessionId });
+function extractText(content) {
+  if (typeof content === "string") {
+    return content;
+  }
 
-const prompt = readPrompt(args);
-if (prompt) {
-  emit({
-    type: "assistant",
-    session_id: providerSessionId,
-    message: {
-      role: "assistant",
-      content: [{ type: "text", text: "prompt:" + prompt }]
-    }
-  });
+  if (Array.isArray(content)) {
+    return content
+      .map((item) => (item && item.type === "text" && typeof item.text === "string" ? item.text : ""))
+      .join("");
+  }
+
+  return "";
 }
+
+emit({ type: "system", subtype: "init", session_id: providerSessionId });
 
 process.stdin.on("data", (chunk) => {
   stdinBuffer += chunk.toString();
@@ -201,29 +170,40 @@ process.stdin.on("data", (chunk) => {
       continue;
     }
 
+    let message;
+    try {
+      message = JSON.parse(line);
+    } catch {
+      emit({ type: "error", error_code: "invalid_json", message: "Input must be JSON" });
+      continue;
+    }
+
+    const prompt = extractText(message?.message?.content);
+    turn += 1;
+    const currentTurn = turn;
+
     emit({
       type: "assistant",
       session_id: providerSessionId,
       message: {
         role: "assistant",
-        content: [{ type: "text", text: "echo:" + line }]
+        content: [{ type: "text", text: "turn:" + currentTurn + ":" + prompt }]
       }
     });
+
+    setTimeout(() => {
+      emit({ type: "result", result: "done:" + currentTurn + ":" + prompt });
+    }, resultDelayMs);
   }
 });
 
-process.on("SIGINT", () => {
-  setTimeout(() => {
-    process.exit(130);
-  }, 10);
+process.on("SIGTERM", () => {
+  process.exit(0);
 });
 
-if (behavior === "complete") {
-  setTimeout(() => {
-    emit({ type: "result", result: "done" });
-    process.exit(0);
-  }, resultDelayMs);
-}
+process.on("SIGINT", () => {
+  process.exit(130);
+});
 `,
     "utf8"
   );
@@ -250,14 +230,13 @@ function setMockCliEnv(overrides) {
   };
 }
 
-test("companion connects to relay, creates a session, forwards events, and persists session index", async (t) => {
+test("companion runs a persistent multi-turn stream-json session and completes it explicitly", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-"));
   const server = new WebSocketServer({
     port: 0,
     host: "127.0.0.1"
   });
   const restoreEnv = setMockCliEnv({
-    MOCK_CLI_BEHAVIOR: "complete",
     MOCK_CLI_PROVIDER_SESSION_ID: "provider-session-1",
     MOCK_CLI_RESULT_DELAY_MS: "20"
   });
@@ -283,7 +262,8 @@ test("companion connects to relay, creates a session, forwards events, and persi
           binary: binaryPath
         }
       },
-      sessionIndexPath
+      sessionIndexPath,
+      idleTimeoutMs: 1800000
     },
     logger: silentLogger,
     heartbeatIntervalMs: 25,
@@ -320,15 +300,15 @@ test("companion connects to relay, creates a session, forwards events, and persi
       message.type === "event" &&
       message.session_id === "relay-session-1" &&
       message.event_type === "assistant_delta",
-    "assistant delta"
+    "first assistant delta"
   );
-  const sessionResultPromise = waitForJsonMessage(
+  const sessionIdlePromise = waitForJsonMessage(
     socket,
     (message) =>
       message.type === "event" &&
       message.session_id === "relay-session-1" &&
-      message.event_type === "session_result",
-    "session result"
+      message.event_type === "session_idle",
+    "first session idle"
   );
 
   socket.send(
@@ -354,11 +334,93 @@ test("companion connects to relay, creates a session, forwards events, and persi
   });
 
   const assistantDelta = await assistantDeltaPromise;
-  assert.equal(assistantDelta.payload.text, "prompt:hello");
+  assert.equal(assistantDelta.payload.text, "turn:1:hello");
 
-  const sessionResult = await sessionResultPromise;
-  assert.deepEqual(sessionResult.payload, {
-    result: "done"
+  const sessionIdle = await sessionIdlePromise;
+  assert.deepEqual(sessionIdle.payload, {
+    result: "done:1:hello"
+  });
+
+  const sendAckPromise = waitForJsonMessage(
+    socket,
+    (message) => message.type === "ack" && message.req_id === "req-send-1",
+    "send_message ack"
+  );
+  const secondAssistantDeltaPromise = waitForJsonMessage(
+    socket,
+    (message) =>
+      message.type === "event" &&
+      message.session_id === "relay-session-1" &&
+      message.event_type === "assistant_delta" &&
+      message.payload?.text === "turn:2:followup",
+    "second assistant delta"
+  );
+  const secondSessionIdlePromise = waitForJsonMessage(
+    socket,
+    (message) =>
+      message.type === "event" &&
+      message.session_id === "relay-session-1" &&
+      message.event_type === "session_idle" &&
+      message.payload?.result === "done:2:followup",
+    "second session idle"
+  );
+
+  socket.send(
+    JSON.stringify({
+      cmd: "send_message",
+      req_id: "req-send-1",
+      session_id: "relay-session-1",
+      text: "followup"
+    })
+  );
+
+  const sendAck = await sendAckPromise;
+  assert.deepEqual(sendAck, {
+    type: "ack",
+    req_id: "req-send-1",
+    status: "ok"
+  });
+
+  const secondAssistantDelta = await secondAssistantDeltaPromise;
+  assert.equal(secondAssistantDelta.payload.text, "turn:2:followup");
+
+  const secondSessionIdle = await secondSessionIdlePromise;
+  assert.deepEqual(secondSessionIdle.payload, {
+    result: "done:2:followup"
+  });
+
+  const completeAckPromise = waitForJsonMessage(
+    socket,
+    (message) => message.type === "ack" && message.req_id === "req-complete-1",
+    "complete_session ack"
+  );
+  const completeResultPromise = waitForJsonMessage(
+    socket,
+    (message) =>
+      message.type === "event" &&
+      message.session_id === "relay-session-1" &&
+      message.event_type === "session_result",
+    "session result after complete"
+  );
+
+  socket.send(
+    JSON.stringify({
+      cmd: "complete_session",
+      req_id: "req-complete-1",
+      session_id: "relay-session-1"
+    })
+  );
+
+  const completeAck = await completeAckPromise;
+  assert.deepEqual(completeAck, {
+    type: "ack",
+    req_id: "req-complete-1",
+    status: "ok"
+  });
+
+  const completeResult = await completeResultPromise;
+  assert.deepEqual(completeResult.payload, {
+    result: null
   });
 
   const sessionIndex = JSON.parse(readFileSync(sessionIndexPath, "utf8"));
@@ -409,7 +471,8 @@ test("companion handles browse_directory commands and returns subdirectories onl
           binary: binaryPath
         }
       },
-      sessionIndexPath: path.join(tempDir, "sessions.json")
+      sessionIndexPath: path.join(tempDir, "sessions.json"),
+      idleTimeoutMs: 1800000
     },
     logger: silentLogger,
     heartbeatIntervalMs: 25,
@@ -492,7 +555,8 @@ test("companion rejects browse_directory when canonical target escapes provided 
           binary: binaryPath
         }
       },
-      sessionIndexPath: path.join(tempDir, "sessions.json")
+      sessionIndexPath: path.join(tempDir, "sessions.json"),
+      idleTimeoutMs: 1800000
     },
     logger: silentLogger,
     heartbeatIntervalMs: 25,
@@ -538,7 +602,6 @@ test("companion reconnects after relay disconnect and supports send_message plus
     host: "127.0.0.1"
   });
   const restoreEnv = setMockCliEnv({
-    MOCK_CLI_BEHAVIOR: "linger",
     MOCK_CLI_PROVIDER_SESSION_ID: "provider-session-2"
   });
   const binaryPath = createMockCliBinary(tempDir);
@@ -562,7 +625,8 @@ test("companion reconnects after relay disconnect and supports send_message plus
           binary: binaryPath
         }
       },
-      sessionIndexPath: path.join(tempDir, "sessions.json")
+      sessionIndexPath: path.join(tempDir, "sessions.json"),
+      idleTimeoutMs: 1800000
     },
     logger: silentLogger,
     heartbeatIntervalMs: 25,
@@ -615,7 +679,7 @@ test("companion reconnects after relay disconnect and supports send_message plus
       message.type === "event" &&
       message.session_id === "relay-session-2" &&
       message.event_type === "assistant_delta" &&
-      message.payload.text === "echo:followup",
+      message.payload.text === "turn:2:followup",
     "echoed assistant delta"
   );
 
@@ -632,7 +696,7 @@ test("companion reconnects after relay disconnect and supports send_message plus
   assert.equal(sendAck.status, "ok");
 
   const echoedMessage = await echoedMessagePromise;
-  assert.equal(echoedMessage.payload.text, "echo:followup");
+  assert.equal(echoedMessage.payload.text, "turn:2:followup");
 
   const cancelAckPromise = waitForJsonMessage(
     secondSocket,

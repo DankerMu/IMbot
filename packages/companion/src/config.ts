@@ -17,6 +17,7 @@ export interface CompanionConfig {
   readonly hostId: string;
   readonly providers: Readonly<Partial<Record<InteractiveProvider, CompanionProviderConfig>>>;
   readonly sessionIndexPath: string;
+  readonly idleTimeoutMs: number;
 }
 
 type RawCompanionConfig = {
@@ -24,6 +25,7 @@ type RawCompanionConfig = {
   readonly token?: unknown;
   readonly host_id?: unknown;
   readonly providers?: unknown;
+  readonly idle_timeout_ms?: unknown;
 };
 
 const INTERACTIVE_PROVIDERS = ["claude", "book"] as const satisfies readonly InteractiveProvider[];
@@ -68,6 +70,12 @@ export function loadCompanionConfig(env: NodeJS.ProcessEnv = process.env): Compa
   const token = requireString(rawConfig.token, "token");
   const hostId = requireString(rawConfig.host_id, "host_id");
   const providers = parseProviders(rawConfig.providers, env);
+  const idleTimeoutMs = parseOptionalPositiveInt(
+    rawConfig.idle_timeout_ms,
+    env.COMPANION_IDLE_TIMEOUT_MS,
+    1800000,
+    "idle_timeout_ms"
+  );
 
   if (getConfiguredProviders({ providers }).length === 0) {
     throw new CompanionError(
@@ -82,7 +90,8 @@ export function loadCompanionConfig(env: NodeJS.ProcessEnv = process.env): Compa
     token,
     hostId,
     providers,
-    sessionIndexPath
+    sessionIndexPath,
+    idleTimeoutMs
   };
 }
 
@@ -92,6 +101,25 @@ function requireString(value: unknown, fieldName: string): string {
   }
 
   return value.trim();
+}
+
+function parseOptionalPositiveInt(
+  rawValue: unknown,
+  envValue: string | undefined,
+  fallback: number,
+  fieldName: string
+): number {
+  const value = rawValue ?? envValue;
+  if (value == null || value === "") {
+    return fallback;
+  }
+
+  const parsed = typeof value === "number" ? value : Number.parseInt(String(value), 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new CompanionError("invalid_config", `companion config field ${fieldName} must be a positive integer`);
+  }
+
+  return parsed;
 }
 
 function parseProviders(
