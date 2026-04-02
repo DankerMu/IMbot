@@ -5,6 +5,8 @@
 > **实现目标**: 本文档将交给 Codex 实现为自动化测试脚本。每个 test case 包含精确步骤和断言。Codex 应将每个 section 实现为 `tests/e2e/*.test.mjs` 文件，使用 Node 内置 test runner。
 >
 > **v3 增量说明**: 在 v2 基础上新增 Section 14-19，覆盖 PR #96-99 引入的全部新功能（消息复制、Slash Command、AskUserQuestion、Approval、Markdown 渲染增强、Apple 美学视觉重设计）。v2 的 Section 1-13 保持不变。
+>
+> **v4 增量说明**: 新增 Section 21，覆盖 PR #111 (Issue #106) 引入的 UI 美化第二轮功能（去气泡、深色反转、间距系统、代码块折叠/终端样式、状态合并、输入栏 Pill 化、FAB 缩小）。
 
 ---
 
@@ -782,6 +784,7 @@ test.skip("approval card rendering requires non-bypass mode or event injection",
 文件: `tests/e2e/e2e-push.test.mjs` — E2E-35, E2E-36
 文件: `tests/e2e/e2e-viewer.test.mjs` — E2E-37
 文件: `tests/e2e/e2e-smoke.test.mjs` — E2E-SMOKE, E2E-SMOKE-V3
+文件: `tests/e2e/e2e-visual-polish-v2.test.mjs` — E2E-A38 ~ E2E-A46
 
 执行: `npm run build && node --test tests/e2e/*.test.mjs`
 
@@ -797,6 +800,9 @@ A21 → A22 → A23（AskUserQuestion）
 A24 → A25（Approval）
 A26 → A27 → A28 → A29 → A30 → A31（Markdown 渲染）
 A32 → A33 → A34 → A35 → A36 → A37（视觉回归）
+A38 → A39 → A40 → A41（UI 美化 v2：气泡 + 间距 + 状态）
+A42 → A43 → A44（代码块折叠/终端/小块）
+A45 → A46（输入栏 + FAB）
 
 ---
 
@@ -815,6 +821,174 @@ A32 → A33 → A34 → A35 → A36 → A37（视觉回归）
 
 ---
 
+## 21. UI 美化第二轮（PR #111, Issue #106）
+
+> 文件: `tests/e2e/e2e-visual-polish-v2.test.mjs`
+>
+> 验证去气泡、深色反转、动态间距、代码块折叠/终端样式、状态合并、Pill 输入栏、FAB 缩小。
+
+### E2E-A38: 助手消息去气泡化
+
+**前置**: 已创建 book session 并进入 idle（有至少一条 agent 回复）
+
+**步骤**:
+1. 截图 "polish-v2-assistant-bubble"
+2. dump UI → 定位 agent 消息文本区域
+3. 验证 agent 消息左侧有 provider 头像 badge（36dp 圆形）
+
+**断言**:
+- 截图中 agent 消息无灰色气泡背景（内容直接渲染在页面底色上）
+- provider 头像 badge 可见（圆形彩色背景 + 首字母缩写）
+- 消息文本与头像之间有间距（~12dp）
+- 时间戳在消息下方，小字号灰色
+
+### E2E-A39: 用户消息深色反转
+
+**前置**: E2E-A38 同一 session
+
+**步骤**:
+1. dump UI → 定位用户消息气泡
+2. 截图 "polish-v2-user-bubble-light"
+3. 切换深色模式 → 截图 "polish-v2-user-bubble-dark"
+4. 切换回浅色模式
+
+**断言**:
+- 亮色模式：用户气泡为深色背景（Gray-800）+ 白色文字
+- 暗色模式：用户气泡为浅灰背景（Gray-200）+ 深色文字
+- 气泡右下角圆角较小（4dp，呈尾巴感），其余三角为 16dp
+- 气泡右对齐
+- 最大宽度约为屏幕宽度的 80%
+- 时间戳在气泡外下方
+
+### E2E-A40: 消息组间距
+
+**前置**: 同一 session，至少有 2 条 agent 回复 + 1 条用户消息
+
+**步骤**:
+1. dump UI → 获取相邻 agent 消息的坐标
+2. 计算两条连续 agent 消息的间距 → 应为 ~8dp
+3. 计算 agent 消息与紧接其后的 user 消息的间距 → 应为 ~24dp
+4. 截图 "polish-v2-spacing"
+
+**断言**:
+- 同一发送者连续消息间距明显小于跨发送者间距
+- 视觉上消息有"呼吸感"（组间距 ≥ 20dp）
+
+### E2E-A41: 状态气泡极简化 + 连续合并
+
+**前置**: 同一 session
+
+**步骤**:
+1. 发送一条消息 → 等待 idle（产生 running → idle 状态变更）
+2. dump UI → 定位状态指示器
+3. 截图 "polish-v2-status-minimal"
+
+**断言**:
+- 状态文字为极小字号（~11sp），灰色，居中
+- 状态左侧有小圆点（~6dp），颜色与状态语义对应（running=绿色, idle=蓝色）
+- 无独立 pill 背景（不是圆角标签样式）
+- 如果连续产生了多个相同状态（如多个 running），只显示一个（合并验证）
+
+### E2E-A42: 代码块折叠 — 大代码块
+
+**前置**: 同一 session
+
+**步骤**:
+1. 发送消息要求 book 输出 30+ 行代码：
+   ```
+   输出一段 Python 代码，至少 30 行，包含完整的类定义。用 ```python 代码块包裹。
+   ```
+2. 等待 idle → dump UI → 截图 "polish-v2-code-collapsed"
+3. 确认代码块默认折叠（仅显示前 ~10 行）
+4. 确认底部有渐变遮罩和 "展开 (N 行)" 按钮
+5. 点击 "展开" 按钮 → 等待 1s → dump UI → 截图 "polish-v2-code-expanded"
+6. 确认代码全部可见
+7. 确认按钮变为 "收起"
+
+**断言**:
+- 折叠态：仅显示 10 行代码 + 渐变遮罩 + "展开 (N 行)" 按钮
+- 展开态：显示全部代码 + "收起" 按钮
+- 代码块头部有语言标签 badge（如 "python"）
+- 代码块头部有复制按钮
+
+### E2E-A43: 代码块 — 终端暗色样式
+
+**前置**: 同一 session
+
+**步骤**:
+1. 发送消息要求 book 输出 bash 代码块：
+   ```
+   输出一段 bash 脚本（用 ```bash 包裹），包含 5 行命令。
+   ```
+2. 等待 idle → 截图 "polish-v2-terminal-block"
+
+**断言**:
+- 终端代码块背景为近纯黑（不随主题变化）
+- 头部语言标签 "bash" 为绿色字体
+- 代码文字为浅灰色
+- 与普通代码块（如 python）样式明显不同
+
+### E2E-A44: 小代码块不折叠
+
+**前置**: 同一 session
+
+**步骤**:
+1. 发送消息要求输出短代码：
+   ```
+   输出一段 3 行的 JavaScript 代码。
+   ```
+2. 等待 idle → dump UI
+
+**断言**:
+- 代码块不折叠，全部可见
+- 无 "展开" 按钮
+- 头部仍有语言标签 + 复制按钮
+
+### E2E-A45: Pill 输入栏
+
+**前置**: 任意 session detail 页面
+
+**步骤**:
+1. 截图 "polish-v2-input-bar"
+2. dump UI → 定位输入栏
+
+**断言**:
+- 输入框为 Pill 形状（大圆角，接近胶囊型）
+- 输入框背景为半透明灰色
+- 发送按钮为 36dp 圆形
+- 不可发送时发送按钮为浅灰色
+- 输入文字后发送按钮变为品牌蓝色
+- 整个输入栏容器有半透明背景效果
+
+### E2E-A46: FAB 缩小 + Badge
+
+**前置**: session detail 页面，消息列表较长（滚动到非底部位置）
+
+**步骤**:
+1. 向上滚动消息列表（使 FAB 出现）
+2. 截图 "polish-v2-fab"
+3. 发送一条消息（不滚动到底部）→ 等待回复
+4. 截图 "polish-v2-fab-badge"
+
+**断言**:
+- FAB 为 36dp 小圆形按钮（非之前的 56dp 大按钮）
+- FAB 图标为向下箭头
+- FAB 背景为半透明白/灰色 + 细边框
+- 有新消息时 FAB 右上角显示未读 badge（蓝色小圆 + 白色数字）
+- 点击 FAB → 自动滚动到底部
+
+**清理**: complete + delete session
+
+---
+
+### Android E2E v4 新增用例
+
+A38 → A39 → A40 → A41（气泡 + 间距 + 状态）
+A42 → A43 → A44（代码块折叠/终端/小块）
+A45 → A46（输入栏 + FAB）
+
+---
+
 ## 测试统计
 
 | Section | 范围 | 用例数 | 实现方式 |
@@ -829,4 +1003,5 @@ A32 → A33 → A34 → A35 → A36 → A37（视觉回归）
 | **18** (v3 新增) | **Markdown 渲染** | **6** | **adb 半自动** |
 | **19** (v3 新增) | **视觉回归** | **6** | **adb 半自动** |
 | **20** (v3 新增) | **Smoke Test v3** | **1** | **Node 自动化** |
-| **总计** | | **76** | |
+| **21** (v4 新增) | **UI 美化第二轮** | **9** | **adb 半自动** |
+| **总计** | | **85** | |
