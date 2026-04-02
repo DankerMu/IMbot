@@ -12,8 +12,10 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,6 +23,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -119,7 +122,10 @@ fun AppNavigation(
         modifier = modifier,
         bottomBar = {
             if (showBottomBar) {
-                NavigationBar {
+                NavigationBar(
+                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    tonalElevation = 0.dp,
+                ) {
                     topLevelDestinations.forEach { destination ->
                         val selected =
                             currentDestination?.hierarchy?.any { navDestination ->
@@ -156,8 +162,12 @@ fun AppNavigation(
                                 }
                             },
                             label = {
-                                Text(destination.label)
+                                Text(
+                                    text = destination.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
                             },
+                            colors = NavigationBarItemDefaults.colors(),
                         )
                     }
                 }

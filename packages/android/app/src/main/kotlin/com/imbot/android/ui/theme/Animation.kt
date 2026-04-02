@@ -3,6 +3,9 @@ package com.imbot.android.ui.theme
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.spring
 
 enum class MotionCurve {
     Emphasized,
@@ -40,6 +43,16 @@ object IMbotAnimations {
     val messageCurve = MotionCurve.Standard
     val pulseCurve = MotionCurve.Linear
 
+    val DefaultSpring: SpringSpec<Float> =
+        spring(
+            dampingRatio = 0.5f,
+            stiffness = 400f,
+        )
+    val GentleSpring: SpringSpec<Float> =
+        spring(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = 200f,
+        )
     val pageEnterEasing: Easing = CubicBezierEasing(0.1f, 0.7f, 0.1f, 1.0f)
     val pageExitEasing: Easing = CubicBezierEasing(0.3f, 0.0f, 0.8f, 0.2f)
     val standardEasing: Easing = CubicBezierEasing(0.2f, 0.0f, 0.0f, 1.0f)

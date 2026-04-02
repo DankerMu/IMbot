@@ -5,7 +5,7 @@ package com.imbot.android.ui.detail
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -33,11 +32,13 @@ import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -45,9 +46,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -66,6 +69,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.imbot.android.data.ErrorState
@@ -76,6 +80,9 @@ import com.imbot.android.ui.components.StatusIndicator
 import com.imbot.android.ui.components.StatusIndicatorVariant
 import com.imbot.android.ui.theme.IMbotAnimations
 import com.imbot.android.ui.theme.LocalProviderColors
+import com.imbot.android.ui.theme.LocalUseDarkTheme
+import com.imbot.android.ui.theme.appleChrome
+import com.imbot.android.ui.theme.appleShadow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -311,148 +318,153 @@ fun SessionDetailScreen(
         Scaffold(
             modifier = modifier,
             topBar = {
-                TopAppBar(
-                    title = {
-                        DetailTopBarTitle(
-                            title = uiState.session?.let(::sessionTitle) ?: "会话详情",
-                            subtitle = uiState.session?.let(::sessionSubtitle),
-                            provider = uiState.session?.provider.orEmpty(),
-                        )
-                    },
-                    navigationIcon = {
-                        IconButton(
-                            onClick = {
-                                if (selectionModeActive) {
-                                    viewModel.onExitSelectionMode()
-                                } else {
-                                    onNavigateBack(false)
-                                }
-                            },
-                        ) {
-                            Icon(
-                                imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                contentDescription = "返回",
+                Column {
+                    TopAppBar(
+                        colors =
+                            TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.surface,
+                            ),
+                        title = {
+                            DetailTopBarTitle(
+                                title = uiState.session?.let(::sessionTitle) ?: "会话详情",
+                                subtitle = uiState.session?.let(::sessionSubtitle),
+                                provider = uiState.session?.provider.orEmpty(),
+                                status = uiState.session?.status.orEmpty(),
                             )
-                        }
-                    },
-                    actions = {
-                        uiState.session?.let { session ->
-                            StatusIndicator(
-                                status = session.status,
-                                variant = StatusIndicatorVariant.Badge,
-                            )
-                        }
-                        IconButton(
-                            onClick = {
-                                menuExpanded = true
-                            },
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.MoreVert,
-                                contentDescription = "更多操作",
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = menuExpanded,
-                            onDismissRequest = {
-                                menuExpanded = false
-                            },
-                        ) {
-                            if (canCancelSession(uiState.session?.status)) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text("取消会话")
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Filled.StopCircle,
-                                            contentDescription = null,
-                                        )
-                                    },
-                                    enabled = !uiState.isCancelling,
-                                    onClick = {
-                                        menuExpanded = false
-                                        showCancelDialog = true
-                                    },
-                                )
-                            }
-                            if (canResumeSession(uiState.session?.status)) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text("恢复会话")
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Filled.PlayArrow,
-                                            contentDescription = null,
-                                        )
-                                    },
-                                    enabled = !uiState.isResuming,
-                                    onClick = {
-                                        menuExpanded = false
-                                        viewModel.resumeSession()
-                                    },
-                                )
-                            }
-                            if (canCompleteSession(uiState.session?.status)) {
-                                DropdownMenuItem(
-                                    text = {
-                                        Text("结束会话")
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Filled.CheckCircle,
-                                            contentDescription = null,
-                                        )
-                                    },
-                                    enabled = !uiState.isCompleting,
-                                    onClick = {
-                                        menuExpanded = false
-                                        showCompleteDialog = true
-                                    },
-                                )
-                            }
-                            DropdownMenuItem(
-                                text = {
-                                    Text("删除会话")
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Filled.Delete,
-                                        contentDescription = null,
-                                    )
-                                },
-                                enabled = !uiState.isDeleting,
+                        },
+                        navigationIcon = {
+                            IconButton(
                                 onClick = {
-                                    menuExpanded = false
-                                    showDeleteDialog = true
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = {
-                                    Text("复制全部输出")
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = Icons.Filled.ContentCopy,
-                                        contentDescription = null,
-                                    )
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    clipboardManager.setText(
-                                        AnnotatedString(
-                                            copyableAgentTranscript(uiState.messages),
-                                        ),
-                                    )
-                                    coroutineScope.launch {
-                                        snackbarHostState.showSnackbar("已复制全部输出")
+                                    if (selectionModeActive) {
+                                        viewModel.onExitSelectionMode()
+                                    } else {
+                                        onNavigateBack(false)
                                     }
                                 },
-                            )
-                        }
-                    },
-                )
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "返回",
+                                )
+                            }
+                        },
+                        actions = {
+                            IconButton(
+                                onClick = {
+                                    menuExpanded = true
+                                },
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.MoreVert,
+                                    contentDescription = "更多操作",
+                                )
+                            }
+                            DropdownMenu(
+                                expanded = menuExpanded,
+                                onDismissRequest = {
+                                    menuExpanded = false
+                                },
+                            ) {
+                                if (canCancelSession(uiState.session?.status)) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("取消会话")
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Filled.StopCircle,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                        enabled = !uiState.isCancelling,
+                                        onClick = {
+                                            menuExpanded = false
+                                            showCancelDialog = true
+                                        },
+                                    )
+                                }
+                                if (canResumeSession(uiState.session?.status)) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("恢复会话")
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Filled.PlayArrow,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                        enabled = !uiState.isResuming,
+                                        onClick = {
+                                            menuExpanded = false
+                                            viewModel.resumeSession()
+                                        },
+                                    )
+                                }
+                                if (canCompleteSession(uiState.session?.status)) {
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("结束会话")
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Filled.CheckCircle,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                        enabled = !uiState.isCompleting,
+                                        onClick = {
+                                            menuExpanded = false
+                                            showCompleteDialog = true
+                                        },
+                                    )
+                                }
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("删除会话")
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Filled.Delete,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    enabled = !uiState.isDeleting,
+                                    onClick = {
+                                        menuExpanded = false
+                                        showDeleteDialog = true
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("复制全部输出")
+                                    },
+                                    leadingIcon = {
+                                        Icon(
+                                            imageVector = Icons.Filled.ContentCopy,
+                                            contentDescription = null,
+                                        )
+                                    },
+                                    onClick = {
+                                        menuExpanded = false
+                                        clipboardManager.setText(
+                                            AnnotatedString(
+                                                copyableAgentTranscript(uiState.messages),
+                                            ),
+                                        )
+                                        coroutineScope.launch {
+                                            snackbarHostState.showSnackbar("已复制全部输出")
+                                        }
+                                    },
+                                )
+                            }
+                        },
+                    )
+                    HorizontalDivider(
+                        thickness = 1.dp,
+                        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+                    )
+                }
             },
             bottomBar = {
                 InputBar(
@@ -483,11 +495,6 @@ fun SessionDetailScreen(
                         scope = ErrorScope.SESSION(sessionId),
                         modifier = Modifier.padding(horizontal = 16.dp),
                         hostId = uiState.session?.hostId,
-                    )
-                    StatusIndicator(
-                        status = uiState.session?.status.orEmpty(),
-                        variant = StatusIndicatorVariant.Bar,
-                        modifier = Modifier.fillMaxWidth(),
                     )
 
                     if (uiState.isLoading && uiState.messages.isEmpty()) {
@@ -607,18 +614,9 @@ fun SessionDetailScreen(
                 }
 
                 if (uiState.scrollState.fabVisible) {
-                    ExtendedFloatingActionButton(
+                    ScrollToBottomButton(
+                        count = uiState.scrollState.newMsgCount,
                         onClick = viewModel::onFabTapped,
-                        icon = {
-                            Icon(
-                                imageVector = Icons.Filled.ArrowDownward,
-                                contentDescription = null,
-                            )
-                        },
-                        text = {
-                            val count = uiState.scrollState.newMsgCount
-                            Text(if (count > 0) "↓ $count 条新消息" else "回到底部")
-                        },
                         modifier =
                             Modifier
                                 .align(Alignment.BottomEnd)
@@ -635,26 +633,40 @@ private fun DetailTopBarTitle(
     title: String,
     subtitle: String?,
     provider: String,
+    status: String,
 ) {
     Row(
         modifier = Modifier,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         TopBarProviderBadge(provider = provider)
         Column(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                StatusIndicator(
+                    status = status,
+                    variant = StatusIndicatorVariant.Dot,
+                )
+            }
             subtitle?.let { subtitleText ->
                 Text(
                     text = subtitleText,
-                    style = MaterialTheme.typography.labelMedium,
+                    style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -669,7 +681,7 @@ private fun TopBarProviderBadge(provider: String) {
     Box(
         modifier =
             Modifier
-                .size(36.dp)
+                .size(24.dp)
                 .background(
                     color = badgeColor.copy(alpha = 0.16f),
                     shape = CircleShape,
@@ -682,6 +694,56 @@ private fun TopBarProviderBadge(provider: String) {
             color = badgeColor,
             fontWeight = FontWeight.Bold,
         )
+    }
+}
+
+@Composable
+private fun ScrollToBottomButton(
+    count: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val isDarkTheme = LocalUseDarkTheme.current
+    val shadowTokens = MaterialTheme.appleShadow
+
+    BadgedBox(
+        modifier = modifier,
+        badge = {
+            if (count > 0) {
+                Badge(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                ) {
+                    Text(
+                        text = count.toString(),
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+        },
+    ) {
+        Surface(
+            modifier =
+                Modifier
+                    .size(40.dp)
+                    .appleChrome(
+                        shape = CircleShape,
+                        isDarkTheme = isDarkTheme,
+                        outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
+                        shadowTokens = shadowTokens,
+                    )
+                    .clickable(onClick = onClick),
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    imageVector = Icons.Filled.ArrowDownward,
+                    contentDescription = "回到底部",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
     }
 }
 
@@ -712,17 +774,13 @@ private fun AnimatedTimelineEntry(
         visible = visible,
         enter =
             fadeIn(
-                animationSpec =
-                    tween(
-                        durationMillis = IMbotAnimations.MESSAGE_FADE_MS,
-                        easing = IMbotAnimations.standardEasing,
-                    ),
+                animationSpec = IMbotAnimations.GentleSpring,
             ) +
                 slideInVertically(
                     animationSpec =
-                        tween(
-                            durationMillis = IMbotAnimations.MESSAGE_FADE_MS,
-                            easing = IMbotAnimations.standardEasing,
+                        spring(
+                            dampingRatio = IMbotAnimations.DefaultSpring.dampingRatio,
+                            stiffness = IMbotAnimations.DefaultSpring.stiffness,
                         ),
                     initialOffsetY = { slideOffsetPx },
                 ),

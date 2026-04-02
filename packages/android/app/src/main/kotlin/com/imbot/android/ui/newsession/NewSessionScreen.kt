@@ -19,16 +19,17 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -41,6 +42,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.imbot.android.data.ErrorState
 import com.imbot.android.ui.components.ErrorBannerHost
 import com.imbot.android.ui.components.ErrorScope
+import com.imbot.android.ui.theme.LocalIMbotComponentShapes
+import com.imbot.android.ui.theme.LocalUseDarkTheme
+import com.imbot.android.ui.theme.SurfaceTertiary
+import com.imbot.android.ui.theme.SurfaceTertiaryDark
 import kotlinx.coroutines.flow.collectLatest
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -78,6 +83,10 @@ fun NewSessionScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
+                colors =
+                    TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
                 title = {
                     Text("新建会话")
                 },
@@ -239,7 +248,7 @@ private fun StepDot(active: Boolean) {
     Box(
         modifier =
             Modifier
-                .size(14.dp)
+                .size(12.dp)
                 .border(
                     width = 1.dp,
                     color =
@@ -258,8 +267,7 @@ private fun StepDot(active: Boolean) {
                             Color.Transparent
                         },
                     shape = CircleShape,
-                )
-                .padding(2.dp),
+                ),
     )
 }
 
@@ -273,6 +281,16 @@ private fun WizardNavigationBar(
     onNext: () -> Unit,
     onCreate: () -> Unit,
 ) {
+    val componentShapes = LocalIMbotComponentShapes.current
+    val isDarkTheme = LocalUseDarkTheme.current
+    val primaryButtonColors =
+        ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            disabledContainerColor = if (isDarkTheme) SurfaceTertiaryDark else SurfaceTertiary,
+            disabledContentColor = MaterialTheme.colorScheme.outline,
+        )
+
     Row(
         modifier =
             Modifier
@@ -282,10 +300,16 @@ private fun WizardNavigationBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (step > 0) {
-            OutlinedButton(
+            Button(
                 onClick = onPrevious,
                 enabled = !isCreating,
                 modifier = Modifier.weight(1f),
+                shape = componentShapes.button,
+                colors =
+                    ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
             ) {
                 Text("上一步")
             }
@@ -298,6 +322,8 @@ private fun WizardNavigationBar(
                 onClick = onNext,
                 enabled = canMoveNext && !isCreating,
                 modifier = Modifier.weight(1f),
+                shape = componentShapes.button,
+                colors = primaryButtonColors,
             ) {
                 Text("下一步")
             }
@@ -306,6 +332,8 @@ private fun WizardNavigationBar(
                 onClick = onCreate,
                 enabled = canCreate && !isCreating,
                 modifier = Modifier.weight(1f),
+                shape = componentShapes.button,
+                colors = primaryButtonColors,
             ) {
                 if (isCreating) {
                     CircularProgressIndicator(

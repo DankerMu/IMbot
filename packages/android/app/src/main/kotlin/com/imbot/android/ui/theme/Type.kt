@@ -20,52 +20,108 @@ val CodeTextStyle =
 
 val IMbotTypography =
     Typography(
+        displayLarge =
+            TextStyle(
+                fontFamily = FontFamily.Default,
+                fontSize = 34.sp,
+                lineHeight = 41.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.4).sp,
+            ),
+        headlineLarge =
+            TextStyle(
+                fontFamily = FontFamily.Default,
+                fontSize = 28.sp,
+                lineHeight = 34.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.26).sp,
+            ),
+        headlineMedium =
+            TextStyle(
+                fontFamily = FontFamily.Default,
+                fontSize = 22.sp,
+                lineHeight = 28.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.26).sp,
+            ),
+        headlineSmall =
+            TextStyle(
+                fontFamily = FontFamily.Default,
+                fontSize = 20.sp,
+                lineHeight = 25.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.45).sp,
+            ),
+        titleLarge =
+            TextStyle(
+                fontFamily = FontFamily.Default,
+                fontSize = 17.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.41).sp,
+            ),
         titleMedium =
             TextStyle(
-                fontSize = 16.sp,
-                lineHeight = 24.sp,
-                fontWeight = FontWeight.Medium,
+                fontFamily = FontFamily.Default,
+                fontSize = 17.sp,
+                lineHeight = 22.sp,
+                fontWeight = FontWeight.SemiBold,
+                letterSpacing = (-0.32).sp,
             ),
         titleSmall =
             TextStyle(
-                fontSize = 14.sp,
+                fontFamily = FontFamily.Default,
+                fontSize = 15.sp,
                 lineHeight = 20.sp,
-                fontWeight = FontWeight.Medium,
+                fontWeight = FontWeight.Normal,
+                letterSpacing = (-0.24).sp,
             ),
         bodyLarge =
             TextStyle(
-                fontSize = 16.sp,
+                fontFamily = FontFamily.Default,
+                fontSize = 17.sp,
                 lineHeight = 24.sp,
                 fontWeight = FontWeight.Normal,
+                letterSpacing = (-0.41).sp,
             ),
         bodyMedium =
             TextStyle(
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
+                fontFamily = FontFamily.Default,
+                fontSize = 15.sp,
+                lineHeight = 22.sp,
                 fontWeight = FontWeight.Normal,
+                letterSpacing = (-0.24).sp,
             ),
         bodySmall =
             TextStyle(
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
+                fontFamily = FontFamily.Default,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
                 fontWeight = FontWeight.Normal,
+                letterSpacing = (-0.08).sp,
             ),
         labelLarge =
             TextStyle(
-                fontSize = 14.sp,
-                lineHeight = 20.sp,
-                fontWeight = FontWeight.Medium,
-            ),
-        labelMedium =
-            TextStyle(
+                fontFamily = FontFamily.Default,
                 fontSize = 12.sp,
                 lineHeight = 16.sp,
                 fontWeight = FontWeight.Medium,
+                letterSpacing = 0.sp,
+            ),
+        labelMedium =
+            TextStyle(
+                fontFamily = FontFamily.Default,
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.07.sp,
             ),
         labelSmall =
             TextStyle(
+                fontFamily = FontFamily.Default,
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
                 fontWeight = FontWeight.Normal,
+                letterSpacing = 0.07.sp,
             ),
     )

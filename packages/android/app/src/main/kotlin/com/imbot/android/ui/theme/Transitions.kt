@@ -3,7 +3,7 @@ package com.imbot.android.ui.theme
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
@@ -21,108 +21,76 @@ private val topLevelRoutes =
 fun AnimatedContentTransitionScope<NavBackStackEntry>.imbotEnterTransition(): EnterTransition =
     if (isTabCrossfade()) {
         fadeIn(
-            animationSpec =
-                androidx.compose.animation.core.tween(
-                    durationMillis = IMbotAnimations.MESSAGE_FADE_MS,
-                    easing = IMbotAnimations.standardEasing,
-                ),
+            animationSpec = IMbotAnimations.GentleSpring,
         )
     } else {
         slideInHorizontally(
             animationSpec =
-                tween(
-                    durationMillis = IMbotAnimations.PAGE_ENTER_MS,
-                    easing = IMbotAnimations.pageEnterEasing,
+                spring(
+                    dampingRatio = IMbotAnimations.DefaultSpring.dampingRatio,
+                    stiffness = IMbotAnimations.DefaultSpring.stiffness,
                 ),
             initialOffsetX = { fullWidth -> fullWidth },
         ) +
             fadeIn(
-                animationSpec =
-                    tween(
-                        durationMillis = IMbotAnimations.PAGE_ENTER_MS,
-                        easing = IMbotAnimations.pageEnterEasing,
-                    ),
+                animationSpec = IMbotAnimations.GentleSpring,
             )
     }
 
 fun AnimatedContentTransitionScope<NavBackStackEntry>.imbotExitTransition(): ExitTransition =
     if (isTabCrossfade()) {
         fadeOut(
-            animationSpec =
-                androidx.compose.animation.core.tween(
-                    durationMillis = IMbotAnimations.MESSAGE_FADE_MS,
-                    easing = IMbotAnimations.standardEasing,
-                ),
+            animationSpec = IMbotAnimations.GentleSpring,
         )
     } else {
         slideOutHorizontally(
             animationSpec =
-                tween(
-                    durationMillis = IMbotAnimations.PAGE_ENTER_MS,
-                    easing = IMbotAnimations.pageEnterEasing,
+                spring(
+                    dampingRatio = IMbotAnimations.GentleSpring.dampingRatio,
+                    stiffness = IMbotAnimations.GentleSpring.stiffness,
                 ),
             targetOffsetX = { fullWidth -> -fullWidth / 4 },
         ) +
             fadeOut(
-                animationSpec =
-                    tween(
-                        durationMillis = IMbotAnimations.PAGE_ENTER_MS,
-                        easing = IMbotAnimations.pageEnterEasing,
-                    ),
+                animationSpec = IMbotAnimations.GentleSpring,
             )
     }
 
 fun AnimatedContentTransitionScope<NavBackStackEntry>.imbotPopEnterTransition(): EnterTransition =
     if (isTabCrossfade()) {
         fadeIn(
-            animationSpec =
-                androidx.compose.animation.core.tween(
-                    durationMillis = IMbotAnimations.MESSAGE_FADE_MS,
-                    easing = IMbotAnimations.standardEasing,
-                ),
+            animationSpec = IMbotAnimations.GentleSpring,
         )
     } else {
         slideInHorizontally(
             animationSpec =
-                tween(
-                    durationMillis = IMbotAnimations.PAGE_EXIT_MS,
-                    easing = IMbotAnimations.pageEnterEasing,
+                spring(
+                    dampingRatio = IMbotAnimations.GentleSpring.dampingRatio,
+                    stiffness = IMbotAnimations.GentleSpring.stiffness,
                 ),
             initialOffsetX = { fullWidth -> -fullWidth / 4 },
         ) +
             fadeIn(
-                animationSpec =
-                    tween(
-                        durationMillis = IMbotAnimations.PAGE_EXIT_MS,
-                        easing = IMbotAnimations.pageEnterEasing,
-                    ),
+                animationSpec = IMbotAnimations.GentleSpring,
             )
     }
 
 fun AnimatedContentTransitionScope<NavBackStackEntry>.imbotPopExitTransition(): ExitTransition =
     if (isTabCrossfade()) {
         fadeOut(
-            animationSpec =
-                androidx.compose.animation.core.tween(
-                    durationMillis = IMbotAnimations.MESSAGE_FADE_MS,
-                    easing = IMbotAnimations.standardEasing,
-                ),
+            animationSpec = IMbotAnimations.GentleSpring,
         )
     } else {
         slideOutHorizontally(
             animationSpec =
-                tween(
-                    durationMillis = IMbotAnimations.PAGE_EXIT_MS,
-                    easing = IMbotAnimations.pageExitEasing,
+                spring(
+                    dampingRatio = IMbotAnimations.DefaultSpring.dampingRatio,
+                    stiffness = IMbotAnimations.DefaultSpring.stiffness,
                 ),
             targetOffsetX = { fullWidth -> fullWidth },
         ) +
             fadeOut(
-                animationSpec =
-                    tween(
-                        durationMillis = IMbotAnimations.PAGE_EXIT_MS,
-                        easing = IMbotAnimations.pageExitEasing,
-                    ),
+                animationSpec = IMbotAnimations.GentleSpring,
             )
     }
 

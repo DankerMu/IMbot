@@ -3,25 +3,47 @@ package com.imbot.android.ui.theme
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-val PrimaryLight = Color(0xFF1A73E8)
-val PrimaryDark = Color(0xFF8AB4F8)
-val SecondaryLight = Color(0xFF34A853)
-val SecondaryDark = Color(0xFF81C995)
-val ErrorLight = Color(0xFFEA4335)
-val ErrorDark = Color(0xFFF28B82)
-val SurfaceLight = Color(0xFFFAFAFA)
-val SurfaceDark = Color(0xFF1E1E1E)
-val BackgroundLight = Color(0xFFFFFFFF)
-val BackgroundDark = Color(0xFF121212)
+val BrandBlue = Color(0xFF007AFF)
+val BrandBlueLight = Color(0xFFE3F2FF)
+val Background = Color(0xFFF2F2F7)
+val SurfaceLight = Color(0xFFFFFFFF)
+val SurfaceSecondary = Color(0xFFF9F9F9)
+val SurfaceTertiary = Color(0xFFF2F2F7)
+val SeparatorLight = Color(0x33000000)
+val LabelPrimary = Color(0xFF000000)
+val LabelSecondary = Color(0xFF8E8E93)
+val LabelTertiary = Color(0xFFC7C7CC)
+val SuccessColor = Color(0xFF34C759)
+val WarningColor = Color(0xFFFF9500)
+val DestructiveColor = Color(0xFFFF3B30)
 
-val ClaudeAmber = Color(0xFFD97706)
-val BookViolet = Color(0xFF7C3AED)
-val OpenClawRed = Color(0xFFDC2626)
+val BackgroundDark = Color(0xFF000000)
+val SurfaceDark = Color(0xFF1C1C1E)
+val SurfaceSecondaryDark = Color(0xFF2C2C2E)
+val SurfaceTertiaryDark = Color(0xFF3A3A3C)
+val SeparatorDark = Color(0x33FFFFFF)
+val LabelPrimaryDark = Color(0xFFFFFFFF)
+val LabelSecondaryDark = Color(0xFF8E8E93)
+
+val ProviderClaude = Color(0xFFD4956A)
+val ProviderBook = Color(0xFF9B7ED8)
+val ProviderOpenClaw = Color(0xFFE07070)
+
+val PrimaryLight = BrandBlue
+val PrimaryDark = BrandBlue
+val SecondaryLight = SuccessColor
+val SecondaryDark = SuccessColor
+val ErrorLight = DestructiveColor
+val ErrorDark = DestructiveColor
+val BackgroundLight = Background
+val ClaudeAmber = ProviderClaude
+val BookViolet = ProviderBook
+val OpenClawRed = ProviderOpenClaw
 
 data class ProviderColors(
-    val claude: Color = ClaudeAmber,
-    val book: Color = BookViolet,
-    val openclaw: Color = OpenClawRed,
+    val claude: Color = ProviderClaude,
+    val book: Color = ProviderBook,
+    val openclaw: Color = ProviderOpenClaw,
 )
 
 data class StatusColors(
@@ -64,7 +86,7 @@ fun providerColorFor(
         "claude" -> colors.claude
         "book" -> colors.book
         "openclaw" -> colors.openclaw
-        else -> Color(0xFF9CA3AF)
+        else -> LabelTertiary
     }
 
 fun statusColorFor(

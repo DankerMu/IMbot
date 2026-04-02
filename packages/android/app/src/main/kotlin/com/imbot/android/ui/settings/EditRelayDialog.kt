@@ -3,15 +3,17 @@
 package com.imbot.android.ui.settings
 
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import com.imbot.android.ui.onboarding.isValidRelayUrl
+import com.imbot.android.ui.theme.LocalIMbotComponentShapes
+import com.imbot.android.ui.theme.imbotFilledTextFieldColors
 
 @Composable
 fun EditRelayDialog(
@@ -21,6 +23,7 @@ fun EditRelayDialog(
 ) {
     var url by remember(initialUrl) { mutableStateOf(initialUrl) }
     var error by remember { mutableStateOf<String?>(null) }
+    val componentShapes = LocalIMbotComponentShapes.current
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -28,7 +31,7 @@ fun EditRelayDialog(
             Text("编辑 Relay URL")
         },
         text = {
-            OutlinedTextField(
+            TextField(
                 value = url,
                 onValueChange = { value ->
                     url = value
@@ -44,6 +47,8 @@ fun EditRelayDialog(
                         }
                     },
                 singleLine = true,
+                shape = componentShapes.input,
+                colors = imbotFilledTextFieldColors(),
             )
         },
         confirmButton = {

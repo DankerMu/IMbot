@@ -262,6 +262,16 @@ class DetailUtilsTest {
     }
 
     @Test
+    fun `provider and status labels remain unchanged`() {
+        assertEquals("Claude Code", providerDisplayName("claude"))
+        assertEquals("book", providerDisplayName("book"))
+        assertEquals("CC", providerShortLabel("claude"))
+        assertEquals("BK", providerShortLabel("book"))
+        assertEquals("运行中", statusLabel("running"))
+        assertEquals("已完成", statusLabel("completed"))
+    }
+
+    @Test
     fun `status labels include idle`() {
         assertEquals("空闲", statusLabel("idle"))
     }
