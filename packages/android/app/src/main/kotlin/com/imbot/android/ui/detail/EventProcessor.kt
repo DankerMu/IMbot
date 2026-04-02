@@ -312,17 +312,15 @@ class EventProcessor(
         val payload = event.payload ?: return
         val status = payload.stringValue("status").orEmpty()
         val message = payload.stringValue("message")
-        // Only show terminal states (completed/failed/cancelled) and messages
-        // indicating errors or disconnections. Routine running/idle/queued
-        // transitions are already reflected in the top-bar status indicator.
         val isTerminal = status in terminalStatuses
-        val hasErrorMessage = !message.isNullOrBlank()
-        if (!isTerminal && !hasErrorMessage) return
-        appendStatusChange(
-            status = status,
-            message = message,
-            seq = event.seq,
-        )
+        val hasMessage = !message.isNullOrBlank()
+        if (status.isNotBlank() && (isTerminal || hasMessage)) {
+            appendStatusChange(
+                status = status,
+                message = message,
+                seq = event.seq,
+            )
+        }
     }
 
     private val terminalStatuses = setOf("completed", "failed", "cancelled")

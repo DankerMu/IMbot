@@ -18,7 +18,6 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-internal const val SCROLL_PAUSE_THRESHOLD_DP = 100f
 internal const val DEFAULT_ASK_USER_QUESTION_MESSAGE = "Agent is asking for input"
 internal const val MAX_ASK_USER_QUESTION_OPTIONS = 10
 internal const val ASK_USER_QUESTION_OPTIONS_TRUNCATED_NOTE = "仅显示前 10 个选项"
@@ -101,21 +100,24 @@ internal fun onTimelineChanged(
         )
     }
 
-internal fun onScrollDistanceChanged(
+internal fun onScrollPositionUpdate(
     current: DetailScrollState,
-    distanceFromBottomDp: Float,
+    nearBottom: Boolean,
+    userInitiatedScrollAway: Boolean,
 ): DetailScrollState =
-    if (distanceFromBottomDp > SCROLL_PAUSE_THRESHOLD_DP) {
-        current.copy(
-            autoScrollEnabled = false,
-            fabVisible = true,
-        )
-    } else {
+    if (nearBottom) {
         current.copy(
             autoScrollEnabled = true,
             newMsgCount = 0,
             fabVisible = false,
         )
+    } else if (userInitiatedScrollAway) {
+        current.copy(
+            autoScrollEnabled = false,
+            fabVisible = true,
+        )
+    } else {
+        current
     }
 
 internal fun resumeAutoScroll(current: DetailScrollState): ScrollMutation =

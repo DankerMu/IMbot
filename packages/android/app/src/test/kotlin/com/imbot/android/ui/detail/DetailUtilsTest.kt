@@ -10,6 +10,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
 
+@Suppress("LargeClass")
 class DetailUtilsTest {
     @Test
     fun `filterSkills matches command and label case insensitively`() {
@@ -343,9 +344,10 @@ class DetailUtilsTest {
     @Test
     fun `scrolling away from bottom pauses auto scroll`() {
         val state =
-            onScrollDistanceChanged(
+            onScrollPositionUpdate(
                 current = DetailScrollState(),
-                distanceFromBottomDp = 160f,
+                nearBottom = false,
+                userInitiatedScrollAway = true,
             )
 
         assertFalse(state.autoScrollEnabled)
@@ -381,9 +383,10 @@ class DetailUtilsTest {
     @Test
     fun `scrolling back to bottom resumes auto scroll`() {
         val state =
-            onScrollDistanceChanged(
+            onScrollPositionUpdate(
                 current = DetailScrollState(autoScrollEnabled = false, newMsgCount = 2, fabVisible = true),
-                distanceFromBottomDp = 40f,
+                nearBottom = true,
+                userInitiatedScrollAway = false,
             )
 
         assertTrue(state.autoScrollEnabled)
@@ -430,6 +433,20 @@ class DetailUtilsTest {
 
         assertTrue(canCompleteSession("idle"))
         assertFalse(canCompleteSession("running"))
+    }
+
+    @Test
+    fun `passive drift away from bottom keeps auto scroll enabled`() {
+        val current = DetailScrollState(autoScrollEnabled = true, newMsgCount = 0, fabVisible = false)
+
+        val state =
+            onScrollPositionUpdate(
+                current = current,
+                nearBottom = false,
+                userInitiatedScrollAway = false,
+            )
+
+        assertEquals(current, state)
     }
 
     @Test

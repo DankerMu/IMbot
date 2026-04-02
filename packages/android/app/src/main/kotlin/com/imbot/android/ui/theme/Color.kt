@@ -19,6 +19,7 @@ val WarningColor = Color(0xFFFF9500)
 val DestructiveColor = Color(0xFFFF3B30)
 val UserBubbleLight = Color(0xFF1F2937)
 val UserBubbleLightText = Color(0xFFFFFFFF)
+val AssistantBubbleLight = SurfaceLight
 val CodeBlockHeaderBg = Color(0xFFF8FAFB)
 val CodeBlockBorder = Color(0xFFE5E7EB)
 val TerminalBg = Color(0xFF0A0A0A)
@@ -35,6 +36,7 @@ val LabelSecondaryDark = Color(0xFF8E8E93)
 val LabelTertiaryDark = Color(0xFF48484A)
 val UserBubbleDark = Color(0xFFE5E7EB)
 val UserBubbleDarkText = Color(0xFF1F2937)
+val AssistantBubbleDark = SurfaceSecondaryDark
 val CodeBlockHeaderBgDark = Color(0xFF2C2C2E)
 val CodeBlockBorderDark = Color(0x1AFFFFFF)
 
@@ -91,9 +93,12 @@ val DarkStatusColors =
 val LocalProviderColors = staticCompositionLocalOf { ProviderColors() }
 val LocalStatusColors = staticCompositionLocalOf { LightStatusColors }
 
-fun assistantBubbleBackground(
-    @Suppress("UNUSED_PARAMETER") useDarkTheme: Boolean,
-): Color = Color.Transparent
+fun assistantBubbleBackground(useDarkTheme: Boolean): Color =
+    if (useDarkTheme) {
+        AssistantBubbleDark
+    } else {
+        AssistantBubbleLight
+    }
 
 fun assistantMessageTextColor(useDarkTheme: Boolean): Color =
     if (useDarkTheme) {

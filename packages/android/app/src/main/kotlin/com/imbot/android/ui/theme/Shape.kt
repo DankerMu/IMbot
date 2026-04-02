@@ -44,6 +44,13 @@ data class IMbotComponentShapes(
             bottomStart = 16.dp,
             bottomEnd = 4.dp,
         ),
+    val assistantMessageBubble: Shape =
+        RoundedCornerShape(
+            topStart = 16.dp,
+            topEnd = 16.dp,
+            bottomStart = 4.dp,
+            bottomEnd = 16.dp,
+        ),
 )
 
 val IMbotMaterialShapes =

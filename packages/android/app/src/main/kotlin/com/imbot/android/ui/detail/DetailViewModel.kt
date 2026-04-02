@@ -501,10 +501,18 @@ class DetailViewModel
             }
         }
 
-        fun onScrollPositionChanged(distanceFromBottomDp: Float) {
+        fun onScrollPositionChanged(
+            nearBottom: Boolean,
+            userInitiatedScrollAway: Boolean,
+        ) {
             _uiState.update { current ->
                 current.copy(
-                    scrollState = onScrollDistanceChanged(current.scrollState, distanceFromBottomDp),
+                    scrollState =
+                        onScrollPositionUpdate(
+                            current = current.scrollState,
+                            nearBottom = nearBottom,
+                            userInitiatedScrollAway = userInitiatedScrollAway,
+                        ),
                 )
             }
         }
