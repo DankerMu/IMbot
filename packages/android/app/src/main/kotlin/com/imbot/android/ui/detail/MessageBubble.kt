@@ -24,6 +24,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -191,6 +192,11 @@ private fun AgentMessageBubble(
         } else {
             item.content.take(5_000).trimEnd() + "\n\n..."
         }
+    val outlineVariant = MaterialTheme.colorScheme.outlineVariant
+    val bubbleBorder =
+        remember(outlineVariant) {
+            BorderStroke(0.5.dp, outlineVariant.copy(alpha = 0.45f))
+        }
     val bubbleModifier =
         Modifier
             .widthIn(max = 300.dp)
@@ -226,11 +232,7 @@ private fun AgentMessageBubble(
                         isSelectionMode = isSelectionMode,
                     ),
                 shape = componentShapes.assistantMessageBubble,
-                border =
-                    BorderStroke(
-                        width = 0.5.dp,
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                    ),
+                border = bubbleBorder,
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),

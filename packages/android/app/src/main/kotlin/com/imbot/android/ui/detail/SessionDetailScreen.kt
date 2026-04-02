@@ -201,8 +201,8 @@ fun SessionDetailScreen(
                     if (targetIndex >= 0) {
                         snapshotFlow { listState.layoutInfo.totalItemsCount }
                             .first { count -> count > targetIndex }
-                        programmaticScrollInProgress = true
                         try {
+                            programmaticScrollInProgress = true
                             listState.animateScrollToItem(targetIndex)
                             alignTargetItemBottom(listState, targetIndex)
                         } finally {
