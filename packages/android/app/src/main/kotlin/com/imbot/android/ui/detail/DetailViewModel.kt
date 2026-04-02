@@ -36,6 +36,8 @@ data class ConnectionBannerUiState(
 data class DetailUiState(
     val session: RelaySession? = null,
     val messages: List<MessageItem> = emptyList(),
+    val messageMenuTarget: MessageItem? = null,
+    val selectionModeMessageId: String? = null,
     val isLoading: Boolean = true,
     val isConnected: Boolean = false,
     val isCatchingUp: Boolean = false,
@@ -126,6 +128,8 @@ class DetailViewModel
                             isCatchingUp = false,
                             error = null,
                             messages = emptyList(),
+                            messageMenuTarget = null,
+                            selectionModeMessageId = null,
                             scrollState = DetailScrollState(),
                         )
                     }
@@ -404,6 +408,48 @@ class DetailViewModel
             }
         }
 
+        fun onMessageLongPress(item: MessageItem) {
+            if (availableActions(item).isEmpty()) {
+                return
+            }
+
+            _uiState.update { current ->
+                current.copy(
+                    messageMenuTarget = item,
+                    selectionModeMessageId = null,
+                )
+            }
+        }
+
+        fun onDismissMessageMenu() {
+            _uiState.update { current ->
+                current.copy(
+                    messageMenuTarget = null,
+                )
+            }
+        }
+
+        fun onEnterSelectionMode(messageId: String) {
+            if (messageId.isBlank()) {
+                return
+            }
+
+            _uiState.update { current ->
+                current.copy(
+                    messageMenuTarget = null,
+                    selectionModeMessageId = messageId,
+                )
+            }
+        }
+
+        fun onExitSelectionMode() {
+            _uiState.update { current ->
+                current.copy(
+                    selectionModeMessageId = null,
+                )
+            }
+        }
+
         override fun onCleared() {
             relayWsClient.clearSubscription()
             super.onCleared()
@@ -650,6 +696,7 @@ class DetailViewModel
             _uiState.update { current ->
                 current.copy(
                     messages = newMessages,
+                    selectionModeMessageId = null,
                     scrollState = mutation.state,
                 )
             }

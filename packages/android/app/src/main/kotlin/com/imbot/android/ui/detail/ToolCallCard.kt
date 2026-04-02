@@ -7,7 +7,8 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,19 +32,25 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.imbot.android.ui.theme.IMbotAnimations
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ToolCallCard(
     item: MessageItem.ToolCall,
+    onLongPress: ((MessageItem) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var expanded by rememberSaveable(item.callId) { mutableStateOf(item.isRunning) }
     val componentShapes = LocalIMbotComponentShapes.current
+    val hapticFeedback = LocalHapticFeedback.current
+    val canLongPress = onLongPress != null && availableActions(item).isNotEmpty()
     val chevronRotation by
         animateFloatAsState(
             targetValue = if (expanded) 180f else 0f,
@@ -72,7 +79,18 @@ fun ToolCallCard(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .clickable { expanded = !expanded }
+                        .combinedClickable(
+                            onClick = { expanded = !expanded },
+                            onLongClick =
+                                if (canLongPress) {
+                                    {
+                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                                        onLongPress?.invoke(item)
+                                    }
+                                } else {
+                                    null
+                                },
+                        )
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,

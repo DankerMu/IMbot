@@ -2,6 +2,7 @@
 
 package com.imbot.android.ui.detail
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.tween
@@ -40,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -57,8 +59,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -90,9 +94,12 @@ fun SessionDetailScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val clipboardManager = LocalClipboardManager.current
+    val hapticFeedback = LocalHapticFeedback.current
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
+    val messageMenuTarget = uiState.messageMenuTarget
+    val messageActions = messageMenuTarget?.let(::availableActions).orEmpty()
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showCancelDialog by remember { mutableStateOf(false) }
@@ -100,6 +107,10 @@ fun SessionDetailScreen(
     var showDeleteDialog by remember { mutableStateOf(false) }
     var initialLoadHandled by rememberSaveable(sessionId) { mutableStateOf(false) }
     val renderedKeys = remember(sessionId) { mutableSetOf<String>() }
+
+    BackHandler(enabled = uiState.selectionModeMessageId != null) {
+        viewModel.onExitSelectionMode()
+    }
 
     LaunchedEffect(uiState.error) {
         val message = uiState.error ?: return@LaunchedEffect
@@ -242,6 +253,42 @@ fun SessionDetailScreen(
                     },
                 ) {
                     Text("取消")
+                }
+            },
+        )
+    }
+
+    if (messageMenuTarget != null && messageActions.isNotEmpty()) {
+        MessageActionSheet(
+            actions = messageActions,
+            onDismiss = viewModel::onDismissMessageMenu,
+            onAction = { action ->
+                when (action) {
+                    is MessageAction.CopyMessage -> {
+                        clipboardManager.setText(AnnotatedString(action.text))
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        viewModel.onDismissMessageMenu()
+                        coroutineScope.launch {
+                            snackbarHostState.showSnackbar(
+                                message = "已复制到剪贴板",
+                                duration = SnackbarDuration.Short,
+                            )
+                        }
+                    }
+
+                    MessageAction.SelectText -> {
+                        val messageId =
+                            when (messageMenuTarget) {
+                                is MessageItem.AgentMessage -> messageMenuTarget.id
+                                is MessageItem.UserMessage -> messageMenuTarget.id
+                                else -> null
+                            }
+                        if (messageId != null) {
+                            viewModel.onEnterSelectionMode(messageId)
+                        } else {
+                            viewModel.onDismissMessageMenu()
+                        }
+                    }
                 }
             },
         )
@@ -460,12 +507,19 @@ fun SessionDetailScreen(
                                         is MessageItem.ToolCall ->
                                             ToolCallCard(
                                                 item = item,
+                                                onLongPress = viewModel::onMessageLongPress,
                                             )
 
                                         else ->
                                             MessageBubble(
                                                 item = item,
                                                 provider = uiState.session?.provider.orEmpty(),
+                                                onLongPress = viewModel::onMessageLongPress,
+                                                isSelectionMode =
+                                                    isSelectionMode(
+                                                        item = item,
+                                                        selectionModeMessageId = uiState.selectionModeMessageId,
+                                                    ),
                                             )
                                     }
                                 }
@@ -607,6 +661,18 @@ private fun timelineKey(item: MessageItem): String =
         is MessageItem.StatusChange -> "status-${item.id}"
         is MessageItem.ToolCall -> "tool-${item.callId}"
         is MessageItem.UserMessage -> "user-${item.id}"
+    }
+
+private fun isSelectionMode(
+    item: MessageItem,
+    selectionModeMessageId: String?,
+): Boolean =
+    when (item) {
+        is MessageItem.AgentMessage -> item.id == selectionModeMessageId
+        is MessageItem.UserMessage -> item.id == selectionModeMessageId
+        is MessageItem.StatusChange,
+        is MessageItem.ToolCall,
+        -> false
     }
 
 private fun calculateDistanceFromBottomPx(listState: androidx.compose.foundation.lazy.LazyListState): Int {

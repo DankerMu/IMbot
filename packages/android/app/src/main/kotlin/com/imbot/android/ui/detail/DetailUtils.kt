@@ -244,6 +244,29 @@ internal fun sessionTitle(session: RelaySession): String = providerDisplayName(s
 
 internal fun sessionSubtitle(session: RelaySession): String = summarizeSessionPath(session.workspaceCwd)
 
+internal fun copyableText(item: MessageItem): String? =
+    when (item) {
+        is MessageItem.AgentMessage -> item.content.takeIf(String::isNotBlank)
+        is MessageItem.UserMessage -> item.text.takeIf(String::isNotBlank)
+        is MessageItem.ToolCall ->
+            item.toolName.takeIf(String::isNotBlank)?.let { toolName ->
+                buildString {
+                    append("Tool: ")
+                    append(toolName)
+                    item.args?.takeIf(String::isNotBlank)?.let { args ->
+                        append("\nInput: ")
+                        append(args)
+                    }
+                    item.result?.takeIf(String::isNotBlank)?.let { result ->
+                        append("\nOutput: ")
+                        append(result)
+                    }
+                }
+            }
+
+        is MessageItem.StatusChange -> null
+    }
+
 internal fun copyableAgentTranscript(messages: List<MessageItem>): String =
     messages
         .mapNotNull { item ->

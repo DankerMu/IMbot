@@ -5,6 +5,7 @@ package com.imbot.android.ui.detail
 import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
@@ -165,4 +166,160 @@ class DetailUtilsTest {
         assertEquals("2 小时前", formatRelativeTimestamp("2026-03-31T10:00:00Z", now))
         assertEquals("2026-03-29", formatRelativeTimestamp("2026-03-29T12:00:00Z", now))
     }
+
+    @Test
+    fun `copyableText returns agent message content`() {
+        assertEquals("hello", copyableText(agentMessage(content = "hello")))
+    }
+
+    @Test
+    fun `copyableText returns user message text`() {
+        assertEquals("world", copyableText(userMessage(text = "world")))
+    }
+
+    @Test
+    fun `copyableText returns tool call summary`() {
+        assertEquals(
+            "Tool: Read\nInput: file.kt\nOutput: content",
+            copyableText(toolCall(args = "file.kt", result = "content")),
+        )
+    }
+
+    @Test
+    fun `copyableText returns null for status change`() {
+        assertNull(copyableText(statusChange()))
+    }
+
+    @Test
+    fun `copyableText returns null for blank agent messages`() {
+        assertNull(copyableText(agentMessage(content = "")))
+        assertNull(copyableText(agentMessage(content = "   ")))
+    }
+
+    @Test
+    fun `copyableText returns null for blank user message`() {
+        assertNull(copyableText(userMessage(text = "")))
+    }
+
+    @Test
+    fun `copyableText omits missing tool output`() {
+        assertEquals(
+            "Tool: Read\nInput: file.kt",
+            copyableText(toolCall(args = "file.kt", result = null)),
+        )
+    }
+
+    @Test
+    fun `copyableText omits missing tool input and output`() {
+        assertEquals(
+            "Tool: Read",
+            copyableText(toolCall(args = null, result = null)),
+        )
+    }
+
+    @Test
+    fun `copyableText preserves raw markdown newlines and emoji`() {
+        assertEquals(
+            "**bold** `code`",
+            copyableText(agentMessage(content = "**bold** `code`")),
+        )
+        assertEquals(
+            "line1\nline2",
+            copyableText(agentMessage(content = "line1\nline2")),
+        )
+        assertEquals(
+            "hello 🎉",
+            copyableText(agentMessage(content = "hello 🎉")),
+        )
+    }
+
+    @Test
+    fun `availableActions returns copy and select for normal agent message`() {
+        assertEquals(
+            listOf(
+                MessageAction.CopyMessage("hello"),
+                MessageAction.SelectText,
+            ),
+            availableActions(agentMessage(content = "hello")),
+        )
+    }
+
+    @Test
+    fun `availableActions returns copy and select for user message`() {
+        assertEquals(
+            listOf(
+                MessageAction.CopyMessage("world"),
+                MessageAction.SelectText,
+            ),
+            availableActions(userMessage(text = "world")),
+        )
+    }
+
+    @Test
+    fun `availableActions returns copy only for tool call`() {
+        assertEquals(
+            listOf(MessageAction.CopyMessage("Tool: Read\nInput: file.kt\nOutput: content")),
+            availableActions(toolCall(args = "file.kt", result = "content")),
+        )
+    }
+
+    @Test
+    fun `availableActions returns no actions for status change`() {
+        assertEquals(emptyList<MessageAction>(), availableActions(statusChange()))
+    }
+
+    @Test
+    fun `availableActions returns select only for blank agent content`() {
+        assertEquals(
+            listOf(MessageAction.SelectText),
+            availableActions(agentMessage(content = "")),
+        )
+    }
+
+    @Test
+    fun `availableActions returns no actions for streaming agent message`() {
+        assertEquals(
+            emptyList<MessageAction>(),
+            availableActions(agentMessage(content = "streaming", isStreaming = true)),
+        )
+    }
 }
+
+private const val DETAIL_UTILS_TIMESTAMP = "2026-03-31T12:00:00Z"
+
+private fun agentMessage(
+    content: String,
+    isStreaming: Boolean = false,
+) = MessageItem.AgentMessage(
+    id = "agent-1",
+    content = content,
+    isStreaming = isStreaming,
+    timestamp = DETAIL_UTILS_TIMESTAMP,
+)
+
+private fun userMessage(text: String) =
+    MessageItem.UserMessage(
+        id = "user-1",
+        text = text,
+        timestamp = DETAIL_UTILS_TIMESTAMP,
+    )
+
+private fun toolCall(
+    toolName: String = "Read",
+    args: String? = "file.kt",
+    result: String? = "content",
+) = MessageItem.ToolCall(
+    callId = "call-1",
+    toolName = toolName,
+    title = "Read file",
+    args = args,
+    result = result,
+    isRunning = false,
+)
+
+private fun statusChange() =
+    MessageItem.StatusChange(
+        id = "status-1",
+        status = "running",
+        message = "运行中",
+    )
