@@ -20,6 +20,32 @@ class NavigationGuardTest {
     }
 
     @Test
+    fun `missing token starts at onboarding`() {
+        val startDestination =
+            resolveStartDestination(
+                RelaySettings(
+                    relayUrl = "https://relay.example.com",
+                    token = "",
+                ),
+            )
+
+        assertEquals(AppRoute.ONBOARDING, startDestination)
+    }
+
+    @Test
+    fun `both empty starts at onboarding`() {
+        val startDestination =
+            resolveStartDestination(
+                RelaySettings(
+                    relayUrl = "",
+                    token = "",
+                ),
+            )
+
+        assertEquals(AppRoute.ONBOARDING, startDestination)
+    }
+
+    @Test
     fun `saved relayUrl and token start at home`() {
         val startDestination =
             resolveStartDestination(

@@ -3,7 +3,7 @@ package com.imbot.android.ui.theme
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
-val BrandBlue = Color(0xFF007AFF)
+val BrandBlue = Color(0xFF0071E3)
 val BrandBlueLight = Color(0xFFE3F2FF)
 val Background = Color(0xFFF2F2F7)
 val SurfaceLight = Color(0xFFFFFFFF)
@@ -25,6 +25,7 @@ val SurfaceTertiaryDark = Color(0xFF3A3A3C)
 val SeparatorDark = Color(0x33FFFFFF)
 val LabelPrimaryDark = Color(0xFFFFFFFF)
 val LabelSecondaryDark = Color(0xFF8E8E93)
+val LabelTertiaryDark = Color(0xFF48484A)
 
 val ProviderClaude = Color(0xFFD4956A)
 val ProviderBook = Color(0xFF9B7ED8)
@@ -87,7 +88,7 @@ fun providerColorFor(
         "claude" -> colors.claude
         "book" -> colors.book
         "openclaw" -> colors.openclaw
-        else -> LabelTertiary
+        else -> colors.claude.copy(alpha = 0.5f)
     }
 
 fun statusColorFor(

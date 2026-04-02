@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.Color
 import com.imbot.android.network.RelaySession
 import com.imbot.android.ui.theme.ProviderColors
 import com.imbot.android.ui.theme.StatusColors
+import com.imbot.android.ui.theme.providerColorFor
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
@@ -300,13 +301,7 @@ internal fun providerShortLabel(provider: String): String =
 internal fun providerColor(
     provider: String,
     colors: ProviderColors = ProviderColors(),
-): Color =
-    when (provider.lowercase()) {
-        "claude" -> colors.claude
-        "book" -> colors.book
-        "openclaw" -> colors.openclaw
-        else -> Color(0xFF9CA3AF)
-    }
+): Color = providerColorFor(provider, colors)
 
 internal fun statusLabel(status: String): String =
     when (status) {
