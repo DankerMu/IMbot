@@ -451,25 +451,34 @@ internal fun sessionSubtitle(session: RelaySession): String = summarizeSessionPa
 internal fun copyableText(item: MessageItem): String? =
     when (item) {
         is MessageItem.AgentMessage -> item.content.takeIf(String::isNotBlank)
-        is MessageItem.InteractiveToolCall -> null
+        is MessageItem.InteractiveToolCall ->
+            item.primaryQuestion.question.takeIf(String::isNotBlank)
         is MessageItem.UserMessage -> item.text.takeIf(String::isNotBlank)
         is MessageItem.ToolCall ->
-            item.toolName.takeIf(String::isNotBlank)?.let { toolName ->
-                buildString {
+            buildString {
+                item.toolName.takeIf(String::isNotBlank)?.let { toolName ->
                     append("Tool: ")
                     append(toolName)
-                    item.args?.takeIf(String::isNotBlank)?.let { args ->
-                        append("\nInput: ")
-                        append(summarizeToolCallCopyField(args))
-                    }
-                    item.result?.takeIf(String::isNotBlank)?.let { result ->
-                        append("\nOutput: ")
-                        append(summarizeToolCallCopyField(result))
-                    }
                 }
-            }
+                item.args?.takeIf(String::isNotBlank)?.let { args ->
+                    if (isNotEmpty()) {
+                        append("\n")
+                    }
+                    append("Input: ")
+                    append(summarizeToolCallCopyField(args))
+                }
+                item.result?.takeIf(String::isNotBlank)?.let { result ->
+                    if (isNotEmpty()) {
+                        append("\n")
+                    }
+                    append("Output: ")
+                    append(summarizeToolCallCopyField(result))
+                }
+            }.takeIf(String::isNotBlank)
 
-        is MessageItem.StatusChange -> null
+        is MessageItem.StatusChange ->
+            item.description?.takeIf(String::isNotBlank)
+                ?: item.message?.takeIf(String::isNotBlank)
     }
 
 private fun summarizeToolCallCopyField(text: String): String =

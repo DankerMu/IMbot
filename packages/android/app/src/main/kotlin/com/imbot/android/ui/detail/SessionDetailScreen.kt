@@ -561,6 +561,9 @@ fun SessionDetailScreen(
                                                 onSubmitAnswer = { answer ->
                                                     viewModel.submitToolAnswer(item.id, answer)
                                                 },
+                                                onLongPress = viewModel::onMessageLongPress,
+                                                selectionModeActive = selectionModeActive,
+                                                onExitSelectionMode = viewModel::onExitSelectionMode,
                                             )
 
                                         is MessageItem.ToolCall ->
