@@ -409,7 +409,7 @@ class DetailViewModel
         }
 
         fun onMessageLongPress(item: MessageItem) {
-            if (availableActions(item).isEmpty()) {
+            if (!hasActions(item)) {
                 return
             }
 
@@ -696,7 +696,12 @@ class DetailViewModel
             _uiState.update { current ->
                 current.copy(
                     messages = newMessages,
-                    selectionModeMessageId = null,
+                    selectionModeMessageId =
+                        if (newMessages.size != current.messages.size) {
+                            null
+                        } else {
+                            current.selectionModeMessageId
+                        },
                     scrollState = mutation.state,
                 )
             }

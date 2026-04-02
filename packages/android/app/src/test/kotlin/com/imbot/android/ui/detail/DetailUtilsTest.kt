@@ -218,6 +218,17 @@ class DetailUtilsTest {
     }
 
     @Test
+    fun `copyableText truncates long tool call input and output`() {
+        val longArgs = "a".repeat(500)
+        val longResult = "b".repeat(500)
+
+        assertEquals(
+            "Tool: Read\nInput: ${"a".repeat(200)}...\nOutput: ${"b".repeat(200)}...",
+            copyableText(toolCall(args = longArgs, result = longResult)),
+        )
+    }
+
+    @Test
     fun `copyableText preserves raw markdown newlines and emoji`() {
         assertEquals(
             "**bold** `code`",
@@ -282,6 +293,22 @@ class DetailUtilsTest {
             emptyList<MessageAction>(),
             availableActions(agentMessage(content = "streaming", isStreaming = true)),
         )
+    }
+
+    @Test
+    fun `copyableText returns full content for very long agent message`() {
+        val longContent = "a".repeat(10_000)
+        assertEquals(longContent, copyableText(agentMessage(content = longContent)))
+    }
+
+    @Test
+    fun `hasActions uses lightweight eligibility rules`() {
+        assertTrue(hasActions(agentMessage(content = "")))
+        assertFalse(hasActions(agentMessage(content = "streaming", isStreaming = true)))
+        assertTrue(hasActions(userMessage(text = "")))
+        assertTrue(hasActions(toolCall()))
+        assertFalse(hasActions(toolCall(toolName = "")))
+        assertFalse(hasActions(statusChange()))
     }
 }
 

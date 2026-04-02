@@ -604,6 +604,51 @@ class DetailViewModelTest {
             assertEquals("user-1", viewModel.uiState.value.selectionModeMessageId)
         }
 
+    @Test
+    fun `onEnterSelectionMode switches to new message id directly`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+
+            viewModel.onEnterSelectionMode("msg-123")
+            assertEquals("msg-123", viewModel.uiState.value.selectionModeMessageId)
+
+            viewModel.onEnterSelectionMode("msg-456")
+            assertEquals("msg-456", viewModel.uiState.value.selectionModeMessageId)
+        }
+
+    @Test
+    fun `assistant delta does not clear selectionMode when message count unchanged`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(ws = ws)
+            advanceUntilIdle()
+
+            // First delta creates the agent message
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "assistant_delta",
+                    payload = payload("content" to "hello"),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.onEnterSelectionMode("agent-1")
+
+            // Second delta updates the same message (no new message added)
+            ws.emitEvent(
+                event(
+                    seq = 2,
+                    eventType = "assistant_delta",
+                    payload = payload("content" to " world"),
+                ),
+            )
+            advanceUntilIdle()
+
+            assertEquals("agent-1", viewModel.uiState.value.selectionModeMessageId)
+        }
+
     private fun createViewModel(
         relay: FakeRelayHttpClient = FakeRelayHttpClient(),
         ws: FakeRelayWsClient = FakeRelayWsClient(),

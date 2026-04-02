@@ -4,6 +4,7 @@ package com.imbot.android.ui.detail
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,6 +45,8 @@ fun MessageBubble(
     item: MessageItem,
     provider: String,
     onLongPress: ((MessageItem) -> Unit)? = null,
+    selectionModeActive: Boolean = false,
+    onExitSelectionMode: (() -> Unit)? = null,
     isSelectionMode: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -52,6 +55,8 @@ fun MessageBubble(
             UserMessageBubble(
                 item = item,
                 onLongPress = onLongPress,
+                selectionModeActive = selectionModeActive,
+                onExitSelectionMode = onExitSelectionMode,
                 isSelectionMode = isSelectionMode,
                 modifier = modifier,
             )
@@ -61,6 +66,8 @@ fun MessageBubble(
                 item = item,
                 provider = provider,
                 onLongPress = onLongPress,
+                selectionModeActive = selectionModeActive,
+                onExitSelectionMode = onExitSelectionMode,
                 isSelectionMode = isSelectionMode,
                 modifier = modifier,
             )
@@ -75,6 +82,8 @@ fun MessageBubble(
 private fun UserMessageBubble(
     item: MessageItem.UserMessage,
     onLongPress: ((MessageItem) -> Unit)? = null,
+    selectionModeActive: Boolean = false,
+    onExitSelectionMode: (() -> Unit)? = null,
     isSelectionMode: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -93,11 +102,15 @@ private fun UserMessageBubble(
                 ),
             shape = RoundedCornerShape(24.dp),
             modifier =
-                Modifier.messageLongPressable(
-                    item = item,
-                    onLongPress = onLongPress,
-                    hapticFeedback = hapticFeedback,
-                ),
+                Modifier
+                    .messageLongPressable(
+                        item = item,
+                        onLongPress = onLongPress,
+                        hapticFeedback = hapticFeedback,
+                        selectionModeActive = selectionModeActive,
+                        onExitSelectionMode = onExitSelectionMode,
+                        isSelectionMode = isSelectionMode,
+                    ),
         ) {
             SelectableBubbleContent(isSelectionMode = isSelectionMode) {
                 Text(
@@ -122,6 +135,8 @@ private fun AgentMessageBubble(
     item: MessageItem.AgentMessage,
     provider: String,
     onLongPress: ((MessageItem) -> Unit)? = null,
+    selectionModeActive: Boolean = false,
+    onExitSelectionMode: (() -> Unit)? = null,
     isSelectionMode: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
@@ -176,6 +191,9 @@ private fun AgentMessageBubble(
                             item = item,
                             onLongPress = onLongPress,
                             hapticFeedback = hapticFeedback,
+                            selectionModeActive = selectionModeActive,
+                            onExitSelectionMode = onExitSelectionMode,
+                            isSelectionMode = isSelectionMode,
                         ),
             ) {
                 Column(
@@ -263,17 +281,34 @@ private fun Modifier.messageLongPressable(
     item: MessageItem,
     onLongPress: ((MessageItem) -> Unit)?,
     hapticFeedback: HapticFeedback,
+    selectionModeActive: Boolean,
+    onExitSelectionMode: (() -> Unit)?,
+    isSelectionMode: Boolean,
 ): Modifier {
-    val hasActions = onLongPress != null && availableActions(item).isNotEmpty()
-    return if (!hasActions) {
-        this
-    } else {
-        combinedClickable(
-            onClick = {},
-            onLongClick = {
-                hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                onLongPress?.invoke(item)
-            },
-        )
+    val canLongPress = onLongPress != null && hasActions(item)
+    return when {
+        isSelectionMode -> this
+        selectionModeActive && onExitSelectionMode != null -> {
+            if (canLongPress) {
+                combinedClickable(
+                    onClick = onExitSelectionMode,
+                    onLongClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongPress?.invoke(item)
+                    },
+                )
+            } else {
+                clickable(onClick = onExitSelectionMode)
+            }
+        }
+        !canLongPress -> this
+        else ->
+            combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongPress?.invoke(item)
+                },
+            )
     }
 }
