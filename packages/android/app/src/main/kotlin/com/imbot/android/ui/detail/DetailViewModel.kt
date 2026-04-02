@@ -199,6 +199,9 @@ class DetailViewModel
             callId: String,
             answer: String,
         ) {
+            if (callId != latestPendingInteractiveToolCallId()) {
+                return
+            }
             sendSessionInput(
                 text = answer.trim(),
                 allowRunningInput = true,
@@ -212,7 +215,7 @@ class DetailViewModel
         }
 
         fun approveToolCall(callId: String) {
-            if (callId.isBlank()) {
+            if (callId.isBlank() || callId != latestPendingApprovalCallId()) {
                 return
             }
             sendSessionInput(
@@ -226,7 +229,7 @@ class DetailViewModel
         }
 
         fun denyToolCall(callId: String) {
-            if (callId.isBlank()) {
+            if (callId.isBlank() || callId != latestPendingApprovalCallId()) {
                 return
             }
             sendSessionInput(
@@ -831,23 +834,13 @@ class DetailViewModel
 
         private fun combinedMessages(): List<MessageItem> = eventProcessor.snapshot() + optimisticMessages
 
-        private fun latestPendingInteractiveToolCallId(): String? =
-            _uiState.value.messages
-                .asReversed()
-                .firstNotNullOfOrNull { item ->
-                    (item as? MessageItem.InteractiveToolCall)
-                        ?.takeUnless { it.isAnswered }
-                        ?.id
-                }
+        private fun latestPendingInteractiveToolCallId(): String? {
+            return findLatestPendingInteractiveToolCallId(_uiState.value.messages)
+        }
 
-        private fun latestPendingApprovalCallId(): String? =
-            _uiState.value.messages
-                .asReversed()
-                .firstNotNullOfOrNull { item ->
-                    (item as? MessageItem.StatusChange)
-                        ?.takeIf { it.eventType == "approval_required" }
-                        ?.callId
-                }
+        private fun latestPendingApprovalCallId(): String? {
+            return findLatestPendingApprovalCallId(_uiState.value.messages)
+        }
 
         private fun removeOptimisticMessage(text: String) {
             val normalizedText = text.trim()

@@ -31,15 +31,17 @@ import androidx.compose.ui.unit.dp
 internal fun InteractiveToolCard(
     item: MessageItem.InteractiveToolCall,
     isSessionActive: Boolean,
+    isLatestPending: Boolean,
     isSending: Boolean,
     onSubmitAnswer: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var answerDraft by rememberSaveable(item.id) { mutableStateOf(item.answer.orEmpty()) }
-    val inputEnabled = isSessionActive && !item.isAnswered && !isSending
+    val isExpired = !item.isAnswered && !isLatestPending
+    val inputEnabled = isSessionActive && !item.isAnswered && isLatestPending && !isSending
     val canSubmit = answerDraft.trim().isNotEmpty() && inputEnabled
     val containerColor =
-        if (item.isAnswered) {
+        if (item.isAnswered || isExpired) {
             MaterialTheme.colorScheme.surfaceVariant
         } else {
             MaterialTheme.colorScheme.surface
@@ -63,7 +65,7 @@ internal fun InteractiveToolCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text = if (item.isAnswered) "已提交回答" else "Agent 提问",
+                text = interactiveToolCardTitle(item = item, isExpired = isExpired),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold,
@@ -91,59 +93,104 @@ internal fun InteractiveToolCard(
                 }
             }
 
-            if (item.isAnswered) {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(
-                        text = item.answer ?: "已提交",
-                        modifier = Modifier.padding(12.dp),
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
-            } else {
-                OutlinedTextField(
-                    value = answerDraft,
-                    onValueChange = { answerDraft = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    enabled = inputEnabled,
-                    minLines = 2,
-                    placeholder = {
-                        Text("输入你的回答")
-                    },
-                )
-
-                Button(
-                    onClick = {
-                        onSubmitAnswer(answerDraft)
-                    },
-                    enabled = canSubmit,
-                ) {
-                    Text("提交回答")
-                }
-            }
-
-            if (!isSessionActive) {
-                Text(
-                    text = "当前会话不可交互",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
+            InteractiveToolAnswerSection(
+                item = item,
+                answerDraft = answerDraft,
+                inputEnabled = inputEnabled,
+                canSubmit = canSubmit,
+                onAnswerDraftChanged = { answerDraft = it },
+                onSubmitAnswer = { onSubmitAnswer(answerDraft) },
+            )
+            InteractiveToolCardStatusNote(
+                isExpired = isExpired,
+                isSessionActive = isSessionActive,
+            )
         }
     }
+}
+
+private fun interactiveToolCardTitle(
+    item: MessageItem.InteractiveToolCall,
+    isExpired: Boolean,
+): String =
+    when {
+        item.isAnswered -> "已提交回答"
+        isExpired -> "已过期"
+        else -> "Agent 提问"
+    }
+
+@Composable
+private fun InteractiveToolAnswerSection(
+    item: MessageItem.InteractiveToolCall,
+    answerDraft: String,
+    inputEnabled: Boolean,
+    canSubmit: Boolean,
+    onAnswerDraftChanged: (String) -> Unit,
+    onSubmitAnswer: () -> Unit,
+) {
+    if (item.isAnswered) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(
+                text = item.answer ?: "已提交",
+                modifier = Modifier.padding(12.dp),
+                style = MaterialTheme.typography.bodyMedium,
+            )
+        }
+        return
+    }
+
+    OutlinedTextField(
+        value = answerDraft,
+        onValueChange = onAnswerDraftChanged,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = inputEnabled,
+        minLines = 2,
+        placeholder = {
+            Text("输入你的回答")
+        },
+    )
+
+    Button(
+        onClick = onSubmitAnswer,
+        enabled = canSubmit,
+    ) {
+        Text("提交回答")
+    }
+}
+
+@Composable
+private fun InteractiveToolCardStatusNote(
+    isExpired: Boolean,
+    isSessionActive: Boolean,
+) {
+    val note =
+        when {
+            isExpired -> "已过期，仅最新一条待回答卡片可交互"
+            !isSessionActive -> "当前会话不可交互"
+            else -> null
+        } ?: return
+
+    Text(
+        text = note,
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
 internal fun ApprovalCard(
     item: MessageItem.StatusChange,
     isSessionActive: Boolean,
+    isLatestPending: Boolean,
     isSending: Boolean,
     onApprove: () -> Unit,
     onDeny: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val canRespond = item.eventType == "approval_required" && isSessionActive && !isSending
+    val isExpired = item.eventType == "approval_required" && !isLatestPending
+    val canRespond = item.eventType == "approval_required" && isLatestPending && isSessionActive && !isSending
 
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -157,10 +204,10 @@ internal fun ApprovalCard(
         ) {
             Text(
                 text =
-                    if (item.eventType == "approval_required") {
-                        "需要审批"
-                    } else {
-                        approvalDecisionLabel(item)
+                    when {
+                        item.eventType == "approval_required" && isExpired -> "已过期"
+                        item.eventType == "approval_required" -> "需要审批"
+                        else -> approvalDecisionLabel(item)
                     },
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
@@ -199,7 +246,13 @@ internal fun ApprovalCard(
                     }
                 }
 
-                if (!isSessionActive) {
+                if (isExpired) {
+                    Text(
+                        text = "已过期，仅最新一条审批卡片可操作",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else if (!isSessionActive) {
                     Text(
                         text = "当前会话不可审批",
                         style = MaterialTheme.typography.labelSmall,

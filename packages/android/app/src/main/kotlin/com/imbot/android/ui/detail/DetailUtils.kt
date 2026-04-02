@@ -14,6 +14,8 @@ import java.time.format.DateTimeFormatter
 
 internal const val SCROLL_PAUSE_THRESHOLD_DP = 100f
 internal const val DEFAULT_ASK_USER_QUESTION_MESSAGE = "Agent is asking for input"
+internal const val MAX_ASK_USER_QUESTION_OPTIONS = 10
+internal const val ASK_USER_QUESTION_OPTIONS_TRUNCATED_NOTE = "仅显示前 10 个选项"
 private const val TOOL_CALL_COPY_SUMMARY_LIMIT = 200
 
 private val DefaultDetailStatusColors =
@@ -140,15 +142,24 @@ internal fun parseAskUserQuestion(inputJson: String?): Pair<String, List<String>
     return try {
         val json = JSONObject(inputJson)
         val question = json.optString("question", "").takeIf { it.isNotBlank() }
+        val optionCount = json.optJSONArray("options")?.length() ?: 0
         val options =
             json.optJSONArray("options")?.let { array ->
-                (0 until array.length()).mapNotNull { index ->
+                (0 until array.length().coerceAtMost(MAX_ASK_USER_QUESTION_OPTIONS)).mapNotNull { index ->
                     array.optString(index).takeIf { it.isNotBlank() }
                 }
             }?.takeIf { it.isNotEmpty() }
+        val decoratedQuestion =
+            question?.let { parsedQuestion ->
+                if (optionCount > MAX_ASK_USER_QUESTION_OPTIONS) {
+                    "$parsedQuestion\n\n$ASK_USER_QUESTION_OPTIONS_TRUNCATED_NOTE"
+                } else {
+                    parsedQuestion
+                }
+            }
 
         when {
-            question != null -> question to options
+            decoratedQuestion != null -> decoratedQuestion to options
             json.length() == 0 -> DEFAULT_ASK_USER_QUESTION_MESSAGE to null
             else -> inputJson to null
         }
@@ -208,6 +219,38 @@ internal fun approvalDecisionLabel(item: MessageItem.StatusChange): String =
     } ?: if (item.eventType == "approval_resolved") "已处理" else "等待审批"
 
 internal fun approvalInputText(approved: Boolean): String = if (approved) "approve" else "deny"
+
+internal fun findLatestPendingInteractiveToolCallId(messages: List<MessageItem>): String? =
+    messages
+        .asReversed()
+        .firstNotNullOfOrNull { item ->
+            (item as? MessageItem.InteractiveToolCall)
+                ?.takeUnless { it.isAnswered }
+                ?.id
+        }
+
+internal fun findLatestPendingApprovalCallId(messages: List<MessageItem>): String? =
+    messages
+        .asReversed()
+        .firstNotNullOfOrNull { item ->
+            (item as? MessageItem.StatusChange)
+                ?.takeIf { it.eventType == "approval_required" }
+                ?.callId
+                ?.takeIf(String::isNotBlank)
+        }
+
+internal fun isLatestPendingInteractiveToolCall(
+    item: MessageItem.InteractiveToolCall,
+    latestPendingCallId: String?,
+): Boolean = item.isAnswered || item.id == latestPendingCallId
+
+internal fun isLatestPendingApprovalRequest(
+    item: MessageItem.StatusChange,
+    latestPendingCallId: String?,
+): Boolean =
+    item.eventType != "approval_required" ||
+        item.callId.isNullOrBlank() ||
+        item.callId == latestPendingCallId
 
 internal fun formatRelativeTimestamp(
     isoString: String,

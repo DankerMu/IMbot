@@ -45,6 +45,7 @@ fun MessageBubble(
     item: MessageItem,
     provider: String,
     isSessionActive: Boolean = false,
+    isLatestPendingApproval: Boolean = true,
     isSending: Boolean = false,
     onApprove: () -> Unit = {},
     onDeny: () -> Unit = {},
@@ -81,6 +82,7 @@ fun MessageBubble(
             StatusChangeBubble(
                 item = item,
                 isSessionActive = isSessionActive,
+                isLatestPendingApproval = isLatestPendingApproval,
                 isSending = isSending,
                 onApprove = onApprove,
                 onDeny = onDeny,
@@ -245,6 +247,7 @@ private fun AgentMessageBubble(
 private fun StatusChangeBubble(
     item: MessageItem.StatusChange,
     isSessionActive: Boolean,
+    isLatestPendingApproval: Boolean,
     isSending: Boolean,
     onApprove: () -> Unit,
     onDeny: () -> Unit,
@@ -254,6 +257,7 @@ private fun StatusChangeBubble(
         ApprovalCard(
             item = item,
             isSessionActive = isSessionActive,
+            isLatestPending = isLatestPendingApproval,
             isSending = isSending,
             onApprove = onApprove,
             onDeny = onDeny,

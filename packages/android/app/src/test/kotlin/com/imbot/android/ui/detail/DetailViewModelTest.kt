@@ -136,6 +136,98 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `submitToolAnswer ignores non latest pending interactive card`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay = FakeRelayHttpClient()
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "tool_call_started",
+                    payload =
+                        payload(
+                            "call_id" to "tool-1",
+                            "tool_name" to "AskUserQuestion",
+                            "args" to """{"question":"旧问题?"}""",
+                        ),
+                ),
+            )
+            ws.emitEvent(
+                event(
+                    seq = 2,
+                    eventType = "tool_call_started",
+                    payload =
+                        payload(
+                            "call_id" to "tool-2",
+                            "tool_name" to "AskUserQuestion",
+                            "args" to """{"question":"新问题?"}""",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.submitToolAnswer("tool-1", "A")
+            advanceUntilIdle()
+
+            assertEquals(0, relay.sendMessageCalls)
+
+            viewModel.submitToolAnswer("tool-2", "B")
+            advanceUntilIdle()
+
+            assertEquals(1, relay.sendMessageCalls)
+            assertEquals(listOf("B"), relay.sentMessages)
+        }
+
+    @Test
+    fun `approveToolCall ignores non latest pending approval card`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay = FakeRelayHttpClient()
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "approval_required",
+                    payload =
+                        payload(
+                            "call_id" to "approval-1",
+                            "tool_name" to "bash",
+                            "description" to "old",
+                        ),
+                ),
+            )
+            ws.emitEvent(
+                event(
+                    seq = 2,
+                    eventType = "approval_required",
+                    payload =
+                        payload(
+                            "call_id" to "approval-2",
+                            "tool_name" to "bash",
+                            "description" to "new",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.approveToolCall("approval-1")
+            advanceUntilIdle()
+
+            assertEquals(0, relay.sendMessageCalls)
+
+            viewModel.approveToolCall("approval-2")
+            advanceUntilIdle()
+
+            assertEquals(1, relay.sendMessageCalls)
+            assertEquals(listOf("approve"), relay.sentMessages)
+        }
+
+    @Test
     fun `onSlashTrigger sets showSlashSheet`() =
         runTest(mainDispatcherRule.dispatcher) {
             val viewModel = createViewModel()

@@ -104,6 +104,8 @@ fun SessionDetailScreen(
     val selectionModeActive = selectionModeMessageId != null
     val messageActions = messageMenuTarget?.takeIf(::hasActions)?.let(::availableActions).orEmpty()
     val sessionAllowsInteractiveInput = canSendToSession(uiState.session?.status)
+    val latestPendingInteractiveCallId = findLatestPendingInteractiveToolCallId(uiState.messages)
+    val latestPendingApprovalCallId = findLatestPendingApprovalCallId(uiState.messages)
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showCancelDialog by remember { mutableStateOf(false) }
@@ -543,6 +545,11 @@ fun SessionDetailScreen(
                                             InteractiveToolCard(
                                                 item = item,
                                                 isSessionActive = sessionAllowsInteractiveInput,
+                                                isLatestPending =
+                                                    isLatestPendingInteractiveToolCall(
+                                                        item = item,
+                                                        latestPendingCallId = latestPendingInteractiveCallId,
+                                                    ),
                                                 isSending = uiState.isSending,
                                                 onSubmitAnswer = { answer ->
                                                     viewModel.submitToolAnswer(item.id, answer)
@@ -562,6 +569,13 @@ fun SessionDetailScreen(
                                                 item = item,
                                                 provider = uiState.session?.provider.orEmpty(),
                                                 isSessionActive = sessionAllowsInteractiveInput,
+                                                isLatestPendingApproval =
+                                                    (item as? MessageItem.StatusChange)?.let { statusChange ->
+                                                        isLatestPendingApprovalRequest(
+                                                            item = statusChange,
+                                                            latestPendingCallId = latestPendingApprovalCallId,
+                                                        )
+                                                    } ?: true,
                                                 isSending = uiState.isSending,
                                                 onApprove = {
                                                     val callId = (item as? MessageItem.StatusChange)?.callId

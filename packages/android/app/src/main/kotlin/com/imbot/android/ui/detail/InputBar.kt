@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -41,6 +42,12 @@ internal fun InputBar(
     var draft by rememberSaveable { mutableStateOf("") }
     val inputEnabled = canInputToSession(status) && canSend && !isSending
     val canSubmit = inputEnabled && (commandChip != null || draft.isNotBlank())
+
+    LaunchedEffect(commandChip?.command) {
+        if (commandChip != null) {
+            draft = ""
+        }
+    }
 
     Surface(
         modifier = modifier.fillMaxWidth(),
@@ -68,11 +75,13 @@ internal fun InputBar(
                 OutlinedTextField(
                     value = draft,
                     onValueChange = { updatedDraft ->
-                        if (commandChip == null && updatedDraft.startsWith("/")) {
+                        val shouldTriggerSlashSheet =
+                            commandChip == null &&
+                                updatedDraft.startsWith("/") &&
+                                !draft.startsWith("/")
+                        draft = updatedDraft
+                        if (shouldTriggerSlashSheet) {
                             onSlashTrigger()
-                            draft = updatedDraft.removePrefix("/")
-                        } else {
-                            draft = updatedDraft
                         }
                     },
                     modifier = Modifier.weight(1f),

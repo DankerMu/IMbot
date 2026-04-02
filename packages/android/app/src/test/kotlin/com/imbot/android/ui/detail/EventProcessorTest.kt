@@ -462,7 +462,7 @@ class EventProcessorTest {
     }
 
     @Test
-    fun `approval events preserve metadata for approval cards`() {
+    fun `approval_resolved updates existing approval card in place`() {
         val required =
             processor.process(
                 event(
@@ -486,6 +486,7 @@ class EventProcessorTest {
                             "call_id" to "call-1",
                             "tool_name" to "bash",
                             "description" to "Run a shell command",
+                            "approved" to true,
                         ),
                 ),
             )
@@ -505,16 +506,17 @@ class EventProcessorTest {
         )
         assertEquals(
             MessageItem.StatusChange(
-                id = "id-2",
+                id = "id-1",
                 status = "running",
                 message = "Approval resolved: Run a shell command",
                 eventType = "approval_resolved",
                 callId = "call-1",
                 toolName = "bash",
                 description = "Run a shell command",
+                approvalDecision = "approved",
                 seq = 2,
             ),
-            resolved.last(),
+            resolved.single(),
         )
     }
 

@@ -84,6 +84,75 @@ class DetailUtilsTest {
     }
 
     @Test
+    fun `parseAskUserQuestion caps large option sets and appends truncation note`() {
+        val payload =
+            """{"question":"选哪个?","options":["1","2","3","4","5","6","7","8","9","10","11","12"]}"""
+        val result = parseAskUserQuestion(payload)
+
+        assertEquals(
+            "选哪个?\n\n$ASK_USER_QUESTION_OPTIONS_TRUNCATED_NOTE",
+            result.first,
+        )
+        assertEquals(
+            listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"),
+            result.second,
+        )
+    }
+
+    @Test
+    fun `latest pending helpers only mark the newest unanswered cards actionable`() {
+        val olderInteractive =
+            MessageItem.InteractiveToolCall(
+                id = "interactive-1",
+                toolName = "AskUserQuestion",
+                question = "旧问题",
+                options = listOf("A"),
+                timestamp = DETAIL_UTILS_TIMESTAMP,
+            )
+        val latestInteractive =
+            MessageItem.InteractiveToolCall(
+                id = "interactive-2",
+                toolName = "AskUserQuestion",
+                question = "新问题",
+                options = listOf("B"),
+                timestamp = DETAIL_UTILS_TIMESTAMP,
+            )
+        val olderApproval =
+            MessageItem.StatusChange(
+                id = "status-older",
+                status = "running",
+                message = "Approval required: old",
+                eventType = "approval_required",
+                callId = "approval-1",
+            )
+        val latestApproval =
+            MessageItem.StatusChange(
+                id = "status-latest",
+                status = "running",
+                message = "Approval required: new",
+                eventType = "approval_required",
+                callId = "approval-2",
+            )
+        val messages =
+            listOf(
+                olderInteractive,
+                latestInteractive,
+                olderApproval,
+                latestApproval,
+            )
+
+        val latestInteractiveId = findLatestPendingInteractiveToolCallId(messages)
+        val latestApprovalId = findLatestPendingApprovalCallId(messages)
+
+        assertEquals("interactive-2", latestInteractiveId)
+        assertEquals("approval-2", latestApprovalId)
+        assertFalse(isLatestPendingInteractiveToolCall(olderInteractive, latestInteractiveId))
+        assertTrue(isLatestPendingInteractiveToolCall(latestInteractive, latestInteractiveId))
+        assertFalse(isLatestPendingApprovalRequest(olderApproval, latestApprovalId))
+        assertTrue(isLatestPendingApprovalRequest(latestApproval, latestApprovalId))
+    }
+
+    @Test
     fun `initial scroll state matches spec`() {
         val state = DetailScrollState()
 

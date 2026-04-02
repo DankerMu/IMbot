@@ -350,8 +350,25 @@ class EventProcessor(
     }
 
     private fun appendApprovalEvent(event: ServerMessage.Event) {
-        val toolName = event.payload.toolName()
-        val description = event.payload.stringValue("description")
+        val payload = event.payload
+        val callId = payload.stringValue("call_id")
+        val toolName = payload.toolName()
+        val description = payload.stringValue("description")
+        val approvalDecision = payload.approvalDecision()
+
+        if (
+            event.eventType == "approval_resolved" &&
+            updateApprovalCard(
+                callId = callId,
+                toolName = toolName,
+                description = description,
+                approvalDecision = approvalDecision,
+                seq = event.seq,
+            )
+        ) {
+            return
+        }
+
         appendStatusChange(
             status = "running",
             message =
@@ -361,12 +378,38 @@ class EventProcessor(
                     toolName = toolName,
                 ),
             eventType = event.eventType,
-            callId = event.payload.stringValue("call_id"),
+            callId = callId,
             toolName = toolName,
             description = description,
-            approvalDecision = event.payload.approvalDecision(),
+            approvalDecision = approvalDecision,
             seq = event.seq,
         )
+    }
+
+    private fun updateApprovalCard(
+        callId: String?,
+        toolName: String?,
+        description: String?,
+        approvalDecision: String?,
+        seq: Int,
+    ): Boolean {
+        val approvalIndex = findApprovalStatusIndex(callId)
+        val item = messages.getOrNull(approvalIndex) as? MessageItem.StatusChange ?: return false
+        val mergedToolName = toolName ?: item.toolName
+        val mergedDescription = description ?: item.description
+
+        closeStreamingAgentMessage()
+        messages[approvalIndex] =
+            item.copy(
+                status = item.status.ifBlank { "running" },
+                message = approvalStatusMessage("approval_resolved", mergedDescription, mergedToolName),
+                eventType = "approval_resolved",
+                toolName = mergedToolName,
+                description = mergedDescription,
+                approvalDecision = approvalDecision ?: item.approvalDecision,
+                seq = seq,
+            )
+        return true
     }
 
     private fun findToolCallIndex(callId: String): Int =
@@ -377,6 +420,17 @@ class EventProcessor(
                 else -> false
             }
         }
+
+    private fun findApprovalStatusIndex(callId: String?): Int {
+        if (callId.isNullOrBlank()) {
+            return -1
+        }
+        return messages.indexOfLast { item ->
+            val statusChange = item as? MessageItem.StatusChange ?: return@indexOfLast false
+            statusChange.callId == callId &&
+                (statusChange.eventType == "approval_required" || statusChange.eventType == "approval_resolved")
+        }
+    }
 
     private fun closeStreamingAgentMessage() {
         val lastIndex = messages.lastIndex
