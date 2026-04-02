@@ -12,6 +12,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 internal const val SCROLL_PAUSE_THRESHOLD_DP = 100f
+private const val TOOL_CALL_COPY_SUMMARY_LIMIT = 200
 
 private val DefaultDetailStatusColors =
     StatusColors(
@@ -243,6 +244,36 @@ internal fun summarizeSessionPath(path: String): String {
 internal fun sessionTitle(session: RelaySession): String = providerDisplayName(session.provider)
 
 internal fun sessionSubtitle(session: RelaySession): String = summarizeSessionPath(session.workspaceCwd)
+
+internal fun copyableText(item: MessageItem): String? =
+    when (item) {
+        is MessageItem.AgentMessage -> item.content.takeIf(String::isNotBlank)
+        is MessageItem.UserMessage -> item.text.takeIf(String::isNotBlank)
+        is MessageItem.ToolCall ->
+            item.toolName.takeIf(String::isNotBlank)?.let { toolName ->
+                buildString {
+                    append("Tool: ")
+                    append(toolName)
+                    item.args?.takeIf(String::isNotBlank)?.let { args ->
+                        append("\nInput: ")
+                        append(summarizeToolCallCopyField(args))
+                    }
+                    item.result?.takeIf(String::isNotBlank)?.let { result ->
+                        append("\nOutput: ")
+                        append(summarizeToolCallCopyField(result))
+                    }
+                }
+            }
+
+        is MessageItem.StatusChange -> null
+    }
+
+private fun summarizeToolCallCopyField(text: String): String =
+    if (text.length > TOOL_CALL_COPY_SUMMARY_LIMIT) {
+        text.take(TOOL_CALL_COPY_SUMMARY_LIMIT) + "..."
+    } else {
+        text
+    }
 
 internal fun copyableAgentTranscript(messages: List<MessageItem>): String =
     messages

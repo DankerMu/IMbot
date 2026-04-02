@@ -7,7 +7,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -31,19 +33,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.imbot.android.ui.theme.IMbotAnimations
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ToolCallCard(
     item: MessageItem.ToolCall,
+    onLongPress: ((MessageItem) -> Unit)? = null,
+    selectionModeActive: Boolean = false,
+    onExitSelectionMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var expanded by rememberSaveable(item.callId) { mutableStateOf(item.isRunning) }
     val componentShapes = LocalIMbotComponentShapes.current
+    val hapticFeedback = LocalHapticFeedback.current
+    val canLongPress = onLongPress != null && hasActions(item)
     val chevronRotation by
         animateFloatAsState(
             targetValue = if (expanded) 180f else 0f,
@@ -72,7 +82,15 @@ fun ToolCallCard(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .clickable { expanded = !expanded }
+                        .toolCallInteractions(
+                            item = item,
+                            canLongPress = canLongPress,
+                            selectionModeActive = selectionModeActive,
+                            onExitSelectionMode = onExitSelectionMode,
+                            onToggleExpanded = { expanded = !expanded },
+                            onLongPress = onLongPress,
+                            hapticFeedback = hapticFeedback,
+                        )
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -136,6 +154,13 @@ fun ToolCallCard(
                     modifier =
                         Modifier
                             .fillMaxWidth()
+                            .let { baseModifier ->
+                                if (selectionModeActive && onExitSelectionMode != null) {
+                                    baseModifier.clickable(onClick = onExitSelectionMode)
+                                } else {
+                                    baseModifier
+                                }
+                            }
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -156,6 +181,45 @@ fun ToolCallCard(
         }
     }
 }
+
+@OptIn(ExperimentalFoundationApi::class)
+private fun Modifier.toolCallInteractions(
+    item: MessageItem.ToolCall,
+    canLongPress: Boolean,
+    selectionModeActive: Boolean,
+    onExitSelectionMode: (() -> Unit)?,
+    onToggleExpanded: () -> Unit,
+    onLongPress: ((MessageItem) -> Unit)?,
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
+): Modifier =
+    when {
+        selectionModeActive && onExitSelectionMode != null -> {
+            if (canLongPress) {
+                combinedClickable(
+                    onClick = onExitSelectionMode,
+                    onLongClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongPress?.invoke(item)
+                    },
+                )
+            } else {
+                clickable(onClick = onExitSelectionMode)
+            }
+        }
+        else ->
+            combinedClickable(
+                onClick = onToggleExpanded,
+                onLongClick =
+                    if (canLongPress) {
+                        {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onLongPress?.invoke(item)
+                        }
+                    } else {
+                        null
+                    },
+            )
+    }
 
 @Composable
 private fun ToolCallSection(

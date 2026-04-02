@@ -521,6 +521,134 @@ class DetailViewModelTest {
             assertNull(viewModel.uiState.value.error)
         }
 
+    @Test
+    fun `onMessageLongPress sets messageMenuTarget`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            val item = agentMenuTarget()
+
+            viewModel.onMessageLongPress(item)
+
+            assertEquals(item, viewModel.uiState.value.messageMenuTarget)
+        }
+
+    @Test
+    fun `onDismissMessageMenu clears messageMenuTarget`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+
+            viewModel.onMessageLongPress(agentMenuTarget())
+            viewModel.onDismissMessageMenu()
+
+            assertNull(viewModel.uiState.value.messageMenuTarget)
+        }
+
+    @Test
+    fun `onEnterSelectionMode sets id and clears menuTarget`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            val item = agentMenuTarget()
+
+            viewModel.onMessageLongPress(item)
+            viewModel.onEnterSelectionMode(item.id)
+
+            assertNull(viewModel.uiState.value.messageMenuTarget)
+            assertEquals(item.id, viewModel.uiState.value.selectionModeMessageId)
+        }
+
+    @Test
+    fun `onExitSelectionMode clears selectionModeMessageId`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+
+            viewModel.onEnterSelectionMode("agent-1")
+            viewModel.onExitSelectionMode()
+
+            assertNull(viewModel.uiState.value.selectionModeMessageId)
+        }
+
+    @Test
+    fun `new message arrival clears selectionModeMessageId`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(ws = ws)
+            advanceUntilIdle()
+
+            viewModel.onEnterSelectionMode("agent-1")
+            ws.emitEvent(event(seq = 1, eventType = "user_message", payload = payload("text" to "你好")))
+            advanceUntilIdle()
+
+            assertNull(viewModel.uiState.value.selectionModeMessageId)
+        }
+
+    @Test
+    fun `selectionMode and menuTarget are mutually exclusive`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            val item = userMenuTarget()
+
+            viewModel.onEnterSelectionMode("agent-1")
+            viewModel.onMessageLongPress(item)
+
+            assertEquals(item, viewModel.uiState.value.messageMenuTarget)
+            assertNull(viewModel.uiState.value.selectionModeMessageId)
+
+            viewModel.onEnterSelectionMode("user-1")
+
+            assertNull(viewModel.uiState.value.messageMenuTarget)
+            assertEquals("user-1", viewModel.uiState.value.selectionModeMessageId)
+        }
+
+    @Test
+    fun `onEnterSelectionMode switches to new message id directly`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+
+            viewModel.onEnterSelectionMode("msg-123")
+            assertEquals("msg-123", viewModel.uiState.value.selectionModeMessageId)
+
+            viewModel.onEnterSelectionMode("msg-456")
+            assertEquals("msg-456", viewModel.uiState.value.selectionModeMessageId)
+        }
+
+    @Test
+    fun `assistant delta does not clear selectionMode when message count unchanged`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(ws = ws)
+            advanceUntilIdle()
+
+            // First delta creates the agent message
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "assistant_delta",
+                    payload = payload("content" to "hello"),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.onEnterSelectionMode("agent-1")
+
+            // Second delta updates the same message (no new message added)
+            ws.emitEvent(
+                event(
+                    seq = 2,
+                    eventType = "assistant_delta",
+                    payload = payload("content" to " world"),
+                ),
+            )
+            advanceUntilIdle()
+
+            assertEquals("agent-1", viewModel.uiState.value.selectionModeMessageId)
+        }
+
     private fun createViewModel(
         relay: FakeRelayHttpClient = FakeRelayHttpClient(),
         ws: FakeRelayWsClient = FakeRelayWsClient(),
@@ -604,6 +732,21 @@ private fun assertStatusChange(
     assertEquals(status, statusChange.status)
     assertEquals(message, statusChange.message)
 }
+
+private fun agentMenuTarget() =
+    MessageItem.AgentMessage(
+        id = "agent-1",
+        content = "hello",
+        isStreaming = false,
+        timestamp = TIMESTAMP,
+    )
+
+private fun userMenuTarget() =
+    MessageItem.UserMessage(
+        id = "user-1",
+        text = "world",
+        timestamp = TIMESTAMP,
+    )
 
 private data class SessionEventsRequest(
     val relayUrl: String,
