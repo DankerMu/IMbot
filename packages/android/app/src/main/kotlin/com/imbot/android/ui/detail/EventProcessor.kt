@@ -52,6 +52,7 @@ sealed class MessageItem {
         val args: String?,
         val result: String?,
         val isRunning: Boolean,
+        val isError: Boolean = false,
         val seq: Int? = null,
     ) : MessageItem()
 
@@ -238,6 +239,7 @@ class EventProcessor(
                     args = input,
                     result = null,
                     isRunning = true,
+                    isError = false,
                     seq = event.seq,
                 )
         }
@@ -271,6 +273,7 @@ class EventProcessor(
                         item.copy(
                             result = result,
                             isRunning = false,
+                            isError = isToolCallError(result, payload),
                             seq = event.seq,
                         )
 
@@ -298,6 +301,7 @@ class EventProcessor(
                         args = input,
                         result = result,
                         isRunning = false,
+                        isError = isToolCallError(result, payload),
                         seq = event.seq,
                     )
             }
@@ -471,6 +475,19 @@ class EventProcessor(
             text
         }
     }
+}
+
+internal fun isToolCallError(
+    result: String?,
+    payload: JSONObject?,
+): Boolean {
+    val lower = result?.lowercase().orEmpty()
+    return result == null ||
+        payload?.has("error") == true ||
+        lower.startsWith("error") ||
+        lower.startsWith("enoent") ||
+        lower.startsWith("eperm") ||
+        lower.startsWith("permission denied")
 }
 
 private fun JSONObject?.toolName(): String? =
