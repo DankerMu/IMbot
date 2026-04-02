@@ -256,15 +256,7 @@ private fun HomeTopAppBar(
                         } else {
                             MaterialTheme.colorScheme.surfaceVariant
                         },
-                    border =
-                        if (selected) {
-                            null
-                        } else {
-                            androidx.compose.foundation.BorderStroke(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
-                            )
-                        },
+                    border = null,
                     modifier =
                         Modifier.clickable {
                             onFilterSelected(option.value)
@@ -272,7 +264,7 @@ private fun HomeTopAppBar(
                 ) {
                     Text(
                         text = option.label,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 9.dp),
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                         style = MaterialTheme.typography.labelLarge,
                         color =
                             if (selected) {
