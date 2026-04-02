@@ -19,6 +19,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,44 +38,42 @@ internal sealed interface MessageAction {
 internal fun hasActions(item: MessageItem): Boolean =
     when (item) {
         is MessageItem.AgentMessage -> !item.isStreaming
-        is MessageItem.InteractiveToolCall -> false
+        is MessageItem.InteractiveToolCall -> true
         is MessageItem.UserMessage -> true
-        is MessageItem.ToolCall -> item.toolName.isNotBlank()
-        is MessageItem.StatusChange -> false
+        is MessageItem.ToolCall -> true
+        is MessageItem.StatusChange ->
+            item.message?.isNotBlank() == true || item.description?.isNotBlank() == true
     }
 
 internal fun availableActions(item: MessageItem): List<MessageAction> {
-    if (!hasActions(item)) {
-        return emptyList()
-    }
-
     return when (item) {
-        is MessageItem.AgentMessage ->
-            buildList {
-                copyableText(item)?.let { text ->
-                    add(MessageAction.CopyMessage(text))
-                }
-                add(MessageAction.SelectText)
-            }
-
-        is MessageItem.InteractiveToolCall -> emptyList()
-
-        is MessageItem.UserMessage ->
-            buildList {
-                copyableText(item)?.let { text ->
-                    add(MessageAction.CopyMessage(text))
-                }
-                add(MessageAction.SelectText)
-            }
-
-        is MessageItem.ToolCall ->
-            copyableText(item)?.let { text ->
-                listOf(MessageAction.CopyMessage(text))
-            } ?: emptyList()
-
-        is MessageItem.StatusChange -> emptyList()
+        is MessageItem.AgentMessage -> agentActions(item)
+        is MessageItem.InteractiveToolCall -> copyOnlyActions(item)
+        is MessageItem.UserMessage -> copyAndSelectActions(item)
+        is MessageItem.ToolCall -> copyOnlyActions(item)
+        is MessageItem.StatusChange -> copyOnlyActions(item)
     }
 }
+
+private fun agentActions(item: MessageItem.AgentMessage): List<MessageAction> =
+    if (item.isStreaming) {
+        emptyList()
+    } else {
+        copyAndSelectActions(item)
+    }
+
+private fun copyAndSelectActions(item: MessageItem): List<MessageAction> =
+    buildList {
+        copyableText(item)?.let { text ->
+            add(MessageAction.CopyMessage(text))
+        }
+        add(MessageAction.SelectText)
+    }
+
+private fun copyOnlyActions(item: MessageItem): List<MessageAction> =
+    copyableText(item)?.let { text ->
+        listOf(MessageAction.CopyMessage(text))
+    } ?: emptyList()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -85,6 +84,7 @@ internal fun MessageActionSheet(
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
     ) {
         Column(
             modifier = Modifier.padding(bottom = 24.dp),

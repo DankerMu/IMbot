@@ -2,6 +2,9 @@
 
 package com.imbot.android.ui.detail
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -25,10 +28,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 internal fun InteractiveToolCard(
     item: MessageItem.InteractiveToolCall,
@@ -36,10 +42,15 @@ internal fun InteractiveToolCard(
     isLatestPending: Boolean,
     isSending: Boolean,
     onSubmitAnswer: (String) -> Unit,
+    onLongPress: ((MessageItem) -> Unit)? = null,
+    selectionModeActive: Boolean = false,
+    onExitSelectionMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var answerDraft by rememberSaveable(item.id) { mutableStateOf(item.answer.orEmpty()) }
     var selectedSet by rememberSaveable(item.id) { mutableStateOf(emptySet<String>()) }
+    val hapticFeedback = LocalHapticFeedback.current
+    val canLongPress = onLongPress != null
     val primaryQuestion = item.primaryQuestion
     val isExpired = !item.isAnswered && !isLatestPending
     val inputEnabled = isSessionActive && !item.isAnswered && isLatestPending && !isSending
@@ -63,7 +74,17 @@ internal fun InteractiveToolCard(
     }
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .interactiveToolCardInteractions(
+                    item = item,
+                    canLongPress = canLongPress,
+                    selectionModeActive = selectionModeActive,
+                    onExitSelectionMode = onExitSelectionMode,
+                    onLongPress = onLongPress,
+                    hapticFeedback = hapticFeedback,
+                ),
         colors = CardDefaults.cardColors(containerColor = containerColor),
     ) {
         Column(
@@ -128,6 +149,40 @@ internal fun InteractiveToolCard(
         }
     }
 }
+
+@OptIn(ExperimentalFoundationApi::class)
+private fun Modifier.interactiveToolCardInteractions(
+    item: MessageItem.InteractiveToolCall,
+    canLongPress: Boolean,
+    selectionModeActive: Boolean,
+    onExitSelectionMode: (() -> Unit)?,
+    onLongPress: ((MessageItem) -> Unit)?,
+    hapticFeedback: HapticFeedback,
+): Modifier =
+    when {
+        selectionModeActive && onExitSelectionMode != null -> {
+            if (canLongPress) {
+                combinedClickable(
+                    onClick = onExitSelectionMode,
+                    onLongClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongPress?.invoke(item)
+                    },
+                )
+            } else {
+                clickable(onClick = onExitSelectionMode)
+            }
+        }
+        canLongPress ->
+            combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongPress?.invoke(item)
+                },
+            )
+        else -> this
+    }
 
 @Composable
 private fun InteractiveToolQuestionHeader(header: String) {

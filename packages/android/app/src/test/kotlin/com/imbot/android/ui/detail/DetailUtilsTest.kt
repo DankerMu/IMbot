@@ -508,8 +508,24 @@ class DetailUtilsTest {
     }
 
     @Test
-    fun `copyableText returns null for status change`() {
-        assertNull(copyableText(statusChange()))
+    fun `copyableText returns interactive tool question`() {
+        assertEquals("需要继续吗？", copyableText(interactiveToolCall()))
+    }
+
+    @Test
+    fun `copyableText returns status change description`() {
+        assertEquals(
+            "session started",
+            copyableText(statusChange(message = "运行中", description = "session started")),
+        )
+    }
+
+    @Test
+    fun `copyableText returns tool call summary without tool name`() {
+        assertEquals(
+            "Output: content",
+            copyableText(toolCall(toolName = "", args = null, result = "content")),
+        )
     }
 
     @Test
@@ -597,8 +613,19 @@ class DetailUtilsTest {
     }
 
     @Test
-    fun `availableActions returns no actions for status change`() {
-        assertEquals(emptyList<MessageAction>(), availableActions(statusChange()))
+    fun `availableActions returns copy only for interactive tool call`() {
+        assertEquals(
+            listOf(MessageAction.CopyMessage("需要继续吗？")),
+            availableActions(interactiveToolCall()),
+        )
+    }
+
+    @Test
+    fun `availableActions returns copy only for status change`() {
+        assertEquals(
+            listOf(MessageAction.CopyMessage("运行中")),
+            availableActions(statusChange()),
+        )
     }
 
     @Test
@@ -627,11 +654,12 @@ class DetailUtilsTest {
     fun `hasActions uses lightweight eligibility rules`() {
         assertTrue(hasActions(agentMessage(content = "")))
         assertFalse(hasActions(agentMessage(content = "streaming", isStreaming = true)))
-        assertFalse(hasActions(interactiveToolCall()))
+        assertTrue(hasActions(interactiveToolCall()))
         assertTrue(hasActions(userMessage(text = "")))
         assertTrue(hasActions(toolCall()))
-        assertFalse(hasActions(toolCall(toolName = "")))
-        assertFalse(hasActions(statusChange()))
+        assertTrue(hasActions(toolCall(toolName = "")))
+        assertTrue(hasActions(statusChange(message = "运行中")))
+        assertFalse(hasActions(statusChange(message = null, description = null)))
     }
 }
 
@@ -667,14 +695,14 @@ private fun toolCall(
     isRunning = false,
 )
 
-private fun interactiveToolCall() =
+private fun interactiveToolCall(question: String = "需要继续吗？") =
     MessageItem.InteractiveToolCall(
         id = "interactive-1",
         toolName = "AskUserQuestion",
         questions =
             listOf(
                 ParsedQuestion(
-                    question = "需要继续吗？",
+                    question = question,
                     header = null,
                     options = listOf(ParsedOption("是", null), ParsedOption("否", null)),
                     multiSelect = false,
@@ -683,9 +711,12 @@ private fun interactiveToolCall() =
         timestamp = DETAIL_UTILS_TIMESTAMP,
     )
 
-private fun statusChange() =
-    MessageItem.StatusChange(
-        id = "status-1",
-        status = "running",
-        message = "运行中",
-    )
+private fun statusChange(
+    message: String? = "运行中",
+    description: String? = null,
+) = MessageItem.StatusChange(
+    id = "status-1",
+    status = "running",
+    message = message,
+    description = description,
+)

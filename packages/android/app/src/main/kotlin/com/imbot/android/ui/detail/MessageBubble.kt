@@ -338,7 +338,7 @@ private fun Modifier.messageLongPressable(
     onExitSelectionMode: (() -> Unit)?,
     isSelectionMode: Boolean,
 ): Modifier {
-    val canLongPress = onLongPress != null && hasActions(item)
+    val canLongPress = onLongPress != null
     return when {
         isSelectionMode -> this
         selectionModeActive && onExitSelectionMode != null -> {
