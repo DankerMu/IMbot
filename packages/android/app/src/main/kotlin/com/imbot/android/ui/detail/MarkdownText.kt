@@ -137,6 +137,12 @@ internal fun blockquoteBorderAlpha(level: Int): Float =
 
 internal fun isStripedTableRow(rowIndex: Int): Boolean = rowIndex % 2 == 1
 
+internal fun markdownBlockBottomPadding(
+    index: Int,
+    blocks: List<MarkdownBlock>,
+    defaultPadding: Dp,
+): Dp = if (index == blocks.lastIndex) 0.dp else defaultPadding
+
 internal fun markdownInlineCodeBackground(useDarkTheme: Boolean): Color =
     if (useDarkTheme) {
         Color(0xFF2D333B)
@@ -160,7 +166,10 @@ fun MarkdownText(
                 is MarkdownBlock.Paragraph ->
                     MarkdownRichText(
                         text = block.text,
-                        modifier = Modifier.padding(bottom = MarkdownParagraphSpacing),
+                        modifier =
+                            Modifier.padding(
+                                bottom = markdownBlockBottomPadding(index, blocks, MarkdownParagraphSpacing),
+                            ),
                         style =
                             MaterialTheme.typography.bodyMedium.copy(
                                 lineHeight = MarkdownParagraphLineHeight,
@@ -176,7 +185,7 @@ fun MarkdownText(
                         modifier =
                             Modifier.padding(
                                 top = headingStyle.topPadding,
-                                bottom = headingStyle.bottomPadding,
+                                bottom = markdownBlockBottomPadding(index, blocks, headingStyle.bottomPadding),
                             ),
                         style =
                             MaterialTheme.typography.titleLarge.copy(
@@ -206,7 +215,7 @@ fun MarkdownText(
                             Modifier.padding(
                                 start = MarkdownQuoteIndentStep * block.level.toFloat(),
                                 top = 8.dp,
-                                bottom = 8.dp,
+                                bottom = markdownBlockBottomPadding(index, blocks, 8.dp),
                             ),
                         contentColor = contentColor,
                     )
@@ -215,13 +224,21 @@ fun MarkdownText(
                     CodeBlock(
                         language = block.language,
                         code = block.code,
-                        modifier = Modifier.padding(vertical = 8.dp),
+                        modifier =
+                            Modifier.padding(
+                                top = 8.dp,
+                                bottom = markdownBlockBottomPadding(index, blocks, 8.dp),
+                            ),
                     )
 
                 is MarkdownBlock.Math ->
                     MarkdownKatexMathBlock(
                         expression = block.expression,
-                        modifier = Modifier.padding(vertical = 8.dp),
+                        modifier =
+                            Modifier.padding(
+                                top = 8.dp,
+                                bottom = markdownBlockBottomPadding(index, blocks, 8.dp),
+                            ),
                     )
 
                 is MarkdownBlock.Table ->
@@ -229,7 +246,11 @@ fun MarkdownText(
                         header = block.header,
                         alignments = block.alignments,
                         rows = block.rows,
-                        modifier = Modifier.padding(vertical = MarkdownTableOuterMargin),
+                        modifier =
+                            Modifier.padding(
+                                top = MarkdownTableOuterMargin,
+                                bottom = markdownBlockBottomPadding(index, blocks, MarkdownTableOuterMargin),
+                            ),
                         contentColor = contentColor,
                     )
             }
@@ -788,7 +809,9 @@ private fun listBottomPadding(
     index: Int,
     blocks: List<MarkdownBlock>,
 ): Dp =
-    if (index == blocks.lastIndex || blocks[index + 1] !is MarkdownBlock.ListItem) {
+    if (index == blocks.lastIndex) {
+        0.dp
+    } else if (blocks[index + 1] !is MarkdownBlock.ListItem) {
         MarkdownListBlockSpacing
     } else {
         MarkdownListItemSpacing / 2

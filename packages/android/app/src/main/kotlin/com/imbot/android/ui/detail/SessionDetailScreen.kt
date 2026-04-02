@@ -1,4 +1,4 @@
-@file:Suppress("FunctionName")
+@file:Suppress("FunctionName", "TooManyFunctions")
 
 package com.imbot.android.ui.detail
 
@@ -15,6 +15,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -109,7 +110,7 @@ fun SessionDetailScreen(
     val hapticFeedback = LocalHapticFeedback.current
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
-    val density = LocalDensity.current
+
     val messageMenuTarget = uiState.messageMenuTarget
     val selectionModeMessageId = uiState.selectionModeMessageId
     val selectionModeActive = selectionModeMessageId != null
@@ -125,6 +126,7 @@ fun SessionDetailScreen(
     var showCompleteDialog by remember { mutableStateOf(false) }
     var showDeleteDialog by remember { mutableStateOf(false) }
     var initialLoadHandled by rememberSaveable(sessionId) { mutableStateOf(false) }
+    var programmaticScrollInProgress by remember { mutableStateOf(false) }
     val renderedKeys = remember(sessionId) { mutableSetOf<String>() }
 
     BackHandler(enabled = selectionModeActive) {
@@ -150,15 +152,39 @@ fun SessionDetailScreen(
         }
     }
 
-    LaunchedEffect(listState, density) {
+    LaunchedEffect(listState) {
+        var lastPosition =
+            ListViewportPosition(
+                index = listState.firstVisibleItemIndex,
+                offset = listState.firstVisibleItemScrollOffset,
+            )
         snapshotFlow {
-            with(density) {
-                calculateDistanceFromBottomPx(listState).toDp().value
-            }
+            ScrollObservation(
+                nearBottom = isNearBottom(listState),
+                firstVisibleItemIndex = listState.firstVisibleItemIndex,
+                firstVisibleItemScrollOffset = listState.firstVisibleItemScrollOffset,
+            )
         }
             .distinctUntilChanged()
-            .collect { distanceFromBottomDp ->
-                viewModel.onScrollPositionChanged(distanceFromBottomDp)
+            .collect { observation ->
+                val currentPosition =
+                    ListViewportPosition(
+                        index = observation.firstVisibleItemIndex,
+                        offset = observation.firstVisibleItemScrollOffset,
+                    )
+                val userInitiatedScrollAway =
+                    currentPosition != lastPosition &&
+                        !programmaticScrollInProgress &&
+                        !observation.nearBottom
+
+                if (observation.nearBottom || userInitiatedScrollAway) {
+                    viewModel.onScrollPositionChanged(
+                        nearBottom = observation.nearBottom,
+                        userInitiatedScrollAway = userInitiatedScrollAway,
+                    )
+                }
+
+                lastPosition = currentPosition
             }
     }
 
@@ -175,7 +201,17 @@ fun SessionDetailScreen(
                     if (targetIndex >= 0) {
                         snapshotFlow { listState.layoutInfo.totalItemsCount }
                             .first { count -> count > targetIndex }
-                        listState.animateScrollToItem(targetIndex)
+                        programmaticScrollInProgress = true
+                        try {
+                            listState.animateScrollToItem(targetIndex)
+                            alignTargetItemBottom(listState, targetIndex)
+                        } finally {
+                            programmaticScrollInProgress = false
+                            viewModel.onScrollPositionChanged(
+                                nearBottom = isNearBottom(listState),
+                                userInitiatedScrollAway = false,
+                            )
+                        }
                     }
                 }
 
@@ -341,7 +377,6 @@ fun SessionDetailScreen(
                                 title = uiState.session?.let(::sessionTitle) ?: "会话详情",
                                 subtitle = uiState.session?.let(::sessionSubtitle),
                                 provider = uiState.session?.provider.orEmpty(),
-                                status = uiState.session?.status.orEmpty(),
                             )
                         },
                         navigationIcon = {
@@ -361,6 +396,10 @@ fun SessionDetailScreen(
                             }
                         },
                         actions = {
+                            TopBarStatusBadge(
+                                status = uiState.session?.status.orEmpty(),
+                                modifier = Modifier.padding(end = 8.dp),
+                            )
                             IconButton(
                                 onClick = {
                                     menuExpanded = true
@@ -641,6 +680,10 @@ fun SessionDetailScreen(
 
                 AnimatedVisibility(
                     visible = uiState.scrollState.fabVisible,
+                    modifier =
+                        Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(end = 16.dp, bottom = 80.dp),
                     enter =
                         fadeIn(animationSpec = tween(durationMillis = 150)) +
                             scaleIn(
@@ -657,10 +700,6 @@ fun SessionDetailScreen(
                     ScrollToBottomButton(
                         count = uiState.scrollState.newMsgCount,
                         onClick = viewModel::onFabTapped,
-                        modifier =
-                            Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(end = 16.dp, bottom = 80.dp),
                     )
                 }
             }
@@ -673,7 +712,6 @@ private fun DetailTopBarTitle(
     title: String,
     subtitle: String?,
     provider: String,
-    status: String,
 ) {
     Row(
         modifier = Modifier,
@@ -684,22 +722,13 @@ private fun DetailTopBarTitle(
         Column(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                StatusIndicator(
-                    status = status,
-                    variant = StatusIndicatorVariant.Dot,
-                )
-            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
             subtitle?.let { subtitleText ->
                 Text(
                     text = subtitleText,
@@ -711,6 +740,22 @@ private fun DetailTopBarTitle(
             }
         }
     }
+}
+
+@Composable
+private fun TopBarStatusBadge(
+    status: String,
+    modifier: Modifier = Modifier,
+) {
+    if (status.isBlank()) {
+        return
+    }
+
+    StatusIndicator(
+        status = status,
+        variant = StatusIndicatorVariant.Badge,
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -864,19 +909,40 @@ private fun isSelectionMode(
         -> false
     }
 
-private fun calculateDistanceFromBottomPx(listState: androidx.compose.foundation.lazy.LazyListState): Int {
+private fun isNearBottom(listState: androidx.compose.foundation.lazy.LazyListState): Boolean {
     val layoutInfo = listState.layoutInfo
-    val visibleItems = layoutInfo.visibleItemsInfo
-    val lastVisible = visibleItems.lastOrNull()
+    val lastVisible =
+        layoutInfo.visibleItemsInfo.lastOrNull()
+            ?: return layoutInfo.totalItemsCount == 0
+    val isLastItemVisible = lastVisible.index >= layoutInfo.totalItemsCount - 1
+    val overflow = lastVisible.offset + lastVisible.size - layoutInfo.viewportEndOffset
+    return isLastItemVisible && overflow <= NEAR_BOTTOM_TOLERANCE_PX
+}
 
-    return if (layoutInfo.totalItemsCount == 0 || lastVisible == null) {
-        0
-    } else {
-        val itemsBelow = (layoutInfo.totalItemsCount - lastVisible.index - 1).coerceAtLeast(0)
-        val averageSize = visibleItems.map { it.size }.average().takeIf { it.isFinite() } ?: 0.0
-        val hiddenBelowLastVisible =
-            (lastVisible.offset + lastVisible.size - layoutInfo.viewportEndOffset).coerceAtLeast(0)
+private const val NEAR_BOTTOM_TOLERANCE_PX = 80
 
-        (itemsBelow * averageSize + hiddenBelowLastVisible).toInt()
+private data class ScrollObservation(
+    val nearBottom: Boolean,
+    val firstVisibleItemIndex: Int,
+    val firstVisibleItemScrollOffset: Int,
+)
+
+private data class ListViewportPosition(
+    val index: Int,
+    val offset: Int,
+)
+
+private suspend fun alignTargetItemBottom(
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    targetIndex: Int,
+) {
+    repeat(3) {
+        val layoutInfo = listState.layoutInfo
+        val targetItem = layoutInfo.visibleItemsInfo.firstOrNull { it.index == targetIndex } ?: return
+        val overflow = targetItem.offset + targetItem.size - layoutInfo.viewportEndOffset
+        if (overflow <= NEAR_BOTTOM_TOLERANCE_PX) {
+            return
+        }
+        listState.animateScrollBy(overflow.toFloat())
     }
 }

@@ -95,4 +95,16 @@ class MarkdownRenderingTest {
         assertEquals(Color(0xFFEFF1F3), markdownInlineCodeBackground(useDarkTheme = false))
         assertEquals(Color(0xFF2D333B), markdownInlineCodeBackground(useDarkTheme = true))
     }
+
+    @Test
+    fun `last markdown block does not keep trailing bottom padding`() {
+        val blocks =
+            listOf(
+                MarkdownBlock.Paragraph("first"),
+                MarkdownBlock.Paragraph("last"),
+            )
+
+        assertEquals(12.dp, markdownBlockBottomPadding(0, blocks, MarkdownParagraphSpacing))
+        assertEquals(0.dp, markdownBlockBottomPadding(1, blocks, MarkdownParagraphSpacing))
+    }
 }

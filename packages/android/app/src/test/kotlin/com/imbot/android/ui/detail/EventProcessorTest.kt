@@ -555,7 +555,7 @@ class EventProcessorTest {
     }
 
     @Test
-    fun `session_status_changed to running is silent`() {
+    fun `session_status_changed to running stays in top bar only`() {
         val result =
             processor.process(
                 event(
@@ -565,7 +565,7 @@ class EventProcessorTest {
                 ),
             )
 
-        assertEquals(emptyList<MessageItem>(), result)
+        assertTrue(result.isEmpty())
     }
 
     @Test
