@@ -521,6 +521,14 @@ class DetailUtilsTest {
     }
 
     @Test
+    fun `copyableText falls back to message when description is blank`() {
+        assertEquals(
+            "运行中",
+            copyableText(statusChange(message = "运行中", description = "  ")),
+        )
+    }
+
+    @Test
     fun `copyableText returns tool call summary without tool name`() {
         assertEquals(
             "Output: content",

@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -50,26 +49,22 @@ internal fun InteractiveToolCard(
     var answerDraft by rememberSaveable(item.id) { mutableStateOf(item.answer.orEmpty()) }
     var selectedSet by rememberSaveable(item.id) { mutableStateOf(emptySet<String>()) }
     val hapticFeedback = LocalHapticFeedback.current
-    val canLongPress = onLongPress != null
+    val canLongPress = onLongPress != null && hasActions(item)
     val primaryQuestion = item.primaryQuestion
     val isExpired = !item.isAnswered && !isLatestPending
     val inputEnabled = isSessionActive && !item.isAnswered && isLatestPending && !isSending
     val canSubmit =
-        if (primaryQuestion.multiSelect) {
-            selectedSet.isNotEmpty() && inputEnabled
-        } else {
-            answerDraft.trim().isNotEmpty() && inputEnabled
-        }
-    val containerColor =
-        if (item.isAnswered || isExpired) {
-            MaterialTheme.colorScheme.surfaceVariant
-        } else {
-            MaterialTheme.colorScheme.surface
-        }
+        interactiveToolCanSubmit(
+            primaryQuestion = primaryQuestion,
+            selectedSet = selectedSet,
+            answerDraft = answerDraft,
+            inputEnabled = inputEnabled,
+        )
+    val containerColor = interactiveToolContainerColor(isAnswered = item.isAnswered, isExpired = isExpired)
 
     LaunchedEffect(item.isAnswered, item.answer) {
-        if (item.isAnswered) {
-            answerDraft = item.answer.orEmpty()
+        answeredInteractiveToolAnswer(item)?.let { answer ->
+            answerDraft = answer
         }
     }
 
@@ -349,13 +344,28 @@ internal fun ApprovalCard(
     isSending: Boolean,
     onApprove: () -> Unit,
     onDeny: () -> Unit,
+    onLongPress: ((MessageItem) -> Unit)? = null,
+    selectionModeActive: Boolean = false,
+    onExitSelectionMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val isExpired = item.eventType == "approval_required" && !isLatestPending
     val canRespond = item.eventType == "approval_required" && isLatestPending && isSessionActive && !isSending
+    val hapticFeedback = LocalHapticFeedback.current
+    val canLongPress = onLongPress != null && hasActions(item)
 
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .approvalCardInteractions(
+                    item = item,
+                    canLongPress = canLongPress,
+                    selectionModeActive = selectionModeActive,
+                    onExitSelectionMode = onExitSelectionMode,
+                    onLongPress = onLongPress,
+                    hapticFeedback = hapticFeedback,
+                ),
     ) {
         Column(
             modifier =
@@ -365,12 +375,7 @@ internal fun ApprovalCard(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Text(
-                text =
-                    when {
-                        item.eventType == "approval_required" && isExpired -> "已过期"
-                        item.eventType == "approval_required" -> "需要审批"
-                        else -> approvalDecisionLabel(item)
-                    },
+                text = approvalCardTitle(item = item, isExpired = isExpired),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary,
                 fontWeight = FontWeight.SemiBold,
@@ -385,43 +390,53 @@ internal fun ApprovalCard(
             }
 
             Text(
-                text = item.description ?: item.message.orEmpty(),
+                text = approvalCardBodyText(item),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
-            if (item.eventType == "approval_required") {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Button(
-                        onClick = onApprove,
-                        enabled = canRespond,
-                    ) {
-                        Text("批准")
-                    }
-                    OutlinedButton(
-                        onClick = onDeny,
-                        enabled = canRespond,
-                    ) {
-                        Text("拒绝")
-                    }
-                }
-
-                if (isExpired) {
-                    Text(
-                        text = "已过期，仅最新一条审批卡片可操作",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else if (!isSessionActive) {
-                    Text(
-                        text = "当前会话不可审批",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
+            ApprovalCardActionSection(
+                eventType = item.eventType,
+                canRespond = canRespond,
+                isExpired = isExpired,
+                isSessionActive = isSessionActive,
+                onApprove = onApprove,
+                onDeny = onDeny,
+            )
         }
     }
 }
+
+@OptIn(ExperimentalFoundationApi::class)
+private fun Modifier.approvalCardInteractions(
+    item: MessageItem.StatusChange,
+    canLongPress: Boolean,
+    selectionModeActive: Boolean,
+    onExitSelectionMode: (() -> Unit)?,
+    onLongPress: ((MessageItem) -> Unit)?,
+    hapticFeedback: HapticFeedback,
+): Modifier =
+    when {
+        selectionModeActive && onExitSelectionMode != null -> {
+            if (canLongPress) {
+                combinedClickable(
+                    onClick = onExitSelectionMode,
+                    onLongClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongPress?.invoke(item)
+                    },
+                )
+            } else {
+                clickable(onClick = onExitSelectionMode)
+            }
+        }
+        canLongPress ->
+            combinedClickable(
+                onClick = {},
+                onLongClick = {
+                    hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongPress?.invoke(item)
+                },
+            )
+        else -> this
+    }

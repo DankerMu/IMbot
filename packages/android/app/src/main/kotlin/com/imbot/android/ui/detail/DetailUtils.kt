@@ -477,7 +477,8 @@ internal fun copyableText(item: MessageItem): String? =
             }.takeIf(String::isNotBlank)
 
         is MessageItem.StatusChange ->
-            (item.description ?: item.message)?.takeIf(String::isNotBlank)
+            item.description?.takeIf(String::isNotBlank)
+                ?: item.message?.takeIf(String::isNotBlank)
     }
 
 private fun summarizeToolCallCopyField(text: String): String =

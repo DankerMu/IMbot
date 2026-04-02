@@ -53,7 +53,7 @@ fun ToolCallCard(
     var expanded by rememberSaveable(item.callId) { mutableStateOf(item.isRunning) }
     val componentShapes = LocalIMbotComponentShapes.current
     val hapticFeedback = LocalHapticFeedback.current
-    val canLongPress = onLongPress != null
+    val canLongPress = onLongPress != null && hasActions(item)
     val chevronRotation by
         animateFloatAsState(
             targetValue = if (expanded) 180f else 0f,

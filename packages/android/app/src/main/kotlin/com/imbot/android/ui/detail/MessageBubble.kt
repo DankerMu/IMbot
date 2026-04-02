@@ -103,6 +103,10 @@ fun MessageBubble(
                 isSending = isSending,
                 onApprove = onApprove,
                 onDeny = onDeny,
+                onLongPress = onLongPress,
+                selectionModeActive = selectionModeActive,
+                onExitSelectionMode = onExitSelectionMode,
+                isSelectionMode = isSelectionMode,
                 modifier = modifier,
             )
         is MessageItem.ToolCall -> Unit
@@ -270,9 +274,14 @@ private fun StatusChangeBubble(
     isSending: Boolean,
     onApprove: () -> Unit,
     onDeny: () -> Unit,
+    onLongPress: ((MessageItem) -> Unit)?,
+    selectionModeActive: Boolean,
+    onExitSelectionMode: (() -> Unit)?,
+    isSelectionMode: Boolean,
     modifier: Modifier = Modifier,
 ) {
     val componentShapes = LocalIMbotComponentShapes.current
+    val hapticFeedback = LocalHapticFeedback.current
     if (item.eventType == "approval_required" || item.eventType == "approval_resolved") {
         ApprovalCard(
             item = item,
@@ -281,6 +290,9 @@ private fun StatusChangeBubble(
             isSending = isSending,
             onApprove = onApprove,
             onDeny = onDeny,
+            onLongPress = onLongPress,
+            selectionModeActive = selectionModeActive,
+            onExitSelectionMode = onExitSelectionMode,
             modifier = modifier,
         )
         return
@@ -292,8 +304,22 @@ private fun StatusChangeBubble(
         contentAlignment = Alignment.Center,
     ) {
         Surface(
-            color = statusColor.copy(alpha = 0.05f).compositeOver(MaterialTheme.colorScheme.surface),
+            color =
+                selectedBubbleColor(
+                    baseColor =
+                        statusColor.copy(alpha = 0.05f).compositeOver(MaterialTheme.colorScheme.surface),
+                    isSelectionMode = isSelectionMode,
+                ),
             shape = componentShapes.pill,
+            modifier =
+                Modifier.messageLongPressable(
+                    item = item,
+                    onLongPress = onLongPress,
+                    hapticFeedback = hapticFeedback,
+                    selectionModeActive = selectionModeActive,
+                    onExitSelectionMode = onExitSelectionMode,
+                    isSelectionMode = isSelectionMode,
+                ),
         ) {
             Text(
                 text = item.message?.takeIf(String::isNotBlank) ?: statusLabel(item.status),
@@ -338,7 +364,7 @@ private fun Modifier.messageLongPressable(
     onExitSelectionMode: (() -> Unit)?,
     isSelectionMode: Boolean,
 ): Modifier {
-    val canLongPress = onLongPress != null
+    val canLongPress = onLongPress != null && hasActions(item)
     return when {
         isSelectionMode -> this
         selectionModeActive && onExitSelectionMode != null -> {
