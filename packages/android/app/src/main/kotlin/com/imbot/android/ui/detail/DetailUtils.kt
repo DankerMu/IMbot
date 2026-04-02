@@ -3,9 +3,13 @@
 package com.imbot.android.ui.detail
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import com.imbot.android.network.RelaySession
+import com.imbot.android.ui.theme.DestructiveColor
 import com.imbot.android.ui.theme.ProviderColors
 import com.imbot.android.ui.theme.StatusColors
+import com.imbot.android.ui.theme.SuccessColor
 import com.imbot.android.ui.theme.providerColorFor
 import org.json.JSONArray
 import org.json.JSONObject
@@ -18,6 +22,10 @@ internal const val SCROLL_PAUSE_THRESHOLD_DP = 100f
 internal const val DEFAULT_ASK_USER_QUESTION_MESSAGE = "Agent is asking for input"
 internal const val MAX_ASK_USER_QUESTION_OPTIONS = 10
 internal const val ASK_USER_QUESTION_OPTIONS_TRUNCATED_NOTE = "仅显示前 10 个选项"
+internal val MESSAGE_GROUP_SPACING = 24.dp
+internal val MESSAGE_WITHIN_GROUP_SPACING = 8.dp
+internal val MESSAGE_HORIZONTAL_PADDING = 16.dp
+internal val MESSAGE_VERTICAL_PADDING = 24.dp
 private const val MAX_ASK_USER_QUESTIONS = 5
 private const val TOOL_CALL_COPY_SUMMARY_LIMIT = 200
 
@@ -48,6 +56,33 @@ internal enum class MessageItemKind {
     ToolCall,
     StatusChange,
 }
+
+internal fun messageItemKind(item: MessageItem): MessageItemKind =
+    when (item) {
+        is MessageItem.UserMessage -> MessageItemKind.User
+        is MessageItem.AgentMessage -> MessageItemKind.Agent
+        is MessageItem.InteractiveToolCall, is MessageItem.ToolCall -> MessageItemKind.ToolCall
+        is MessageItem.StatusChange -> MessageItemKind.StatusChange
+    }
+
+internal fun messageSpacing(
+    previousItem: MessageItem?,
+    currentItem: MessageItem,
+): Dp =
+    if (previousItem == null || messageItemKind(previousItem) != messageItemKind(currentItem)) {
+        MESSAGE_GROUP_SPACING
+    } else {
+        MESSAGE_WITHIN_GROUP_SPACING
+    }
+
+internal fun deduplicateStatusChanges(messages: List<MessageItem>): List<MessageItem> =
+    messages.filterIndexed { index, item ->
+        if (item !is MessageItem.StatusChange || !item.isDeduplicableStatusChange()) {
+            return@filterIndexed true
+        }
+        val next = messages.getOrNull(index + 1) as? MessageItem.StatusChange ?: return@filterIndexed true
+        !(next.isDeduplicableStatusChange() && next.status == item.status)
+    }
 
 internal fun onTimelineChanged(
     current: DetailScrollState,
@@ -118,6 +153,15 @@ internal fun detailStatusColor(
         "failed" -> colors.failed
         "cancelled" -> colors.cancelled
         else -> colors.queued
+    }
+
+internal fun statusBubbleDotColor(status: String): Color =
+    when (status.lowercase()) {
+        "running", "completed" -> SuccessColor
+        "idle" -> Color(0xFF2196F3)
+        "failed" -> DestructiveColor
+        "cancelled" -> Color(0xFF6B7280)
+        else -> Color(0xFF9CA3AF)
     }
 
 internal fun inputPlaceholderForStatus(status: String?): String =
@@ -497,3 +541,6 @@ internal fun copyableAgentTranscript(messages: List<MessageItem>): String =
             }
         }
         .joinToString(separator = "\n\n")
+
+private fun MessageItem.StatusChange.isDeduplicableStatusChange(): Boolean =
+    eventType != "approval_required" && eventType != "approval_resolved"

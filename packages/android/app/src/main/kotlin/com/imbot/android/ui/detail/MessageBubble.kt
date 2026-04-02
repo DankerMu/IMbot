@@ -13,8 +13,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -33,28 +33,15 @@ import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.imbot.android.ui.components.StreamingCursor
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalProviderColors
-import com.imbot.android.ui.theme.LocalStatusColors
-
-internal val AgentBubbleShape =
-    RoundedCornerShape(
-        topStart = 4.dp,
-        topEnd = 16.dp,
-        bottomStart = 16.dp,
-        bottomEnd = 16.dp,
-    )
-
-internal val UserBubbleShape =
-    RoundedCornerShape(
-        topStart = 16.dp,
-        topEnd = 4.dp,
-        bottomStart = 16.dp,
-        bottomEnd = 16.dp,
-    )
+import com.imbot.android.ui.theme.LocalUseDarkTheme
+import com.imbot.android.ui.theme.assistantBubbleBackground
+import com.imbot.android.ui.theme.assistantMessageTextColor
+import com.imbot.android.ui.theme.userBubbleBackground
+import com.imbot.android.ui.theme.userBubbleTextColor
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -124,22 +111,24 @@ private fun UserMessageBubble(
     modifier: Modifier = Modifier,
 ) {
     val hapticFeedback = LocalHapticFeedback.current
+    val componentShapes = LocalIMbotComponentShapes.current
+    val useDarkTheme = LocalUseDarkTheme.current
 
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
         Surface(
             color =
                 selectedBubbleColor(
-                    baseColor = MaterialTheme.colorScheme.primaryContainer,
+                    baseColor = userBubbleBackground(useDarkTheme),
                     isSelectionMode = isSelectionMode,
                 ),
-            shape = UserBubbleShape,
-            shadowElevation = 0.5.dp,
+            shape = componentShapes.userMessageBubble,
             modifier =
                 Modifier
+                    .widthIn(max = 300.dp)
                     .messageLongPressable(
                         item = item,
                         onLongPress = onLongPress,
@@ -152,15 +141,16 @@ private fun UserMessageBubble(
             SelectableBubbleContent(isSelectionMode = isSelectionMode) {
                 Text(
                     text = item.text,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = userBubbleTextColor(useDarkTheme),
                 )
             }
         }
         Text(
             text = formatRelativeTimestamp(item.timestamp),
-            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(end = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -179,6 +169,7 @@ private fun AgentMessageBubble(
 ) {
     val badgeColor = providerColor(provider, LocalProviderColors.current)
     val hapticFeedback = LocalHapticFeedback.current
+    val useDarkTheme = LocalUseDarkTheme.current
     var expanded by rememberSaveable(item.id) { mutableStateOf(item.content.length <= 5_000) }
     val content =
         if (expanded || isSelectionMode) {
@@ -190,16 +181,33 @@ private fun AgentMessageBubble(
     Column(
         modifier = modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.Start,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Row(
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .background(
+                        selectedBubbleColor(
+                            baseColor = assistantBubbleBackground(useDarkTheme),
+                            isSelectionMode = isSelectionMode,
+                        ),
+                    )
+                    .messageLongPressable(
+                        item = item,
+                        onLongPress = onLongPress,
+                        hapticFeedback = hapticFeedback,
+                        selectionModeActive = selectionModeActive,
+                        onExitSelectionMode = onExitSelectionMode,
+                        isSelectionMode = isSelectionMode,
+                    ),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.Top,
         ) {
             Box(
                 modifier =
                     Modifier
-                        .size(30.dp)
+                        .size(36.dp)
                         .background(
                             color = badgeColor.copy(alpha = 0.16f),
                             shape = CircleShape,
@@ -214,53 +222,34 @@ private fun AgentMessageBubble(
                 )
             }
 
-            Surface(
-                color =
-                    selectedBubbleColor(
-                        baseColor = MaterialTheme.colorScheme.surfaceContainer,
-                        isSelectionMode = isSelectionMode,
-                    ),
-                shape = AgentBubbleShape,
-                shadowElevation = 0.5.dp,
-                modifier =
-                    Modifier
-                        .weight(1f)
-                        .messageLongPressable(
-                            item = item,
-                            onLongPress = onLongPress,
-                            hapticFeedback = hapticFeedback,
-                            selectionModeActive = selectionModeActive,
-                            onExitSelectionMode = onExitSelectionMode,
-                            isSelectionMode = isSelectionMode,
-                        ),
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    SelectableBubbleContent(isSelectionMode = isSelectionMode) {
-                        MarkdownText(content)
-                    }
-                    if (!expanded && !isSelectionMode) {
-                        TextButton(
-                            onClick = {
-                                expanded = true
-                            },
-                        ) {
-                            Text("展开更多")
-                        }
-                    }
-                    StreamingCursor(isStreaming = item.isStreaming)
+                SelectableBubbleContent(isSelectionMode = isSelectionMode) {
+                    MarkdownText(
+                        markdown = content,
+                        contentColor = assistantMessageTextColor(useDarkTheme),
+                    )
                 }
+                if (!expanded && !isSelectionMode) {
+                    TextButton(
+                        onClick = {
+                            expanded = true
+                        },
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp),
+                    ) {
+                        Text("展开更多")
+                    }
+                }
+                StreamingCursor(isStreaming = item.isStreaming)
             }
         }
 
         Text(
             text = formatRelativeTimestamp(item.timestamp),
-            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(start = 48.dp),
+            style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -280,7 +269,6 @@ private fun StatusChangeBubble(
     isSelectionMode: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val componentShapes = LocalIMbotComponentShapes.current
     val hapticFeedback = LocalHapticFeedback.current
     if (item.eventType == "approval_required" || item.eventType == "approval_resolved") {
         ApprovalCard(
@@ -298,37 +286,43 @@ private fun StatusChangeBubble(
         return
     }
 
-    val statusColor = detailStatusColor(item.status, LocalStatusColors.current)
-    Box(
-        modifier = modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center,
-    ) {
-        Surface(
-            color =
-                selectedBubbleColor(
-                    baseColor =
-                        statusColor.copy(alpha = 0.05f).compositeOver(MaterialTheme.colorScheme.surface),
-                    isSelectionMode = isSelectionMode,
-                ),
-            shape = componentShapes.pill,
-            modifier =
-                Modifier.messageLongPressable(
+    Row(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(
+                    selectedBubbleColor(
+                        baseColor = Color.Transparent,
+                        isSelectionMode = isSelectionMode,
+                    ),
+                )
+                .messageLongPressable(
                     item = item,
                     onLongPress = onLongPress,
                     hapticFeedback = hapticFeedback,
                     selectionModeActive = selectionModeActive,
                     onExitSelectionMode = onExitSelectionMode,
                     isSelectionMode = isSelectionMode,
-                ),
-        ) {
-            Text(
-                text = item.message?.takeIf(String::isNotBlank) ?: statusLabel(item.status),
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
-                textAlign = TextAlign.Center,
-            )
-        }
+                )
+                .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier =
+                Modifier
+                    .size(6.dp)
+                    .background(
+                        color = statusBubbleDotColor(item.status),
+                        shape = CircleShape,
+                    ),
+        )
+        Text(
+            text = item.message?.takeIf(String::isNotBlank) ?: statusLabel(item.status),
+            modifier = Modifier.padding(start = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+        )
     }
 }
 

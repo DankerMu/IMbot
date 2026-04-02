@@ -720,11 +720,13 @@ private fun interactiveToolCall(question: String = "需要继续吗？") =
     )
 
 private fun statusChange(
+    id: String = "status-1",
+    status: String = "running",
     message: String? = "运行中",
     description: String? = null,
 ) = MessageItem.StatusChange(
-    id = "status-1",
-    status = "running",
+    id = id,
+    status = status,
     message = message,
     description = description,
 )

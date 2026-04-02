@@ -1,6 +1,7 @@
 package com.imbot.android.ui.theme
 
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.imbot.android.data.SettingsRepository
@@ -125,6 +126,19 @@ class ThemeResolutionTest {
         assertEquals(DarkStatusColors.completed, statusColorFor("completed", DarkStatusColors))
         assertEquals(DarkStatusColors.failed, statusColorFor("failed", DarkStatusColors))
         assertEquals(DarkStatusColors.cancelled, statusColorFor("cancelled", DarkStatusColors))
+    }
+
+    @Test
+    fun `visual polish color tokens resolve for light and dark themes`() {
+        assertEquals(UserBubbleLight, userBubbleBackground(useDarkTheme = false))
+        assertEquals(UserBubbleLightText, userBubbleTextColor(useDarkTheme = false))
+        assertEquals(UserBubbleDark, userBubbleBackground(useDarkTheme = true))
+        assertEquals(UserBubbleDarkText, userBubbleTextColor(useDarkTheme = true))
+        assertEquals(Color.Transparent, assistantBubbleBackground(useDarkTheme = false))
+        assertEquals(Color.Transparent, assistantBubbleBackground(useDarkTheme = true))
+        assertEquals(CodeBlockHeaderBg, codeBlockHeaderBackground(useDarkTheme = false))
+        assertEquals(CodeBlockHeaderBgDark, codeBlockHeaderBackground(useDarkTheme = true))
+        assertEquals(Color(0xFF0A0A0A), TerminalBg)
     }
 
     @Test

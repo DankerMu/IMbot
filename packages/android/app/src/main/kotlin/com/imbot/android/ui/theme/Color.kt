@@ -17,6 +17,13 @@ val SuccessColor = Color(0xFF34C759)
 val SuccessOnSurface = Color(0xFF1B7A36)
 val WarningColor = Color(0xFFFF9500)
 val DestructiveColor = Color(0xFFFF3B30)
+val UserBubbleLight = Color(0xFF1F2937)
+val UserBubbleLightText = Color(0xFFFFFFFF)
+val CodeBlockHeaderBg = Color(0xFFF8FAFB)
+val CodeBlockBorder = Color(0xFFE5E7EB)
+val TerminalBg = Color(0xFF0A0A0A)
+val TerminalText = Color(0xFFE4E4E7)
+val TerminalGreen = Color(0xFF34C759)
 
 val BackgroundDark = Color(0xFF000000)
 val SurfaceDark = Color(0xFF1C1C1E)
@@ -26,6 +33,10 @@ val SeparatorDark = Color(0x33FFFFFF)
 val LabelPrimaryDark = Color(0xFFFFFFFF)
 val LabelSecondaryDark = Color(0xFF8E8E93)
 val LabelTertiaryDark = Color(0xFF48484A)
+val UserBubbleDark = Color(0xFFE5E7EB)
+val UserBubbleDarkText = Color(0xFF1F2937)
+val CodeBlockHeaderBgDark = Color(0xFF2C2C2E)
+val CodeBlockBorderDark = Color(0x1AFFFFFF)
 
 val ProviderClaude = Color(0xFFD4956A)
 val ProviderBook = Color(0xFF9B7ED8)
@@ -79,6 +90,45 @@ val DarkStatusColors =
 
 val LocalProviderColors = staticCompositionLocalOf { ProviderColors() }
 val LocalStatusColors = staticCompositionLocalOf { LightStatusColors }
+
+fun assistantBubbleBackground(
+    @Suppress("UNUSED_PARAMETER") useDarkTheme: Boolean,
+): Color = Color.Transparent
+
+fun assistantMessageTextColor(useDarkTheme: Boolean): Color =
+    if (useDarkTheme) {
+        Color(0xFFF3F4F6)
+    } else {
+        Color(0xFF1F2937)
+    }
+
+fun userBubbleBackground(useDarkTheme: Boolean): Color =
+    if (useDarkTheme) {
+        UserBubbleDark
+    } else {
+        UserBubbleLight
+    }
+
+fun userBubbleTextColor(useDarkTheme: Boolean): Color =
+    if (useDarkTheme) {
+        UserBubbleDarkText
+    } else {
+        UserBubbleLightText
+    }
+
+fun codeBlockHeaderBackground(useDarkTheme: Boolean): Color =
+    if (useDarkTheme) {
+        CodeBlockHeaderBgDark
+    } else {
+        CodeBlockHeaderBg
+    }
+
+fun codeBlockBorderColor(useDarkTheme: Boolean): Color =
+    if (useDarkTheme) {
+        CodeBlockBorderDark
+    } else {
+        CodeBlockBorder
+    }
 
 fun providerColorFor(
     provider: String,
