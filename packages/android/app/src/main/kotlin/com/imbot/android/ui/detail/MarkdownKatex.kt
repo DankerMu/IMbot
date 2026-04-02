@@ -77,9 +77,10 @@ internal fun MarkdownKatexMathBlock(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
+    val useDarkTheme = LocalUseDarkTheme.current
     val style = MaterialTheme.typography.titleMedium
     val density = LocalDensity.current
-    val inlineCodeBackground = markdownInlineCodeBackground(LocalUseDarkTheme.current)
+    val inlineCodeBackground = markdownInlineCodeBackground(useDarkTheme)
     val html =
         remember(expression, style, colors, density, inlineCodeBackground) {
             buildKatexDocumentHtml(
@@ -96,8 +97,8 @@ internal fun MarkdownKatexMathBlock(
         }
 
     Surface(
-        color = colors.surfaceVariant.copy(alpha = 0.38f),
-        shape = RoundedCornerShape(18.dp),
+        color = if (useDarkTheme) colors.surfaceVariant.copy(alpha = 0.38f) else Color(0xFFF8FAFC),
+        shape = RoundedCornerShape(12.dp),
         modifier = modifier.fillMaxWidth(),
     ) {
         KatexWebView(
