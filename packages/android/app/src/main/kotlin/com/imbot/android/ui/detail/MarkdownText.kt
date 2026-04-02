@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.ClickableText
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -50,10 +51,14 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.imbot.android.ui.components.CodeBlock
+import com.imbot.android.ui.theme.BrandBlue
 import com.imbot.android.ui.theme.CodeFontFamily
+import com.imbot.android.ui.theme.InlineCodeAccent
+import com.imbot.android.ui.theme.InlineCodeBackground
+import com.imbot.android.ui.theme.LabelSecondary
 import com.imbot.android.ui.theme.LocalUseDarkTheme
 
-internal val MarkdownParagraphLineHeight = 24.sp
+internal val MarkdownParagraphLineHeight = 26.sp
 internal val MarkdownParagraphSpacing = 12.dp
 private val MarkdownListBlockSpacing = 8.dp
 private val MarkdownListItemSpacing = 6.dp
@@ -147,7 +152,7 @@ internal fun markdownInlineCodeBackground(useDarkTheme: Boolean): Color =
     if (useDarkTheme) {
         Color(0xFF2D333B)
     } else {
-        Color(0xFFEFF1F3)
+        InlineCodeBackground
     }
 
 @Composable
@@ -217,7 +222,6 @@ fun MarkdownText(
                                 top = 8.dp,
                                 bottom = markdownBlockBottomPadding(index, blocks, 8.dp),
                             ),
-                        contentColor = contentColor,
                     )
 
                 is MarkdownBlock.Code ->
@@ -309,17 +313,24 @@ private fun MarkdownListItem(
 private fun MarkdownQuote(
     block: MarkdownBlock.Quote,
     modifier: Modifier = Modifier,
-    contentColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    val colorScheme = MaterialTheme.colorScheme
-    val borderColor = colorScheme.primary.copy(alpha = blockquoteBorderAlpha(block.level))
+    val useDarkTheme = LocalUseDarkTheme.current
+    val brandColor = BrandBlue
+    val borderAlpha = blockquoteBorderAlpha(block.level)
+    val borderColor = brandColor.copy(alpha = if (useDarkTheme) borderAlpha else 1f)
+    val bgColor =
+        if (useDarkTheme) {
+            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        } else {
+            brandColor.copy(alpha = 0.05f)
+        }
 
     Row(
         modifier =
             modifier
                 .fillMaxWidth()
-                .clip(MaterialTheme.shapes.medium)
-                .background(colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                .clip(RoundedCornerShape(6.dp))
+                .background(bgColor)
                 .height(IntrinsicSize.Min)
                 .padding(vertical = 10.dp),
         verticalAlignment = Alignment.Top,
@@ -329,6 +340,7 @@ private fun MarkdownQuote(
                 Modifier
                     .width(4.dp)
                     .fillMaxHeight()
+                    .clip(RoundedCornerShape(2.dp))
                     .background(borderColor),
         )
         MarkdownRichText(
@@ -340,8 +352,8 @@ private fun MarkdownQuote(
             style =
                 MaterialTheme.typography.bodyMedium.copy(
                     lineHeight = MarkdownParagraphLineHeight,
-                    letterSpacing = 0.2.sp,
-                    color = contentColor,
+                    fontStyle = FontStyle.Italic,
+                    color = LabelSecondary,
                 ),
         )
     }
@@ -500,9 +512,15 @@ private fun MarkdownInlineText(
     modifier: Modifier = Modifier,
 ) {
     val uriHandler = LocalUriHandler.current
-    val inlineCodeBackground = markdownInlineCodeBackground(LocalUseDarkTheme.current)
-    val linkColor = MaterialTheme.colorScheme.primary
-    val inlineCodeTextColor = style.color.takeOrElse { MaterialTheme.colorScheme.onSurface }
+    val useDarkTheme = LocalUseDarkTheme.current
+    val inlineCodeBackground = markdownInlineCodeBackground(useDarkTheme)
+    val linkColor = BrandBlue
+    val inlineCodeTextColor =
+        if (useDarkTheme) {
+            style.color.takeOrElse { MaterialTheme.colorScheme.onSurface }
+        } else {
+            InlineCodeAccent
+        }
     val useRoundedInlineCodeBackgrounds =
         remember(text) { countInlineCodeSpans(text) <= MAX_ROUNDED_INLINE_CODE_SPANS }
     val annotated =
@@ -918,7 +936,7 @@ private fun buildMarkdownAnnotatedString(
                     builder.withStyle(
                         SpanStyle(
                             color = linkColor,
-                            textDecoration = TextDecoration.Underline,
+                            fontWeight = FontWeight.SemiBold,
                         ),
                     ) {
                         append(label)

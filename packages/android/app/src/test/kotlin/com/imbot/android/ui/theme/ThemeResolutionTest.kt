@@ -143,11 +143,12 @@ class ThemeResolutionTest {
 
     @Test
     fun `typography tokens match redesign spec`() {
-        assertEquals(17.sp, IMbotTypography.titleLarge.fontSize)
+        assertEquals(20.sp, IMbotTypography.titleLarge.fontSize)
         assertEquals(androidx.compose.ui.text.font.FontWeight.SemiBold, IMbotTypography.titleLarge.fontWeight)
-        assertEquals(17.sp, IMbotTypography.bodyLarge.fontSize)
-        assertEquals(12.sp, IMbotTypography.labelLarge.fontSize)
-        assertEquals(11.sp, IMbotTypography.labelMedium.fontSize)
+        assertEquals(16.sp, IMbotTypography.bodyLarge.fontSize)
+        assertEquals(26.sp, IMbotTypography.bodyLarge.lineHeight)
+        assertEquals(14.sp, IMbotTypography.labelLarge.fontSize)
+        assertEquals(12.sp, IMbotTypography.labelMedium.fontSize)
         assertTrue(IMbotTypography.headlineLarge.letterSpacing.value < 0f)
     }
 }
