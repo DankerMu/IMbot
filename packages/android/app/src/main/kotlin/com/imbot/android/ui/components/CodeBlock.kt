@@ -62,7 +62,6 @@ import com.imbot.android.ui.theme.TerminalGreen
 import com.imbot.android.ui.theme.TerminalText
 import com.imbot.android.ui.theme.TokenSpan
 import com.imbot.android.ui.theme.codeBlockBorderColor
-import com.imbot.android.ui.theme.codeBlockHeaderBackground
 import com.imbot.android.ui.theme.normalizeLanguage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -86,17 +85,16 @@ fun CodeBlock(
     modifier: Modifier = Modifier,
 ) {
     val clipboardManager = LocalClipboardManager.current
-    val codeTheme = LocalCodeTheme.current
     val componentShapes = LocalIMbotComponentShapes.current
     val useDarkTheme = LocalUseDarkTheme.current
     val normalizedLanguage = remember(language) { normalizeLanguage(language) }
     val languageLabel = remember(language) { extractCodeLanguageLabel(language) }
     val isTerminal = remember(language) { isTerminalCodeLanguage(language) }
+    val codeTheme = if (isTerminal) LocalCodeTheme.current else CodeTheme.Dark
     val palette =
         codeBlockPalette(
             useDarkTheme = useDarkTheme,
             isTerminal = isTerminal,
-            codeTheme = codeTheme,
         )
     var expanded by rememberSaveable(code) { mutableStateOf(false) }
     val displayState = remember(code, expanded) { resolveCodeBlockDisplayState(code, expanded) }
@@ -401,7 +399,6 @@ private fun buildCodeAnnotatedString(
 private fun codeBlockPalette(
     useDarkTheme: Boolean,
     isTerminal: Boolean,
-    codeTheme: CodeTheme,
 ): CodeBlockPalette =
     if (isTerminal) {
         CodeBlockPalette(
@@ -414,11 +411,11 @@ private fun codeBlockPalette(
         )
     } else {
         CodeBlockPalette(
-            headerBackground = codeBlockHeaderBackground(useDarkTheme),
-            bodyBackground = codeTheme.background,
-            border = codeBlockBorderColor(useDarkTheme),
-            labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            actionColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            codeTextColor = MaterialTheme.colorScheme.onSurface,
+            headerBackground = Color(0xFF2D2D2D),
+            bodyBackground = Color(0xFF1E1E1E),
+            border = Color(0xFF3E3E42),
+            labelColor = Color(0xFF858585),
+            actionColor = Color(0xFFCCCCCC),
+            codeTextColor = Color(0xFFD4D4D4),
         )
     }
