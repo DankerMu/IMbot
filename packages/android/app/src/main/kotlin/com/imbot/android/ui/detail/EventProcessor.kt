@@ -52,6 +52,7 @@ sealed class MessageItem {
         val args: String?,
         val result: String?,
         val isRunning: Boolean,
+        val isError: Boolean = false,
         val seq: Int? = null,
     ) : MessageItem()
 
@@ -238,6 +239,7 @@ class EventProcessor(
                     args = input,
                     result = null,
                     isRunning = true,
+                    isError = false,
                     seq = event.seq,
                 )
         }
@@ -271,6 +273,7 @@ class EventProcessor(
                         item.copy(
                             result = result,
                             isRunning = false,
+                            isError = isToolCallError(result),
                             seq = event.seq,
                         )
 
@@ -298,6 +301,7 @@ class EventProcessor(
                         args = input,
                         result = result,
                         isRunning = false,
+                        isError = isToolCallError(result),
                         seq = event.seq,
                     )
             }
@@ -470,6 +474,10 @@ class EventProcessor(
         } else {
             text
         }
+    }
+
+    private fun isToolCallError(result: String?): Boolean {
+        return result == null || result.startsWith(prefix = "Error", ignoreCase = true)
     }
 }
 

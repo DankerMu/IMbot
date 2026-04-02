@@ -292,6 +292,48 @@ class EventProcessorTest {
     }
 
     @Test
+    fun `tool_call_completed marks null and error results as failed`() {
+        processor.process(
+            event(
+                seq = 1,
+                eventType = "tool_call_started",
+                payload = payload("call_id" to "call-1", "tool_name" to "bash", "title" to "执行命令"),
+            ),
+        )
+
+        val nullResult =
+            processor.process(
+                event(
+                    seq = 2,
+                    eventType = "tool_call_completed",
+                    payload = payload("call_id" to "call-1"),
+                ),
+            )
+
+        assertTrue((nullResult.single() as MessageItem.ToolCall).isError)
+
+        val secondProcessor = EventProcessor { "id-${++nextId}" }
+        secondProcessor.process(
+            event(
+                seq = 1,
+                eventType = "tool_call_started",
+                payload = payload("call_id" to "call-2", "tool_name" to "bash", "title" to "执行命令"),
+            ),
+        )
+
+        val errorResult =
+            secondProcessor.process(
+                event(
+                    seq = 2,
+                    eventType = "tool_call_completed",
+                    payload = payload("call_id" to "call-2", "result" to "Error: command failed"),
+                ),
+            )
+
+        assertTrue((errorResult.single() as MessageItem.ToolCall).isError)
+    }
+
+    @Test
     fun `interactive tool completion marks card answered`() {
         processor.process(
             event(
