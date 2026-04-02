@@ -15,6 +15,7 @@ const { CompanionManager } = require("../../packages/relay/dist/companion/manage
 const { SessionOrchestrator } = require("../../packages/relay/dist/session/orchestrator.js");
 const { AuditLogger } = require("../../packages/relay/dist/audit/logger.js");
 const { mapRuntimeEvent } = require("../../packages/companion/dist/runtime/event-mapper.js");
+const { RuntimeEventMapper } = require("../../packages/companion/dist/runtime/event-mapper.js");
 
 class MockAndroidSocket {
   constructor() {
@@ -365,4 +366,68 @@ test("relay stores and broadcasts approval events in order without changing sess
   assert.deepEqual(session, {
     status: "running"
   });
+});
+
+test("RuntimeEventMapper generates call_id for tool_use events", () => {
+  const mapper = new RuntimeEventMapper();
+  const mapped = mapper.map({
+    type: "tool_use",
+    tool: "AskUserQuestion",
+    input: { questions: [{ question: "Pick one", options: [{ label: "A" }, { label: "B" }] }] }
+  });
+
+  assert.equal(mapped.kind, "event");
+  assert.equal(mapped.eventType, "tool_call_started");
+  assert.equal(mapped.payload.tool, "AskUserQuestion");
+  assert.ok(mapped.payload.call_id, "call_id must be present");
+  assert.ok(typeof mapped.payload.call_id === "string" && mapped.payload.call_id.length > 0);
+});
+
+test("RuntimeEventMapper uses id from raw event when present", () => {
+  const mapper = new RuntimeEventMapper();
+  const mapped = mapper.map({
+    type: "tool_use",
+    id: "tool-use-123",
+    tool: "Read",
+    input: { file_path: "/tmp/test" }
+  });
+
+  assert.equal(mapped.payload.call_id, "tool-use-123");
+});
+
+test("RuntimeEventMapper correlates tool_result call_id with preceding tool_use", () => {
+  const mapper = new RuntimeEventMapper();
+
+  const started = mapper.map({
+    type: "tool_use",
+    tool: "AskUserQuestion",
+    input: { question: "which?" }
+  });
+
+  const completed = mapper.map({
+    type: "tool_result",
+    tool: "AskUserQuestion",
+    result: "option A"
+  });
+
+  assert.equal(completed.payload.call_id, started.payload.call_id);
+});
+
+test("RuntimeEventMapper generates independent call_id when tool_result has its own id", () => {
+  const mapper = new RuntimeEventMapper();
+
+  mapper.map({
+    type: "tool_use",
+    tool: "bash",
+    input: { command: "ls" }
+  });
+
+  const completed = mapper.map({
+    type: "tool_result",
+    id: "explicit-result-id",
+    tool: "bash",
+    result: "output"
+  });
+
+  assert.equal(completed.payload.call_id, "explicit-result-id");
 });

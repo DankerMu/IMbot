@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { EventType } from "@imbot/wire";
 
 export type RuntimeMappedMessage =
@@ -11,124 +12,146 @@ export type RuntimeMappedMessage =
       readonly payload: unknown;
     };
 
+/**
+ * Stateful mapper that tracks pending tool call IDs so that
+ * `tool_result` events can be correlated with their `tool_use` origin.
+ */
+export class RuntimeEventMapper {
+  private pendingCallIds: string[] = [];
+
+  map(raw: unknown): RuntimeMappedMessage | null {
+    if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
+      return null;
+    }
+
+    const record = raw as Record<string, unknown>;
+    const type = typeof record.type === "string" ? record.type : null;
+
+    if (!type) {
+      return null;
+    }
+
+    if (type === "system" && typeof record.session_id === "string") {
+      return {
+        kind: "provider_session_id",
+        providerSessionId: record.session_id
+      };
+    }
+
+    if (type === "assistant") {
+      const text = extractEventText(record);
+      if (!text) {
+        return null;
+      }
+
+      const subtype = getString(record.subtype);
+      return {
+        kind: "event",
+        eventType: subtype === "message" || subtype === "complete" ? "assistant_message" : "assistant_delta",
+        payload: {
+          text
+        }
+      };
+    }
+
+    if (type === "assistant_message") {
+      const text = extractEventText(record);
+      if (!text) {
+        return null;
+      }
+
+      return {
+        kind: "event",
+        eventType: "assistant_message",
+        payload: {
+          text
+        }
+      };
+    }
+
+    if (type === "tool_use") {
+      const callId = getString(record.id) ?? getString(record.tool_use_id) ?? randomUUID();
+      this.pendingCallIds.push(callId);
+      return {
+        kind: "event",
+        eventType: "tool_call_started",
+        payload: {
+          call_id: callId,
+          tool: getString(record.tool) ?? getString(record.name),
+          input: record.input ?? null
+        }
+      };
+    }
+
+    if (type === "tool_result") {
+      const callId =
+        getString(record.id) ??
+        getString(record.tool_use_id) ??
+        this.pendingCallIds.pop() ??
+        randomUUID();
+      return {
+        kind: "event",
+        eventType: "tool_call_completed",
+        payload: {
+          call_id: callId,
+          tool: getString(record.tool) ?? getString(record.name),
+          result: record.result ?? record.output ?? null
+        }
+      };
+    }
+
+    if (type === "result") {
+      return {
+        kind: "event",
+        eventType: "session_result",
+        payload: {
+          result: record.result ?? record.output ?? null
+        }
+      };
+    }
+
+    if (type === "error") {
+      return {
+        kind: "event",
+        eventType: "session_error",
+        payload: {
+          error_code: getString(record.error_code) ?? "provider_unreachable",
+          message: getString(record.message) ?? "Runtime error"
+        }
+      };
+    }
+
+    if (type === "user" || type === "user_message") {
+      const text = extractEventText(record);
+      if (!text) {
+        return null;
+      }
+
+      return {
+        kind: "event",
+        eventType: "user_message",
+        payload: {
+          text
+        }
+      };
+    }
+
+    if (type === "approval_required" || type === "approval_resolved") {
+      const { type: _ignoredType, ...payload } = record;
+      return {
+        kind: "event",
+        eventType: type,
+        payload
+      };
+    }
+
+    return null;
+  }
+}
+
+/** @deprecated Use `new RuntimeEventMapper().map(raw)` for stateful mapping. */
 export function mapRuntimeEvent(raw: unknown): RuntimeMappedMessage | null {
-  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
-    return null;
-  }
-
-  const record = raw as Record<string, unknown>;
-  const type = typeof record.type === "string" ? record.type : null;
-
-  if (!type) {
-    return null;
-  }
-
-  if (type === "system" && typeof record.session_id === "string") {
-    return {
-      kind: "provider_session_id",
-      providerSessionId: record.session_id
-    };
-  }
-
-  if (type === "assistant") {
-    const text = extractEventText(record);
-    if (!text) {
-      return null;
-    }
-
-    const subtype = getString(record.subtype);
-    return {
-      kind: "event",
-      eventType: subtype === "message" || subtype === "complete" ? "assistant_message" : "assistant_delta",
-      payload: {
-        text
-      }
-    };
-  }
-
-  if (type === "assistant_message") {
-    const text = extractEventText(record);
-    if (!text) {
-      return null;
-    }
-
-    return {
-      kind: "event",
-      eventType: "assistant_message",
-      payload: {
-        text
-      }
-    };
-  }
-
-  if (type === "tool_use") {
-    return {
-      kind: "event",
-      eventType: "tool_call_started",
-      payload: {
-        tool: getString(record.tool) ?? getString(record.name),
-        input: record.input ?? null
-      }
-    };
-  }
-
-  if (type === "tool_result") {
-    return {
-      kind: "event",
-      eventType: "tool_call_completed",
-      payload: {
-        tool: getString(record.tool) ?? getString(record.name),
-        result: record.result ?? record.output ?? null
-      }
-    };
-  }
-
-  if (type === "result") {
-    return {
-      kind: "event",
-      eventType: "session_result",
-      payload: {
-        result: record.result ?? record.output ?? null
-      }
-    };
-  }
-
-  if (type === "error") {
-    return {
-      kind: "event",
-      eventType: "session_error",
-      payload: {
-        error_code: getString(record.error_code) ?? "provider_unreachable",
-        message: getString(record.message) ?? "Runtime error"
-      }
-    };
-  }
-
-  if (type === "user" || type === "user_message") {
-    const text = extractEventText(record);
-    if (!text) {
-      return null;
-    }
-
-    return {
-      kind: "event",
-      eventType: "user_message",
-      payload: {
-        text
-      }
-    };
-  }
-
-  if (type === "approval_required" || type === "approval_resolved") {
-    const { type: _ignoredType, ...payload } = record;
-    return {
-      kind: "event",
-      eventType: type,
-      payload
-    };
-  }
-
-  return null;
+  return new RuntimeEventMapper().map(raw);
 }
 
 function getString(value: unknown): string | null {
