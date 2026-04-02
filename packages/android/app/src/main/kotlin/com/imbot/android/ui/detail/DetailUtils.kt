@@ -6,12 +6,14 @@ import androidx.compose.ui.graphics.Color
 import com.imbot.android.network.RelaySession
 import com.imbot.android.ui.theme.ProviderColors
 import com.imbot.android.ui.theme.StatusColors
+import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 internal const val SCROLL_PAUSE_THRESHOLD_DP = 100f
+internal const val DEFAULT_ASK_USER_QUESTION_MESSAGE = "Agent is asking for input"
 private const val TOOL_CALL_COPY_SUMMARY_LIMIT = 200
 
 private val DefaultDetailStatusColors =
@@ -124,6 +126,37 @@ internal fun inputPlaceholderForStatus(status: String?): String =
         else -> "当前无法发送消息"
     }
 
+internal fun isInteractiveToolCall(toolName: String?): Boolean =
+    toolName?.equals(
+        "AskUserQuestion",
+        ignoreCase = true,
+    ) == true
+
+internal fun parseAskUserQuestion(inputJson: String?): Pair<String, List<String>?> {
+    if (inputJson.isNullOrBlank()) {
+        return DEFAULT_ASK_USER_QUESTION_MESSAGE to null
+    }
+
+    return try {
+        val json = JSONObject(inputJson)
+        val question = json.optString("question", "").takeIf { it.isNotBlank() }
+        val options =
+            json.optJSONArray("options")?.let { array ->
+                (0 until array.length()).mapNotNull { index ->
+                    array.optString(index).takeIf { it.isNotBlank() }
+                }
+            }?.takeIf { it.isNotEmpty() }
+
+        when {
+            question != null -> question to options
+            json.length() == 0 -> DEFAULT_ASK_USER_QUESTION_MESSAGE to null
+            else -> inputJson to null
+        }
+    } catch (_: Exception) {
+        inputJson to null
+    }
+}
+
 internal fun messageItemKindForEventType(eventType: String): MessageItemKind? =
     when (eventType) {
         "user_message" -> MessageItemKind.User
@@ -164,6 +197,17 @@ internal fun approvalStatusMessage(
             append(detail)
         }
     }
+
+internal fun approvalDecisionLabel(item: MessageItem.StatusChange): String =
+    item.approvalDecision?.takeIf(String::isNotBlank)?.let { decision ->
+        when (decision.lowercase()) {
+            "approved", "approve", "true" -> "已批准"
+            "denied", "deny", "false" -> "已拒绝"
+            else -> decision
+        }
+    } ?: if (item.eventType == "approval_resolved") "已处理" else "等待审批"
+
+internal fun approvalInputText(approved: Boolean): String = if (approved) "approve" else "deny"
 
 internal fun formatRelativeTimestamp(
     isoString: String,
@@ -248,6 +292,7 @@ internal fun sessionSubtitle(session: RelaySession): String = summarizeSessionPa
 internal fun copyableText(item: MessageItem): String? =
     when (item) {
         is MessageItem.AgentMessage -> item.content.takeIf(String::isNotBlank)
+        is MessageItem.InteractiveToolCall -> null
         is MessageItem.UserMessage -> item.text.takeIf(String::isNotBlank)
         is MessageItem.ToolCall ->
             item.toolName.takeIf(String::isNotBlank)?.let { toolName ->

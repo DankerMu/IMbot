@@ -24,6 +24,17 @@ sealed class MessageItem {
         val seq: Int? = null,
     ) : MessageItem()
 
+    data class InteractiveToolCall(
+        val id: String,
+        val toolName: String,
+        val question: String,
+        val options: List<String>?,
+        val isAnswered: Boolean = false,
+        val answer: String? = null,
+        val timestamp: String,
+        val seq: Int? = null,
+    ) : MessageItem()
+
     data class ToolCall(
         val callId: String,
         val toolName: String,
@@ -38,6 +49,11 @@ sealed class MessageItem {
         val id: String,
         val status: String,
         val message: String?,
+        val eventType: String? = null,
+        val callId: String? = null,
+        val toolName: String? = null,
+        val description: String? = null,
+        val approvalDecision: String? = null,
         val seq: Int? = null,
     ) : MessageItem()
 }
@@ -99,6 +115,23 @@ class EventProcessor(
 
     internal fun lastProcessedSeq(): Int = maxProcessedSeq
 
+    internal fun recordInteractiveToolAnswer(
+        callId: String,
+        answer: String,
+    ) {
+        val toolCallIndex = findToolCallIndex(callId)
+        val item = messages.getOrNull(toolCallIndex) as? MessageItem.InteractiveToolCall ?: return
+        messages[toolCallIndex] = item.copy(answer = answer)
+    }
+
+    internal fun clearInteractiveToolAnswer(callId: String) {
+        val toolCallIndex = findToolCallIndex(callId)
+        val item = messages.getOrNull(toolCallIndex) as? MessageItem.InteractiveToolCall ?: return
+        if (!item.isAnswered) {
+            messages[toolCallIndex] = item.copy(answer = null)
+        }
+    }
+
     private fun appendUserMessage(event: ServerMessage.Event) {
         val text = event.payload.stringValue("text").orEmpty().trim()
         if (text.isBlank()) {
@@ -116,7 +149,7 @@ class EventProcessor(
     }
 
     private fun appendAssistantDelta(event: ServerMessage.Event) {
-        val deltaText = event.payload.stringValue("text").orEmpty()
+        val deltaText = (event.payload.stringValue("text") ?: event.payload.stringValue("content")).orEmpty()
         if (deltaText.isBlank()) {
             return
         }
@@ -144,7 +177,7 @@ class EventProcessor(
     }
 
     private fun finalizeAssistantMessage(event: ServerMessage.Event) {
-        val finalText = event.payload.stringValue("text").orEmpty()
+        val finalText = (event.payload.stringValue("text") ?: event.payload.stringValue("content")).orEmpty()
         val lastIndex = messages.lastIndex
         val lastMessage = messages.lastOrNull()
 
@@ -179,18 +212,33 @@ class EventProcessor(
         if (callId.isBlank()) {
             return
         }
+        val toolName = payload.toolName().orEmpty()
+        val input = truncatePayload(payload.compactValue("args") ?: payload.compactValue("input"))
 
         closeStreamingAgentMessage()
-        messages +=
-            MessageItem.ToolCall(
-                callId = callId,
-                toolName = payload.stringValue("tool_name").orEmpty(),
-                title = payload.stringValue("title").orEmpty(),
-                args = truncatePayload(payload.compactValue("args")),
-                result = null,
-                isRunning = true,
-                seq = event.seq,
-            )
+        if (isInteractiveToolCall(toolName)) {
+            val (question, options) = parseAskUserQuestion(input)
+            messages +=
+                MessageItem.InteractiveToolCall(
+                    id = callId,
+                    toolName = toolName,
+                    question = question,
+                    options = options,
+                    timestamp = event.timestamp,
+                    seq = event.seq,
+                )
+        } else {
+            messages +=
+                MessageItem.ToolCall(
+                    callId = callId,
+                    toolName = toolName,
+                    title = payload.stringValue("title").orEmpty(),
+                    args = input,
+                    result = null,
+                    isRunning = true,
+                    seq = event.seq,
+                )
+        }
     }
 
     private fun appendToolCallCompleted(event: ServerMessage.Event) {
@@ -199,31 +247,59 @@ class EventProcessor(
         if (payload == null || callId.isBlank()) {
             return
         }
+        val toolName = payload.toolName().orEmpty()
+        val input = truncatePayload(payload.compactValue("args") ?: payload.compactValue("input"))
+        val result = truncatePayload(payload.compactValue("result") ?: payload.compactValue("output"))
 
-        val toolCallIndex =
-            messages.indexOfLast { item ->
-                item is MessageItem.ToolCall && item.callId == callId
-            }
+        val toolCallIndex = findToolCallIndex(callId)
 
         if (toolCallIndex >= 0) {
-            val item = messages[toolCallIndex] as MessageItem.ToolCall
-            messages[toolCallIndex] =
-                item.copy(
-                    result = truncatePayload(payload.compactValue("result")),
-                    isRunning = false,
-                    seq = event.seq,
-                )
+            when (val item = messages[toolCallIndex]) {
+                is MessageItem.InteractiveToolCall ->
+                    messages[toolCallIndex] =
+                        item.copy(
+                            isAnswered = true,
+                            answer = item.answer ?: result,
+                            timestamp = event.timestamp.ifBlank { item.timestamp },
+                            seq = event.seq,
+                        )
+
+                is MessageItem.ToolCall ->
+                    messages[toolCallIndex] =
+                        item.copy(
+                            result = result,
+                            isRunning = false,
+                            seq = event.seq,
+                        )
+
+                else -> Unit
+            }
         } else {
-            messages +=
-                MessageItem.ToolCall(
-                    callId = callId,
-                    toolName = payload.stringValue("tool_name").orEmpty(),
-                    title = payload.stringValue("title").orEmpty(),
-                    args = truncatePayload(payload.compactValue("args")),
-                    result = truncatePayload(payload.compactValue("result")),
-                    isRunning = false,
-                    seq = event.seq,
-                )
+            if (isInteractiveToolCall(toolName)) {
+                val (question, options) = parseAskUserQuestion(input)
+                messages +=
+                    MessageItem.InteractiveToolCall(
+                        id = callId,
+                        toolName = toolName,
+                        question = question,
+                        options = options,
+                        isAnswered = true,
+                        answer = result,
+                        timestamp = event.timestamp,
+                        seq = event.seq,
+                    )
+            } else {
+                messages +=
+                    MessageItem.ToolCall(
+                        callId = callId,
+                        toolName = toolName,
+                        title = payload.stringValue("title").orEmpty(),
+                        args = input,
+                        result = result,
+                        isRunning = false,
+                        seq = event.seq,
+                    )
+            }
         }
     }
 
@@ -239,6 +315,11 @@ class EventProcessor(
     private fun appendStatusChange(
         status: String,
         message: String?,
+        eventType: String? = null,
+        callId: String? = null,
+        toolName: String? = null,
+        description: String? = null,
+        approvalDecision: String? = null,
         seq: Int? = null,
     ) {
         if (status.isBlank()) {
@@ -251,6 +332,11 @@ class EventProcessor(
                 status = status,
                 id = idGenerator(),
                 message = message,
+                eventType = eventType,
+                callId = callId,
+                toolName = toolName,
+                description = description,
+                approvalDecision = approvalDecision,
                 seq = seq,
             )
     }
@@ -264,17 +350,33 @@ class EventProcessor(
     }
 
     private fun appendApprovalEvent(event: ServerMessage.Event) {
+        val toolName = event.payload.toolName()
+        val description = event.payload.stringValue("description")
         appendStatusChange(
             status = "running",
             message =
                 approvalStatusMessage(
                     eventType = event.eventType,
-                    description = event.payload.stringValue("description"),
-                    toolName = event.payload.stringValue("tool_name"),
+                    description = description,
+                    toolName = toolName,
                 ),
+            eventType = event.eventType,
+            callId = event.payload.stringValue("call_id"),
+            toolName = toolName,
+            description = description,
+            approvalDecision = event.payload.approvalDecision(),
             seq = event.seq,
         )
     }
+
+    private fun findToolCallIndex(callId: String): Int =
+        messages.indexOfLast { item ->
+            when (item) {
+                is MessageItem.InteractiveToolCall -> item.id == callId
+                is MessageItem.ToolCall -> item.callId == callId
+                else -> false
+            }
+        }
 
     private fun closeStreamingAgentMessage() {
         val lastIndex = messages.lastIndex
@@ -305,6 +407,22 @@ class EventProcessor(
         }
     }
 }
+
+private fun JSONObject?.toolName(): String? =
+    stringValue("tool_name") ?: stringValue("toolName") ?: stringValue("tool") ?: stringValue("name")
+
+private fun JSONObject?.approvalDecision(): String? =
+    when (val payload = this) {
+        null -> null
+        else -> {
+            val approvedValue = payload.opt("approved")
+            if (approvedValue is Boolean) {
+                if (approvedValue) "approved" else "denied"
+            } else {
+                payload.stringValue("decision") ?: payload.stringValue("resolution") ?: payload.stringValue("result")
+            }
+        }
+    }
 
 internal fun JSONObject?.stringValue(key: String): String? {
     val payload = this ?: return null

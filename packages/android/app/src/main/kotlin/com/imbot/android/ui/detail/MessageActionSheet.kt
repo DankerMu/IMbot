@@ -37,6 +37,7 @@ internal sealed interface MessageAction {
 internal fun hasActions(item: MessageItem): Boolean =
     when (item) {
         is MessageItem.AgentMessage -> !item.isStreaming
+        is MessageItem.InteractiveToolCall -> false
         is MessageItem.UserMessage -> true
         is MessageItem.ToolCall -> item.toolName.isNotBlank()
         is MessageItem.StatusChange -> false
@@ -55,6 +56,8 @@ internal fun availableActions(item: MessageItem): List<MessageAction> {
                 }
                 add(MessageAction.SelectText)
             }
+
+        is MessageItem.InteractiveToolCall -> emptyList()
 
         is MessageItem.UserMessage ->
             buildList {

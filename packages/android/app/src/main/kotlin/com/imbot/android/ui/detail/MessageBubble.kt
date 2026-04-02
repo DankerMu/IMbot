@@ -44,6 +44,10 @@ import com.imbot.android.ui.theme.LocalStatusColors
 fun MessageBubble(
     item: MessageItem,
     provider: String,
+    isSessionActive: Boolean = false,
+    isSending: Boolean = false,
+    onApprove: () -> Unit = {},
+    onDeny: () -> Unit = {},
     onLongPress: ((MessageItem) -> Unit)? = null,
     selectionModeActive: Boolean = false,
     onExitSelectionMode: (() -> Unit)? = null,
@@ -72,7 +76,16 @@ fun MessageBubble(
                 modifier = modifier,
             )
 
-        is MessageItem.StatusChange -> StatusChangeBubble(item = item, modifier = modifier)
+        is MessageItem.InteractiveToolCall -> Unit
+        is MessageItem.StatusChange ->
+            StatusChangeBubble(
+                item = item,
+                isSessionActive = isSessionActive,
+                isSending = isSending,
+                onApprove = onApprove,
+                onDeny = onDeny,
+                modifier = modifier,
+            )
         is MessageItem.ToolCall -> Unit
     }
 }
@@ -231,8 +244,24 @@ private fun AgentMessageBubble(
 @Composable
 private fun StatusChangeBubble(
     item: MessageItem.StatusChange,
+    isSessionActive: Boolean,
+    isSending: Boolean,
+    onApprove: () -> Unit,
+    onDeny: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    if (item.eventType == "approval_required" || item.eventType == "approval_resolved") {
+        ApprovalCard(
+            item = item,
+            isSessionActive = isSessionActive,
+            isSending = isSending,
+            onApprove = onApprove,
+            onDeny = onDeny,
+            modifier = modifier,
+        )
+        return
+    }
+
     val statusColor = detailStatusColor(item.status, LocalStatusColors.current)
     Box(
         modifier = modifier.fillMaxWidth(),

@@ -107,6 +107,91 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `submitToolAnswer calls relay API while session is running`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay = FakeRelayHttpClient()
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "tool_call_started",
+                    payload =
+                        payload(
+                            "call_id" to "tool-1",
+                            "tool_name" to "AskUserQuestion",
+                            "args" to """{"question":"选哪个?","options":["A","B"]}""",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.submitToolAnswer("A")
+            advanceUntilIdle()
+
+            assertEquals(1, relay.sendMessageCalls)
+            assertEquals(listOf("A"), relay.sentMessages)
+        }
+
+    @Test
+    fun `onSlashTrigger sets showSlashSheet`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+
+            viewModel.onSlashTrigger()
+
+            assertTrue(viewModel.uiState.value.showSlashSheet)
+        }
+
+    @Test
+    fun `onSkillSelected sets commandChip and clears showSlashSheet`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+            val skill = DEFAULT_SKILLS.first { it.command == "commit" }
+
+            viewModel.onSlashTrigger()
+            viewModel.onSkillSelected(skill)
+
+            assertEquals(skill, viewModel.uiState.value.commandChip)
+            assertFalse(viewModel.uiState.value.showSlashSheet)
+        }
+
+    @Test
+    fun `onDismissCommand clears commandChip`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val viewModel = createViewModel()
+            advanceUntilIdle()
+
+            viewModel.onSkillSelected(DEFAULT_SKILLS.first { it.command == "commit" })
+            viewModel.onDismissCommand()
+
+            assertNull(viewModel.uiState.value.commandChip)
+        }
+
+    @Test
+    fun `command chip send assembles slash command`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "idle"))
+                }
+            val viewModel = createViewModel(relay = relay)
+            advanceUntilIdle()
+
+            viewModel.onSkillSelected(DEFAULT_SKILLS.first { it.command == "commit" })
+            viewModel.sendMessage("fix typo")
+            advanceUntilIdle()
+
+            assertEquals(1, relay.sendMessageCalls)
+            assertEquals(listOf("/commit fix typo"), relay.sentMessages)
+            assertNull(viewModel.uiState.value.commandChip)
+        }
+
+    @Test
     fun `cancelSession uses API session status on success and surfaces error on failure`() =
         runTest(mainDispatcherRule.dispatcher) {
             val successRelay =
@@ -770,6 +855,7 @@ private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
     var resumeSessionCalls = 0
     var cancelSessionCalls = 0
     var deleteSessionCalls = 0
+    val sentMessages = mutableListOf<String>()
 
     var getSessionHandler: suspend (String, String, String) -> Result<RelaySession> = { _, _, _ -> getSessionResult }
     var getSessionEventsHandler: suspend (String, String, String, Int, Int) -> Result<RelayEventPage> =
@@ -816,6 +902,7 @@ private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
         text: String,
     ): Result<Unit> {
         sendMessageCalls++
+        sentMessages += text
         return sendMessageHandler(relayUrl, token, sessionId, text)
     }
 
