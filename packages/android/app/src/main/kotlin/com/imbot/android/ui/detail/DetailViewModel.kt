@@ -28,14 +28,16 @@ import javax.inject.Inject
 
 private const val SESSION_ID_ARG = "sessionId"
 
-data class ConnectionBannerUiState(
+internal data class ConnectionBannerUiState(
     val message: String,
     val isSuccess: Boolean,
 )
 
-data class DetailUiState(
+internal data class DetailUiState(
     val session: RelaySession? = null,
     val messages: List<MessageItem> = emptyList(),
+    val commandChip: SkillItem? = null,
+    val showSlashSheet: Boolean = false,
     val messageMenuTarget: MessageItem? = null,
     val selectionModeMessageId: String? = null,
     val isLoading: Boolean = true,
@@ -52,7 +54,7 @@ data class DetailUiState(
     val connectionBanner: ConnectionBannerUiState? = null,
 )
 
-sealed interface DetailEvent {
+internal sealed interface DetailEvent {
     data class ScrollToBottom(
         val targetIndex: Int,
     ) : DetailEvent
@@ -82,10 +84,10 @@ class DetailViewModel
                     isConnected = relayWsClient.connectionState.value is ConnectionState.Connected,
                 ),
             )
-        val uiState: StateFlow<DetailUiState> = _uiState.asStateFlow()
+        internal val uiState: StateFlow<DetailUiState> = _uiState.asStateFlow()
 
         private val _events = MutableSharedFlow<DetailEvent>()
-        val events: SharedFlow<DetailEvent> = _events.asSharedFlow()
+        internal val events: SharedFlow<DetailEvent> = _events.asSharedFlow()
 
         private var loadJob: Job? = null
         private var catchUpJob: Job? = null
@@ -128,6 +130,8 @@ class DetailViewModel
                             isCatchingUp = false,
                             error = null,
                             messages = emptyList(),
+                            commandChip = null,
+                            showSlashSheet = false,
                             messageMenuTarget = null,
                             selectionModeMessageId = null,
                             scrollState = DetailScrollState(),
@@ -170,9 +174,118 @@ class DetailViewModel
         }
 
         fun sendMessage(text: String) {
-            val normalizedText = text.trim()
             val state = _uiState.value
-            if (normalizedText.isBlank() || state.isSending || !state.canSend) {
+            val assembledText =
+                state.commandChip?.let { commandChip ->
+                    assembleSlashCommand(commandChip.command, text)
+                } ?: text.trim()
+            if (assembledText.isBlank()) {
+                return
+            }
+
+            sendSessionInput(
+                text = assembledText,
+                allowRunningInput = false,
+                preserveWhitespace = state.commandChip != null,
+            )
+        }
+
+        fun submitToolAnswer(answer: String) {
+            val targetCallId = latestPendingInteractiveToolCallId() ?: return
+            submitToolAnswer(targetCallId, answer)
+        }
+
+        fun submitToolAnswer(
+            callId: String,
+            answer: String,
+        ) {
+            if (callId != latestPendingInteractiveToolCallId()) {
+                return
+            }
+            sendSessionInput(
+                text = answer.trim(),
+                allowRunningInput = true,
+                interactiveToolCallId = callId,
+                interactiveAnswer = answer,
+            )
+        }
+
+        fun approveToolCall() {
+            approveToolCall(latestPendingApprovalCallId() ?: return)
+        }
+
+        fun approveToolCall(callId: String) {
+            if (callId.isBlank() || callId != latestPendingApprovalCallId()) {
+                return
+            }
+            sendSessionInput(
+                text = approvalInputText(approved = true),
+                allowRunningInput = true,
+            )
+        }
+
+        fun denyToolCall() {
+            denyToolCall(latestPendingApprovalCallId() ?: return)
+        }
+
+        fun denyToolCall(callId: String) {
+            if (callId.isBlank() || callId != latestPendingApprovalCallId()) {
+                return
+            }
+            sendSessionInput(
+                text = approvalInputText(approved = false),
+                allowRunningInput = true,
+            )
+        }
+
+        fun onSlashTrigger() {
+            _uiState.update { current ->
+                if (current.commandChip != null || current.showSlashSheet) {
+                    current
+                } else {
+                    current.copy(showSlashSheet = true)
+                }
+            }
+        }
+
+        internal fun onSkillSelected(skill: SkillItem) {
+            _uiState.update { current ->
+                current.copy(
+                    commandChip = skill,
+                    showSlashSheet = false,
+                )
+            }
+        }
+
+        fun onDismissCommand() {
+            _uiState.update { current ->
+                current.copy(commandChip = null)
+            }
+        }
+
+        fun onDismissSlashSheet() {
+            _uiState.update { current ->
+                current.copy(showSlashSheet = false)
+            }
+        }
+
+        private fun sendSessionInput(
+            text: String,
+            allowRunningInput: Boolean,
+            interactiveToolCallId: String? = null,
+            interactiveAnswer: String? = null,
+            preserveWhitespace: Boolean = false,
+        ) {
+            val normalizedText = if (preserveWhitespace) text else text.trim()
+            val state = _uiState.value
+            val canSendInput =
+                if (allowRunningInput) {
+                    canSendToSession(state.session?.status)
+                } else {
+                    state.canSend
+                }
+
+            if (text.trim().isBlank() || state.isSending || !canSendInput) {
                 return
             }
 
@@ -184,10 +297,17 @@ class DetailViewModel
                     timestamp = Instant.now().toString(),
                 )
             optimisticMessages += optimisticMessage
+            interactiveToolCallId?.let { callId ->
+                interactiveAnswer?.let { answer ->
+                    eventProcessor.recordInteractiveToolAnswer(callId, answer)
+                }
+            }
             _uiState.update { current ->
                 current.copy(
                     isSending = true,
                     canSend = false,
+                    commandChip = null,
+                    showSlashSheet = false,
                 )
             }
             publishMessages(
@@ -213,6 +333,9 @@ class DetailViewModel
                         )
                     }
                 }.onFailure { error ->
+                    interactiveToolCallId?.let { id ->
+                        eventProcessor.clearInteractiveToolAnswer(id, "发送失败，点击重试")
+                    }
                     removeOptimisticMessage(normalizedText)
                     publishMessages(
                         newMessages = combinedMessages(),
@@ -712,6 +835,14 @@ class DetailViewModel
         }
 
         private fun combinedMessages(): List<MessageItem> = eventProcessor.snapshot() + optimisticMessages
+
+        private fun latestPendingInteractiveToolCallId(): String? {
+            return findLatestPendingInteractiveToolCallId(_uiState.value.messages)
+        }
+
+        private fun latestPendingApprovalCallId(): String? {
+            return findLatestPendingApprovalCallId(_uiState.value.messages)
+        }
 
         private fun removeOptimisticMessage(text: String) {
             val normalizedText = text.trim()

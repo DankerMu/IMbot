@@ -187,6 +187,37 @@ class EventProcessorTest {
     }
 
     @Test
+    fun `AskUserQuestion tool call renders interactive tool card`() {
+        val result =
+            processor.process(
+                event(
+                    seq = 1,
+                    eventType = "tool_call_started",
+                    payload =
+                        payload(
+                            "call_id" to "call-ask-1",
+                            "tool_name" to "AskUserQuestion",
+                            "args" to """{"question":"选哪个?","options":["A","B"]}""",
+                        ),
+                ),
+            )
+
+        assertEquals(
+            listOf(
+                MessageItem.InteractiveToolCall(
+                    id = "call-ask-1",
+                    toolName = "AskUserQuestion",
+                    question = "选哪个?",
+                    options = listOf("A", "B"),
+                    timestamp = TIMESTAMP,
+                    seq = 1,
+                ),
+            ),
+            result,
+        )
+    }
+
+    @Test
     fun `tool_call_completed updates matching tool card`() {
         processor.process(
             event(
@@ -213,6 +244,51 @@ class EventProcessorTest {
                 args = null,
                 result = "找到 3 条",
                 isRunning = false,
+                seq = 2,
+            ),
+            result.single(),
+        )
+    }
+
+    @Test
+    fun `interactive tool completion marks card answered`() {
+        processor.process(
+            event(
+                seq = 1,
+                eventType = "tool_call_started",
+                payload =
+                    payload(
+                        "call_id" to "call-ask-1",
+                        "tool_name" to "AskUserQuestion",
+                        "args" to """{"question":"选哪个?"}""",
+                    ),
+            ),
+        )
+        processor.recordInteractiveToolAnswer("call-ask-1", "A")
+
+        val result =
+            processor.process(
+                event(
+                    seq = 2,
+                    eventType = "tool_call_completed",
+                    payload =
+                        payload(
+                            "call_id" to "call-ask-1",
+                            "tool_name" to "AskUserQuestion",
+                            "result" to "done",
+                        ),
+                ),
+            )
+
+        assertEquals(
+            MessageItem.InteractiveToolCall(
+                id = "call-ask-1",
+                toolName = "AskUserQuestion",
+                question = "选哪个?",
+                options = null,
+                isAnswered = true,
+                answer = "A",
+                timestamp = TIMESTAMP,
                 seq = 2,
             ),
             result.single(),
@@ -386,7 +462,7 @@ class EventProcessorTest {
     }
 
     @Test
-    fun `approval events append generic status changes without special UI semantics`() {
+    fun `approval_resolved updates existing approval card in place`() {
         val required =
             processor.process(
                 event(
@@ -410,6 +486,7 @@ class EventProcessorTest {
                             "call_id" to "call-1",
                             "tool_name" to "bash",
                             "description" to "Run a shell command",
+                            "approved" to true,
                         ),
                 ),
             )
@@ -419,18 +496,27 @@ class EventProcessorTest {
                 id = "id-1",
                 status = "running",
                 message = "Approval required: Run a shell command",
+                eventType = "approval_required",
+                callId = "call-1",
+                toolName = "bash",
+                description = "Run a shell command",
                 seq = 1,
             ),
             required.single(),
         )
         assertEquals(
             MessageItem.StatusChange(
-                id = "id-2",
+                id = "id-1",
                 status = "running",
                 message = "Approval resolved: Run a shell command",
+                eventType = "approval_resolved",
+                callId = "call-1",
+                toolName = "bash",
+                description = "Run a shell command",
+                approvalDecision = "approved",
                 seq = 2,
             ),
-            resolved.last(),
+            resolved.single(),
         )
     }
 

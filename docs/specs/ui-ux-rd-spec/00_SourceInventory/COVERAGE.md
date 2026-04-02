@@ -15,7 +15,7 @@
 | FR-07 断线恢复 | C-10 ConnectionBanner, P-02 SessionDetailScreen (`isCatchingUp`), P-05 Error Handling Pattern | ✅ |
 | FR-08 FCM 推送 | P-08 Deep Link pattern | ✅ |
 | FR-09 主题 | Foundation §Color/Theme, P-05 SettingsScreen theme toggle | ✅ |
-| FR-10 审批保留 | 无 Approval Inbox UI；仅保留后续 Phase 3 能力占位 | ⏭ 按设计跳过 |
+| FR-10 审批保留 | P-02 SessionDetail（ApprovalCard, AskUserQuestion 交互卡片, slash command 输入增强） | ✅ |
 
 ## Non-Functional Requirements Coverage
 
@@ -45,7 +45,6 @@
 
 | Item | Reason | Target Version |
 |------|--------|----------------|
-| Approval Inbox UI | 默认 bypassPermissions | Phase 3+ |
 | Diff/Patch 预览 | MVP 不做 | Phase 3+ |
 | 多 host 管理 UI | 首版单 host | Phase 3+ |
 | Web 版 | 非目标 | 无计划 |

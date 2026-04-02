@@ -103,6 +103,9 @@ fun SessionDetailScreen(
     val selectionModeMessageId = uiState.selectionModeMessageId
     val selectionModeActive = selectionModeMessageId != null
     val messageActions = messageMenuTarget?.takeIf(::hasActions)?.let(::availableActions).orEmpty()
+    val sessionAllowsInteractiveInput = canSendToSession(uiState.session?.status)
+    val latestPendingInteractiveCallId = findLatestPendingInteractiveToolCallId(uiState.messages)
+    val latestPendingApprovalCallId = findLatestPendingApprovalCallId(uiState.messages)
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showCancelDialog by remember { mutableStateOf(false) }
@@ -297,6 +300,13 @@ fun SessionDetailScreen(
         )
     }
 
+    if (uiState.showSlashSheet) {
+        SlashCommandSheet(
+            onDismiss = viewModel::onDismissSlashSheet,
+            onSkillSelected = viewModel::onSkillSelected,
+        )
+    }
+
     CompositionLocalProvider(LocalSnackbarHostState provides snackbarHostState) {
         Scaffold(
             modifier = modifier,
@@ -449,6 +459,9 @@ fun SessionDetailScreen(
                     status = uiState.session?.status,
                     canSend = uiState.canSend,
                     isSending = uiState.isSending,
+                    commandChip = uiState.commandChip,
+                    onSlashTrigger = viewModel::onSlashTrigger,
+                    onDismissCommand = viewModel::onDismissCommand,
                     onSend = viewModel::sendMessage,
                 )
             },
@@ -504,11 +517,13 @@ fun SessionDetailScreen(
                                 val shouldStaggerInitial =
                                     !initialLoadHandled && index < IMbotAnimations.STAGGER_ITEM_LIMIT
                                 val shouldAnimateNew = initialLoadHandled && key !in renderedKeys
+                                val isToolTimelineItem =
+                                    item is MessageItem.ToolCall || item is MessageItem.InteractiveToolCall
                                 val itemDismissModifier =
                                     if (
                                         selectionModeActive &&
                                         !isItemInSelectionMode &&
-                                        item !is MessageItem.ToolCall
+                                        !isToolTimelineItem
                                     ) {
                                         Modifier.clickable(onClick = viewModel::onExitSelectionMode)
                                     } else {
@@ -526,6 +541,21 @@ fun SessionDetailScreen(
                                         },
                                 ) {
                                     when (item) {
+                                        is MessageItem.InteractiveToolCall ->
+                                            InteractiveToolCard(
+                                                item = item,
+                                                isSessionActive = sessionAllowsInteractiveInput,
+                                                isLatestPending =
+                                                    isLatestPendingInteractiveToolCall(
+                                                        item = item,
+                                                        latestPendingCallId = latestPendingInteractiveCallId,
+                                                    ),
+                                                isSending = uiState.isSending,
+                                                onSubmitAnswer = { answer ->
+                                                    viewModel.submitToolAnswer(item.id, answer)
+                                                },
+                                            )
+
                                         is MessageItem.ToolCall ->
                                             ToolCallCard(
                                                 item = item,
@@ -538,6 +568,31 @@ fun SessionDetailScreen(
                                             MessageBubble(
                                                 item = item,
                                                 provider = uiState.session?.provider.orEmpty(),
+                                                isSessionActive = sessionAllowsInteractiveInput,
+                                                isLatestPendingApproval =
+                                                    (item as? MessageItem.StatusChange)?.let { statusChange ->
+                                                        isLatestPendingApprovalRequest(
+                                                            item = statusChange,
+                                                            latestPendingCallId = latestPendingApprovalCallId,
+                                                        )
+                                                    } ?: true,
+                                                isSending = uiState.isSending,
+                                                onApprove = {
+                                                    val callId = (item as? MessageItem.StatusChange)?.callId
+                                                    if (callId.isNullOrBlank()) {
+                                                        viewModel.approveToolCall()
+                                                    } else {
+                                                        viewModel.approveToolCall(callId)
+                                                    }
+                                                },
+                                                onDeny = {
+                                                    val callId = (item as? MessageItem.StatusChange)?.callId
+                                                    if (callId.isNullOrBlank()) {
+                                                        viewModel.denyToolCall()
+                                                    } else {
+                                                        viewModel.denyToolCall(callId)
+                                                    }
+                                                },
                                                 onLongPress = viewModel::onMessageLongPress,
                                                 selectionModeActive = selectionModeActive,
                                                 onExitSelectionMode = viewModel::onExitSelectionMode,
@@ -681,6 +736,7 @@ private fun AnimatedTimelineEntry(
 private fun timelineKey(item: MessageItem): String =
     when (item) {
         is MessageItem.AgentMessage -> "agent-${item.id}"
+        is MessageItem.InteractiveToolCall -> "interactive-tool-${item.id}"
         is MessageItem.StatusChange -> "status-${item.id}"
         is MessageItem.ToolCall -> "tool-${item.callId}"
         is MessageItem.UserMessage -> "user-${item.id}"
@@ -692,6 +748,7 @@ private fun isSelectionMode(
 ): Boolean =
     when (item) {
         is MessageItem.AgentMessage -> item.id == selectionModeMessageId
+        is MessageItem.InteractiveToolCall -> false
         is MessageItem.UserMessage -> item.id == selectionModeMessageId
         is MessageItem.StatusChange,
         is MessageItem.ToolCall,

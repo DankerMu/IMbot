@@ -12,6 +12,147 @@ import java.time.Instant
 
 class DetailUtilsTest {
     @Test
+    fun `filterSkills matches command and label case insensitively`() {
+        assertEquals(
+            listOf("commit", "compact"),
+            filterSkills("com").map(SkillItem::command),
+        )
+        assertEquals(
+            listOf("commit", "compact"),
+            filterSkills("COM").map(SkillItem::command),
+        )
+    }
+
+    @Test
+    fun `filterSkills handles blank missing and special character queries`() {
+        assertEquals(DEFAULT_SKILLS, filterSkills(""))
+        assertTrue(filterSkills("zzz").isEmpty())
+        assertTrue(filterSkills("co+").isEmpty())
+    }
+
+    @Test
+    fun `assembleSlashCommand preserves non blank args and omits blank suffix`() {
+        assertEquals("/commit fix typo", assembleSlashCommand("commit", "fix typo"))
+        assertEquals("/help", assembleSlashCommand("help", ""))
+        assertEquals("/test   spaced  ", assembleSlashCommand("test", "  spaced  "))
+    }
+
+    @Test
+    fun `isInteractiveToolCall only matches AskUserQuestion`() {
+        assertTrue(isInteractiveToolCall("AskUserQuestion"))
+        assertTrue(isInteractiveToolCall("askuserquestion"))
+        assertFalse(isInteractiveToolCall("Read"))
+        assertFalse(isInteractiveToolCall("Bash"))
+        assertFalse(isInteractiveToolCall(""))
+        assertFalse(isInteractiveToolCall(null))
+    }
+
+    @Test
+    fun `parseAskUserQuestion handles json variants and invalid payloads`() {
+        assertEquals(
+            "选哪个?",
+            parseAskUserQuestion("""{"question":"选哪个?","options":["A","B"]}""").first,
+        )
+        assertEquals(
+            listOf("A", "B"),
+            parseAskUserQuestion("""{"question":"选哪个?","options":["A","B"]}""").second,
+        )
+        assertEquals(
+            "你确定吗?",
+            parseAskUserQuestion("""{"question":"你确定吗?"}""").first,
+        )
+        assertNull(parseAskUserQuestion("""{"question":"你确定吗?"}""").second)
+        assertEquals(
+            """{"text":"hello"}""",
+            parseAskUserQuestion("""{"text":"hello"}""").first,
+        )
+        assertNull(parseAskUserQuestion("""{"text":"hello"}""").second)
+        assertEquals(
+            DEFAULT_ASK_USER_QUESTION_MESSAGE,
+            parseAskUserQuestion("{}").first,
+        )
+        assertEquals(
+            "{broken",
+            parseAskUserQuestion("{broken").first,
+        )
+        assertNull(parseAskUserQuestion("{broken").second)
+        assertEquals(
+            "Q",
+            parseAskUserQuestion("""{"question":"Q","options":[]}""").first,
+        )
+        assertNull(parseAskUserQuestion("""{"question":"Q","options":[]}""").second)
+    }
+
+    @Test
+    fun `parseAskUserQuestion caps large option sets and appends truncation note`() {
+        val payload =
+            """{"question":"选哪个?","options":["1","2","3","4","5","6","7","8","9","10","11","12"]}"""
+        val result = parseAskUserQuestion(payload)
+
+        assertEquals(
+            "选哪个?\n\n$ASK_USER_QUESTION_OPTIONS_TRUNCATED_NOTE",
+            result.first,
+        )
+        assertEquals(
+            listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "10"),
+            result.second,
+        )
+    }
+
+    @Test
+    fun `latest pending helpers only mark the newest unanswered cards actionable`() {
+        val olderInteractive =
+            MessageItem.InteractiveToolCall(
+                id = "interactive-1",
+                toolName = "AskUserQuestion",
+                question = "旧问题",
+                options = listOf("A"),
+                timestamp = DETAIL_UTILS_TIMESTAMP,
+            )
+        val latestInteractive =
+            MessageItem.InteractiveToolCall(
+                id = "interactive-2",
+                toolName = "AskUserQuestion",
+                question = "新问题",
+                options = listOf("B"),
+                timestamp = DETAIL_UTILS_TIMESTAMP,
+            )
+        val olderApproval =
+            MessageItem.StatusChange(
+                id = "status-older",
+                status = "running",
+                message = "Approval required: old",
+                eventType = "approval_required",
+                callId = "approval-1",
+            )
+        val latestApproval =
+            MessageItem.StatusChange(
+                id = "status-latest",
+                status = "running",
+                message = "Approval required: new",
+                eventType = "approval_required",
+                callId = "approval-2",
+            )
+        val messages =
+            listOf(
+                olderInteractive,
+                latestInteractive,
+                olderApproval,
+                latestApproval,
+            )
+
+        val latestInteractiveId = findLatestPendingInteractiveToolCallId(messages)
+        val latestApprovalId = findLatestPendingApprovalCallId(messages)
+
+        assertEquals("interactive-2", latestInteractiveId)
+        assertEquals("approval-2", latestApprovalId)
+        assertFalse(isLatestPendingInteractiveToolCall(olderInteractive, latestInteractiveId))
+        assertTrue(isLatestPendingInteractiveToolCall(latestInteractive, latestInteractiveId))
+        assertFalse(isLatestPendingApprovalRequest(olderApproval, latestApprovalId))
+        assertTrue(isLatestPendingApprovalRequest(latestApproval, latestApprovalId))
+    }
+
+    @Test
     fun `initial scroll state matches spec`() {
         val state = DetailScrollState()
 
@@ -305,6 +446,7 @@ class DetailUtilsTest {
     fun `hasActions uses lightweight eligibility rules`() {
         assertTrue(hasActions(agentMessage(content = "")))
         assertFalse(hasActions(agentMessage(content = "streaming", isStreaming = true)))
+        assertFalse(hasActions(interactiveToolCall()))
         assertTrue(hasActions(userMessage(text = "")))
         assertTrue(hasActions(toolCall()))
         assertFalse(hasActions(toolCall(toolName = "")))
@@ -343,6 +485,15 @@ private fun toolCall(
     result = result,
     isRunning = false,
 )
+
+private fun interactiveToolCall() =
+    MessageItem.InteractiveToolCall(
+        id = "interactive-1",
+        toolName = "AskUserQuestion",
+        question = "需要继续吗？",
+        options = listOf("是", "否"),
+        timestamp = DETAIL_UTILS_TIMESTAMP,
+    )
 
 private fun statusChange() =
     MessageItem.StatusChange(
