@@ -11,6 +11,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+@Suppress("LargeClass")
 class EventProcessorTest {
     private var nextId = 0
     private val processor = EventProcessor { "id-${++nextId}" }
@@ -207,13 +208,53 @@ class EventProcessorTest {
                 MessageItem.InteractiveToolCall(
                     id = "call-ask-1",
                     toolName = "AskUserQuestion",
-                    question = "选哪个?",
-                    options = listOf("A", "B"),
+                    questions =
+                        listOf(
+                            ParsedQuestion(
+                                question = "选哪个?",
+                                header = null,
+                                options = listOf(ParsedOption("A", null), ParsedOption("B", null)),
+                                multiSelect = false,
+                            ),
+                        ),
                     timestamp = TIMESTAMP,
                     seq = 1,
                 ),
             ),
             result,
+        )
+    }
+
+    @Test
+    fun `AskUserQuestion nested tool call parses questions array`() {
+        val result =
+            processor.process(
+                event(
+                    seq = 1,
+                    eventType = "tool_call_started",
+                    payload =
+                        payload(
+                            "call_id" to "call-ask-2",
+                            "tool_name" to "AskUserQuestion",
+                            "args" to
+                                """
+                                {"questions":[{"question":"Which library?","header":"Library","options":[{"label":"Option A","description":"Fast but limited"},{"label":"Option B","description":"Full-featured"}],"multiSelect":true}]}
+                                """.trimIndent(),
+                        ),
+                ),
+            )
+
+        assertEquals(1, result.size)
+        val item = result.single() as MessageItem.InteractiveToolCall
+        assertEquals("Which library?", item.primaryQuestion.question)
+        assertEquals("Library", item.primaryQuestion.header)
+        assertTrue(item.primaryQuestion.multiSelect)
+        assertEquals(
+            listOf(
+                ParsedOption("Option A", "Fast but limited"),
+                ParsedOption("Option B", "Full-featured"),
+            ),
+            item.primaryQuestion.options,
         )
     }
 
@@ -284,8 +325,15 @@ class EventProcessorTest {
             MessageItem.InteractiveToolCall(
                 id = "call-ask-1",
                 toolName = "AskUserQuestion",
-                question = "选哪个?",
-                options = null,
+                questions =
+                    listOf(
+                        ParsedQuestion(
+                            question = "选哪个?",
+                            header = null,
+                            options = null,
+                            multiSelect = false,
+                        ),
+                    ),
                 isAnswered = true,
                 answer = "A",
                 timestamp = TIMESTAMP,

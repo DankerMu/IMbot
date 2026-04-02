@@ -7,6 +7,7 @@ import com.imbot.android.network.RelaySession
 import com.imbot.android.ui.theme.ProviderColors
 import com.imbot.android.ui.theme.StatusColors
 import com.imbot.android.ui.theme.providerColorFor
+import org.json.JSONArray
 import org.json.JSONObject
 import java.time.Duration
 import java.time.Instant
@@ -135,6 +136,35 @@ internal fun isInteractiveToolCall(toolName: String?): Boolean =
         ignoreCase = true,
     ) == true
 
+data class ParsedQuestion(
+    val question: String,
+    val header: String?,
+    val options: List<ParsedOption>?,
+    val multiSelect: Boolean,
+)
+
+data class ParsedOption(
+    val label: String,
+    val description: String?,
+)
+
+internal fun parseAskUserQuestionV2(inputJson: String?): List<ParsedQuestion> =
+    if (inputJson.isNullOrBlank()) {
+        listOf(defaultParsedQuestion())
+    } else {
+        runCatching {
+            val json = JSONObject(inputJson)
+            val questionsArray = json.optJSONArray("questions")
+            if (questionsArray != null && questionsArray.length() > 0) {
+                parseStandardAskUserQuestions(questionsArray)
+            } else {
+                parseSimplifiedAskUserQuestion(json)
+            }
+        }.getOrElse {
+            listOf(defaultParsedQuestion(question = inputJson))
+        }
+    }
+
 internal fun parseAskUserQuestion(inputJson: String?): Pair<String, List<String>?> {
     if (inputJson.isNullOrBlank()) {
         return DEFAULT_ASK_USER_QUESTION_MESSAGE to null
@@ -168,6 +198,90 @@ internal fun parseAskUserQuestion(inputJson: String?): Pair<String, List<String>
         inputJson to null
     }
 }
+
+private fun defaultParsedQuestion(question: String = DEFAULT_ASK_USER_QUESTION_MESSAGE) =
+    ParsedQuestion(
+        question = question,
+        header = null,
+        options = null,
+        multiSelect = false,
+    )
+
+private fun parseStandardAskUserQuestions(array: JSONArray): List<ParsedQuestion> =
+    (0 until array.length()).map { index ->
+        val questionObject = array.getJSONObject(index)
+        val questionText =
+            questionObject
+                .optString("question", "")
+                .takeIf(String::isNotBlank)
+                ?: DEFAULT_ASK_USER_QUESTION_MESSAGE
+        val header = questionObject.optString("header", "").takeIf(String::isNotBlank)
+        val multiSelect = questionObject.optBoolean("multiSelect", false)
+        val options =
+            questionObject
+                .optJSONArray("options")
+                ?.let { optionArray ->
+                    parseAskUserQuestionOptions(
+                        array = optionArray,
+                        allowScalarFallback = true,
+                    )
+                }?.takeIf { it.isNotEmpty() }
+
+        ParsedQuestion(
+            question = questionText,
+            header = header,
+            options = options,
+            multiSelect = multiSelect,
+        )
+    }
+
+private fun parseSimplifiedAskUserQuestion(json: JSONObject): List<ParsedQuestion> {
+    val question = json.optString("question", "").takeIf(String::isNotBlank)
+    val options =
+        json.optJSONArray("options")
+            ?.let { optionArray ->
+                parseAskUserQuestionOptions(
+                    array = optionArray,
+                    allowScalarFallback = false,
+                )
+            }?.takeIf { it.isNotEmpty() }
+
+    return listOf(
+        ParsedQuestion(
+            question = question ?: DEFAULT_ASK_USER_QUESTION_MESSAGE,
+            header = null,
+            options = options,
+            multiSelect = false,
+        ),
+    )
+}
+
+private fun parseAskUserQuestionOptions(
+    array: JSONArray,
+    allowScalarFallback: Boolean,
+): List<ParsedOption> =
+    (0 until array.length().coerceAtMost(MAX_ASK_USER_QUESTION_OPTIONS)).mapNotNull { index ->
+        when (val option = array.opt(index)) {
+            is JSONObject -> {
+                val label = option.optString("label", "").takeIf(String::isNotBlank) ?: return@mapNotNull null
+                val description = option.optString("description", "").takeIf(String::isNotBlank)
+                ParsedOption(label = label, description = description)
+            }
+            is String ->
+                option
+                    .takeIf(String::isNotBlank)
+                    ?.let { label -> ParsedOption(label = label, description = null) }
+            else ->
+                if (allowScalarFallback) {
+                    option
+                        ?.toString()
+                        ?.takeIf(String::isNotBlank)
+                        ?.let { label -> ParsedOption(label = label, description = null) }
+                } else {
+                    null
+                }
+        }
+    }
 
 internal fun messageItemKindForEventType(eventType: String): MessageItemKind? =
     when (eventType) {

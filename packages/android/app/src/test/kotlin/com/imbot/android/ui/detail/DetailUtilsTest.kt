@@ -84,6 +84,87 @@ class DetailUtilsTest {
     }
 
     @Test
+    fun `parseAskUserQuestionV2 handles simplified json variants and invalid payloads`() {
+        assertEquals(
+            listOf(
+                ParsedQuestion(
+                    question = "选哪个?",
+                    header = null,
+                    options = listOf(ParsedOption("A", null), ParsedOption("B", null)),
+                    multiSelect = false,
+                ),
+            ),
+            parseAskUserQuestionV2("""{"question":"选哪个?","options":["A","B"]}"""),
+        )
+        assertEquals(
+            listOf(
+                ParsedQuestion(
+                    question = "你确定吗?",
+                    header = null,
+                    options = null,
+                    multiSelect = false,
+                ),
+            ),
+            parseAskUserQuestionV2("""{"question":"你确定吗?"}"""),
+        )
+        assertEquals(
+            listOf(
+                ParsedQuestion(
+                    question = DEFAULT_ASK_USER_QUESTION_MESSAGE,
+                    header = null,
+                    options = null,
+                    multiSelect = false,
+                ),
+            ),
+            parseAskUserQuestionV2("""{"text":"hello"}"""),
+        )
+        assertEquals(
+            listOf(
+                ParsedQuestion(
+                    question = DEFAULT_ASK_USER_QUESTION_MESSAGE,
+                    header = null,
+                    options = null,
+                    multiSelect = false,
+                ),
+            ),
+            parseAskUserQuestionV2("{}"),
+        )
+        assertEquals(
+            listOf(
+                ParsedQuestion(
+                    question = "{broken",
+                    header = null,
+                    options = null,
+                    multiSelect = false,
+                ),
+            ),
+            parseAskUserQuestionV2("{broken"),
+        )
+        assertEquals(
+            listOf(
+                ParsedQuestion(
+                    question = DEFAULT_ASK_USER_QUESTION_MESSAGE,
+                    header = null,
+                    options = null,
+                    multiSelect = false,
+                ),
+            ),
+            parseAskUserQuestionV2(null),
+        )
+        assertEquals(
+            listOf(
+                ParsedQuestion(
+                    question = DEFAULT_ASK_USER_QUESTION_MESSAGE,
+                    header = null,
+                    options = null,
+                    multiSelect = false,
+                ),
+            ),
+            parseAskUserQuestionV2(""),
+        )
+    }
+
+    @Test
     fun `parseAskUserQuestion caps large option sets and appends truncation note`() {
         val payload =
             """{"question":"选哪个?","options":["1","2","3","4","5","6","7","8","9","10","11","12"]}"""
@@ -100,21 +181,111 @@ class DetailUtilsTest {
     }
 
     @Test
+    fun `parseAskUserQuestionV2 parses standard format and multiple questions`() {
+        assertEquals(
+            listOf(
+                ParsedQuestion(
+                    question = "Q?",
+                    header = "Approach",
+                    options = listOf(ParsedOption("A", "desc")),
+                    multiSelect = false,
+                ),
+            ),
+            parseAskUserQuestionV2(
+                """
+                {"questions":[{"question":"Q?","header":"Approach","options":[{"label":"A","description":"desc"}],"multiSelect":false}]}
+                """.trimIndent(),
+            ),
+        )
+        assertEquals(
+            listOf(
+                ParsedQuestion(
+                    question = "Q1?",
+                    header = null,
+                    options = null,
+                    multiSelect = false,
+                ),
+                ParsedQuestion(
+                    question = "Q2?",
+                    header = "Mode",
+                    options = listOf(ParsedOption("B", null)),
+                    multiSelect = false,
+                ),
+            ),
+            parseAskUserQuestionV2(
+                """{"questions":[{"question":"Q1?"},{"question":"Q2?","header":"Mode","options":["B"]}]}""",
+            ),
+        )
+    }
+
+    @Test
+    fun `parseAskUserQuestionV2 supports multi select mixed options and truncation`() {
+        assertEquals(
+            listOf(
+                ParsedQuestion(
+                    question = "Q?",
+                    header = null,
+                    options = listOf(ParsedOption("A", "desc"), ParsedOption("B", null)),
+                    multiSelect = true,
+                ),
+            ),
+            parseAskUserQuestionV2(
+                """{"questions":[{"question":"Q?","options":[{"label":"A","description":"desc"},"B"],"multiSelect":true}]}""",
+            ),
+        )
+
+        val payload =
+            """{"questions":[{"question":"选哪个?","options":["1","2","3","4","5","6","7","8","9","10","11","12"]}]}"""
+        val result = parseAskUserQuestionV2(payload)
+
+        assertEquals(1, result.size)
+        assertEquals(
+            listOf(
+                ParsedOption("1", null),
+                ParsedOption("2", null),
+                ParsedOption("3", null),
+                ParsedOption("4", null),
+                ParsedOption("5", null),
+                ParsedOption("6", null),
+                ParsedOption("7", null),
+                ParsedOption("8", null),
+                ParsedOption("9", null),
+                ParsedOption("10", null),
+            ),
+            result.single().options,
+        )
+    }
+
+    @Test
     fun `latest pending helpers only mark the newest unanswered cards actionable`() {
         val olderInteractive =
             MessageItem.InteractiveToolCall(
                 id = "interactive-1",
                 toolName = "AskUserQuestion",
-                question = "旧问题",
-                options = listOf("A"),
+                questions =
+                    listOf(
+                        ParsedQuestion(
+                            question = "旧问题",
+                            header = null,
+                            options = listOf(ParsedOption("A", null)),
+                            multiSelect = false,
+                        ),
+                    ),
                 timestamp = DETAIL_UTILS_TIMESTAMP,
             )
         val latestInteractive =
             MessageItem.InteractiveToolCall(
                 id = "interactive-2",
                 toolName = "AskUserQuestion",
-                question = "新问题",
-                options = listOf("B"),
+                questions =
+                    listOf(
+                        ParsedQuestion(
+                            question = "新问题",
+                            header = null,
+                            options = listOf(ParsedOption("B", null)),
+                            multiSelect = false,
+                        ),
+                    ),
                 timestamp = DETAIL_UTILS_TIMESTAMP,
             )
         val olderApproval =
@@ -500,8 +671,15 @@ private fun interactiveToolCall() =
     MessageItem.InteractiveToolCall(
         id = "interactive-1",
         toolName = "AskUserQuestion",
-        question = "需要继续吗？",
-        options = listOf("是", "否"),
+        questions =
+            listOf(
+                ParsedQuestion(
+                    question = "需要继续吗？",
+                    header = null,
+                    options = listOf(ParsedOption("是", null), ParsedOption("否", null)),
+                    multiSelect = false,
+                ),
+            ),
         timestamp = DETAIL_UTILS_TIMESTAMP,
     )
 
