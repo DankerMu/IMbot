@@ -70,9 +70,12 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 
 - `p3-theme-and-animations` — theme system, transitions, motion, code theme
 - `p3-error-ux-and-cleanup` — three-layer error UX, purge job, connection stability
-- `p3-session-detail-hardening` — cancelled-session recovery, offline formula rendering, markdown table correctness
 - `p3-approval-path-reserved` — reserved non-bypass permission mode and approval event plumbing
-- `p3-mobile-skill-interaction` — slash command recognition, AskUserQuestion/approval interactive cards
-- `p3-message-rendering-polish` — Obsidian-level markdown rendering: typography, code blocks, quotes, tables, lists
-- `p3-message-copy` — per-message copy, text selection mode, long-press action menu
-- `p3-visual-redesign` — Apple-aesthetic UI overhaul: design tokens, all 6 pages, spring animations
+
+### `p3` Completed (Archived)
+
+- `p3-session-detail-hardening` — cancelled-session recovery, offline formula rendering, markdown table correctness ✅
+- `p3-mobile-skill-interaction` — slash command recognition, AskUserQuestion/approval interactive cards ✅
+- `p3-message-rendering-polish` — Obsidian-level markdown rendering: typography, code blocks, quotes, tables, lists ✅
+- `p3-message-copy` — per-message copy, text selection mode, long-press action menu ✅
+- `p3-visual-redesign` — Apple-aesthetic UI overhaul: design tokens, all 6 pages, spring animations ✅
