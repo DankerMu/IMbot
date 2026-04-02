@@ -35,6 +35,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -147,6 +148,7 @@ internal fun markdownInlineCodeBackground(useDarkTheme: Boolean): Color =
 fun MarkdownText(
     markdown: String,
     modifier: Modifier = Modifier,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     val blocks = remember(markdown) { parseMarkdownBlocks(markdown) }
 
@@ -163,6 +165,7 @@ fun MarkdownText(
                             MaterialTheme.typography.bodyMedium.copy(
                                 lineHeight = MarkdownParagraphLineHeight,
                                 letterSpacing = 0.2.sp,
+                                color = contentColor,
                             ),
                     )
 
@@ -180,6 +183,7 @@ fun MarkdownText(
                                 fontSize = headingStyle.fontSize,
                                 lineHeight = markdownHeadingLineHeight(block.level),
                                 fontWeight = headingStyle.fontWeight,
+                                color = contentColor,
                             ),
                     )
                 }
@@ -192,6 +196,7 @@ fun MarkdownText(
                                 top = listTopPadding(index, blocks),
                                 bottom = listBottomPadding(index, blocks),
                             ),
+                        contentColor = contentColor,
                     )
 
                 is MarkdownBlock.Quote ->
@@ -203,6 +208,7 @@ fun MarkdownText(
                                 top = 8.dp,
                                 bottom = 8.dp,
                             ),
+                        contentColor = contentColor,
                     )
 
                 is MarkdownBlock.Code ->
@@ -224,6 +230,7 @@ fun MarkdownText(
                         alignments = block.alignments,
                         rows = block.rows,
                         modifier = Modifier.padding(vertical = MarkdownTableOuterMargin),
+                        contentColor = contentColor,
                     )
             }
         }
@@ -234,8 +241,9 @@ fun MarkdownText(
 private fun MarkdownListItem(
     block: MarkdownBlock.ListItem,
     modifier: Modifier = Modifier,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    val markerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+    val markerColor = contentColor.copy(alpha = 0.6f)
 
     Row(
         modifier =
@@ -270,6 +278,7 @@ private fun MarkdownListItem(
                 MaterialTheme.typography.bodyMedium.copy(
                     lineHeight = MarkdownParagraphLineHeight,
                     letterSpacing = 0.2.sp,
+                    color = contentColor,
                 ),
         )
     }
@@ -279,6 +288,7 @@ private fun MarkdownListItem(
 private fun MarkdownQuote(
     block: MarkdownBlock.Quote,
     modifier: Modifier = Modifier,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     val colorScheme = MaterialTheme.colorScheme
     val borderColor = colorScheme.primary.copy(alpha = blockquoteBorderAlpha(block.level))
@@ -310,6 +320,7 @@ private fun MarkdownQuote(
                 MaterialTheme.typography.bodyMedium.copy(
                     lineHeight = MarkdownParagraphLineHeight,
                     letterSpacing = 0.2.sp,
+                    color = contentColor,
                 ),
         )
     }
@@ -321,6 +332,7 @@ private fun MarkdownTable(
     alignments: List<MarkdownTableAlignment>,
     rows: List<List<String>>,
     modifier: Modifier = Modifier,
+    contentColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
     val borderColor = MaterialTheme.colorScheme.outlineVariant
     val headerBackground = MaterialTheme.colorScheme.surfaceVariant
@@ -351,7 +363,11 @@ private fun MarkdownTable(
                     alignments = alignments,
                     backgroundColor = headerBackground,
                     borderColor = borderColor,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    textStyle =
+                        MaterialTheme.typography.bodyMedium.copy(
+                            fontWeight = FontWeight.Medium,
+                            color = contentColor,
+                        ),
                 )
                 rows.forEachIndexed { rowIndex, row ->
                     MarkdownTableRow(
@@ -365,7 +381,7 @@ private fun MarkdownTable(
                                 MaterialTheme.colorScheme.surface
                             },
                         borderColor = borderColor,
-                        textStyle = MaterialTheme.typography.bodyMedium,
+                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = contentColor),
                     )
                 }
             }
@@ -444,7 +460,7 @@ private fun MarkdownInlineText(
     val uriHandler = LocalUriHandler.current
     val inlineCodeBackground = markdownInlineCodeBackground(LocalUseDarkTheme.current)
     val linkColor = MaterialTheme.colorScheme.primary
-    val inlineCodeTextColor = MaterialTheme.colorScheme.onSurface
+    val inlineCodeTextColor = style.color.takeOrElse { MaterialTheme.colorScheme.onSurface }
     val useRoundedInlineCodeBackgrounds =
         remember(text) { countInlineCodeSpans(text) <= MAX_ROUNDED_INLINE_CODE_SPANS }
     val annotated =

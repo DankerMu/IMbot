@@ -2,41 +2,48 @@
 
 package com.imbot.android.ui.detail
 
+import android.os.Build
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
-import com.imbot.android.ui.theme.LocalUseDarkTheme
-import com.imbot.android.ui.theme.appleChrome
-import com.imbot.android.ui.theme.appleShadow
-import com.imbot.android.ui.theme.imbotFilledTextFieldColors
-import com.imbot.android.ui.theme.spacing
 
 @Composable
 internal fun InputBar(
@@ -53,9 +60,12 @@ internal fun InputBar(
     val inputEnabled = canInputToSession(status) && canSend && !isSending
     val canSubmit = inputEnabled && (commandChip != null || draft.isNotBlank())
     val componentShapes = LocalIMbotComponentShapes.current
-    val spacing = MaterialTheme.spacing
-    val isDarkTheme = LocalUseDarkTheme.current
-    val shadowTokens = MaterialTheme.appleShadow
+    val surfaceColor =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+        } else {
+            MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+        }
 
     LaunchedEffect(commandChip?.command) {
         if (commandChip != null) {
@@ -63,85 +73,153 @@ internal fun InputBar(
         }
     }
 
-    Surface(
-        modifier = modifier.fillMaxWidth(),
-        color = MaterialTheme.colorScheme.surface,
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp,
+    Box(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(surfaceColor),
     ) {
-        Column(
-            modifier =
-                Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            verticalArrangement = Arrangement.spacedBy(spacing.sm),
-        ) {
+        FrostedInputBarBackground(
+            surfaceColor = surfaceColor,
+            blurEnabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
+        )
+
+        Column(modifier = Modifier.fillMaxWidth()) {
             HorizontalDivider(
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
-                thickness = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant,
+                thickness = 0.5.dp,
             )
-            commandChip?.let { skill ->
-                CommandChip(
-                    skill = skill,
-                    onDismiss = onDismissCommand,
-                )
-            }
-
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.Bottom,
+            Column(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                TextField(
-                    value = draft,
-                    onValueChange = { updatedDraft ->
-                        draft =
-                            updateDraftAndMaybeTriggerSlashSheet(
-                                currentDraft = draft,
-                                updatedDraft = updatedDraft,
-                                commandChip = commandChip,
-                                onSlashTrigger = onSlashTrigger,
-                            )
-                    },
-                    modifier = Modifier.weight(1f),
-                    enabled = inputEnabled,
-                    minLines = 1,
-                    maxLines = 4,
-                    shape = componentShapes.pill,
-                    colors = imbotFilledTextFieldColors(),
-                    textStyle = MaterialTheme.typography.bodyLarge,
-                    placeholder = {
-                        Text(commandChip?.description ?: inputPlaceholderForStatus(status))
-                    },
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions =
-                        KeyboardActions(
-                            onSend = {
-                                submitDraft(
-                                    canSubmit = canSubmit,
-                                    draft = draft,
-                                    onSend = onSend,
-                                    clearDraft = { draft = "" },
-                                )
-                            },
-                        ),
-                )
+                commandChip?.let { skill ->
+                    CommandChip(
+                        skill = skill,
+                        onDismiss = onDismissCommand,
+                    )
+                }
 
-                SendButton(
-                    canSubmit = canSubmit,
-                    isDarkTheme = isDarkTheme,
-                    shadowTokens = shadowTokens,
-                    onSend = {
-                        submitDraft(
-                            canSubmit = canSubmit,
-                            draft = draft,
-                            onSend = onSend,
-                            clearDraft = { draft = "" },
-                        )
-                    },
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    PillTextField(
+                        value = draft,
+                        onValueChange = { updatedDraft ->
+                            draft =
+                                updateDraftAndMaybeTriggerSlashSheet(
+                                    currentDraft = draft,
+                                    updatedDraft = updatedDraft,
+                                    commandChip = commandChip,
+                                    onSlashTrigger = onSlashTrigger,
+                                )
+                        },
+                        placeholder = commandChip?.description ?: inputPlaceholderForStatus(status),
+                        enabled = inputEnabled,
+                        shape = componentShapes.pill,
+                        modifier = Modifier.weight(1f),
+                        onSend = {
+                            submitDraft(
+                                canSubmit = canSubmit,
+                                draft = draft,
+                                onSend = onSend,
+                                clearDraft = { draft = "" },
+                            )
+                        },
+                    )
+
+                    SendButton(
+                        canSubmit = canSubmit,
+                        onSend = {
+                            submitDraft(
+                                canSubmit = canSubmit,
+                                draft = draft,
+                                onSend = onSend,
+                                clearDraft = { draft = "" },
+                            )
+                        },
+                    )
+                }
             }
         }
     }
+}
+
+@Composable
+private fun BoxScope.FrostedInputBarBackground(
+    surfaceColor: Color,
+    blurEnabled: Boolean,
+): Unit =
+    with(this) {
+        Box(
+            modifier =
+                Modifier
+                    .matchParentSize()
+                    .then(
+                        if (blurEnabled) {
+                            Modifier.blur(20.dp)
+                        } else {
+                            Modifier
+                        },
+                    )
+                    .background(surfaceColor),
+        )
+    }
+
+@Composable
+private fun PillTextField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    placeholder: String,
+    enabled: Boolean,
+    shape: androidx.compose.ui.graphics.Shape,
+    onSend: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    BasicTextField(
+        value = value,
+        onValueChange = onValueChange,
+        modifier = modifier,
+        enabled = enabled,
+        minLines = 1,
+        maxLines = 4,
+        textStyle =
+            MaterialTheme.typography.bodyMedium.copy(
+                color = MaterialTheme.colorScheme.onSurface,
+            ),
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+        keyboardActions =
+            KeyboardActions(
+                onSend = {
+                    onSend()
+                },
+            ),
+        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        decorationBox = { innerTextField ->
+            Box(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(shape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(horizontal = 16.dp, vertical = 10.dp),
+            ) {
+                if (value.isEmpty()) {
+                    Text(
+                        text = placeholder,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    )
+                }
+                innerTextField()
+            }
+        },
+    )
 }
 
 private fun updateDraftAndMaybeTriggerSlashSheet(
@@ -177,50 +255,44 @@ private fun submitDraft(
 @Composable
 private fun SendButton(
     canSubmit: Boolean,
-    isDarkTheme: Boolean,
-    shadowTokens: com.imbot.android.ui.theme.IMbotShadowTokens,
     onSend: () -> Unit,
 ) {
-    Surface(
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+    val scale by
+        animateFloatAsState(
+            targetValue = if (isPressed && canSubmit) 0.92f else 1f,
+            animationSpec = spring(dampingRatio = 0.6f, stiffness = 400f),
+            label = "send-button-scale",
+        )
+
+    Box(
         modifier =
             Modifier
-                .sizeIn(minWidth = 48.dp, minHeight = 48.dp)
-                .then(
-                    if (canSubmit) {
-                        Modifier.appleChrome(
-                            shape = CircleShape,
-                            isDarkTheme = isDarkTheme,
-                            outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                            shadowTokens = shadowTokens,
-                        )
-                    } else {
-                        Modifier
-                    },
-                ),
-        shape = CircleShape,
-        color =
-            if (canSubmit) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.surfaceVariant
-            },
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            IconButton(
-                onClick = onSend,
-                enabled = canSubmit,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.ArrowUpward,
-                    contentDescription = "发送",
-                    tint =
+                .size(36.dp)
+                .scale(scale)
+                .clip(CircleShape)
+                .background(
+                    color =
                         if (canSubmit) {
-                            MaterialTheme.colorScheme.onPrimary
+                            MaterialTheme.colorScheme.primary
                         } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
+                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.2f)
                         },
                 )
-            }
-        }
+                .clickable(
+                    enabled = canSubmit,
+                    interactionSource = interactionSource,
+                    indication = null,
+                    onClick = onSend,
+                ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Filled.ArrowUpward,
+            contentDescription = "发送",
+            modifier = Modifier.size(18.dp),
+            tint = Color.White,
+        )
     }
 }

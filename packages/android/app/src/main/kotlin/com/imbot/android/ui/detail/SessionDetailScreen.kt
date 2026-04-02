@@ -6,16 +6,23 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,16 +31,14 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Badge
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -58,6 +63,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -71,6 +77,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.imbot.android.data.ErrorState
 import com.imbot.android.ui.components.ErrorBannerHost
@@ -80,9 +87,6 @@ import com.imbot.android.ui.components.StatusIndicator
 import com.imbot.android.ui.components.StatusIndicatorVariant
 import com.imbot.android.ui.theme.IMbotAnimations
 import com.imbot.android.ui.theme.LocalProviderColors
-import com.imbot.android.ui.theme.LocalUseDarkTheme
-import com.imbot.android.ui.theme.appleChrome
-import com.imbot.android.ui.theme.appleShadow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -113,6 +117,8 @@ fun SessionDetailScreen(
     val sessionAllowsInteractiveInput = canSendToSession(uiState.session?.status)
     val latestPendingInteractiveCallId = findLatestPendingInteractiveToolCallId(uiState.messages)
     val latestPendingApprovalCallId = findLatestPendingApprovalCallId(uiState.messages)
+    val timelineMessages = remember(uiState.messages) { deduplicateStatusChanges(uiState.messages) }
+    val displayedLastIndex by rememberUpdatedState(timelineMessages.lastIndex)
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showCancelDialog by remember { mutableStateOf(false) }
@@ -134,11 +140,11 @@ fun SessionDetailScreen(
         viewModel.clearError()
     }
 
-    LaunchedEffect(uiState.messages) {
-        if (uiState.messages.isEmpty()) {
+    LaunchedEffect(timelineMessages) {
+        if (timelineMessages.isEmpty()) {
             return@LaunchedEffect
         }
-        renderedKeys.addAll(uiState.messages.map(::timelineKey))
+        renderedKeys.addAll(timelineMessages.map(::timelineKey))
         if (!initialLoadHandled) {
             initialLoadHandled = true
         }
@@ -160,10 +166,11 @@ fun SessionDetailScreen(
         viewModel.events.collectLatest { event ->
             when (event) {
                 is DetailEvent.ScrollToBottom -> {
-                    if (event.targetIndex >= 0) {
+                    val targetIndex = minOf(event.targetIndex, displayedLastIndex)
+                    if (targetIndex >= 0) {
                         snapshotFlow { listState.layoutInfo.totalItemsCount }
-                            .first { count -> count > event.targetIndex }
-                        listState.animateScrollToItem(event.targetIndex)
+                            .first { count -> count > targetIndex }
+                        listState.animateScrollToItem(targetIndex)
                     }
                 }
 
@@ -508,14 +515,23 @@ fun SessionDetailScreen(
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                            contentPadding =
+                                PaddingValues(
+                                    horizontal = MESSAGE_HORIZONTAL_PADDING,
+                                    vertical = MESSAGE_VERTICAL_PADDING,
+                                ),
                         ) {
                             itemsIndexed(
-                                items = uiState.messages,
+                                items = timelineMessages,
                                 key = { _, item -> timelineKey(item) },
                             ) { index, item ->
                                 val key = timelineKey(item)
+                                val spacing =
+                                    if (index == 0) {
+                                        0.dp
+                                    } else {
+                                        messageSpacing(timelineMessages.getOrNull(index - 1), item)
+                                    }
                                 val isItemInSelectionMode =
                                     isSelectionMode(
                                         item = item,
@@ -547,68 +563,70 @@ fun SessionDetailScreen(
                                             0
                                         },
                                 ) {
-                                    when (item) {
-                                        is MessageItem.InteractiveToolCall ->
-                                            InteractiveToolCard(
-                                                item = item,
-                                                isSessionActive = sessionAllowsInteractiveInput,
-                                                isLatestPending =
-                                                    isLatestPendingInteractiveToolCall(
-                                                        item = item,
-                                                        latestPendingCallId = latestPendingInteractiveCallId,
-                                                    ),
-                                                isSending = uiState.isSending,
-                                                onSubmitAnswer = { answer ->
-                                                    viewModel.submitToolAnswer(item.id, answer)
-                                                },
-                                                onLongPress = viewModel::onMessageLongPress,
-                                                selectionModeActive = selectionModeActive,
-                                                onExitSelectionMode = viewModel::onExitSelectionMode,
-                                            )
+                                    Box(modifier = Modifier.padding(top = spacing)) {
+                                        when (item) {
+                                            is MessageItem.InteractiveToolCall ->
+                                                InteractiveToolCard(
+                                                    item = item,
+                                                    isSessionActive = sessionAllowsInteractiveInput,
+                                                    isLatestPending =
+                                                        isLatestPendingInteractiveToolCall(
+                                                            item = item,
+                                                            latestPendingCallId = latestPendingInteractiveCallId,
+                                                        ),
+                                                    isSending = uiState.isSending,
+                                                    onSubmitAnswer = { answer ->
+                                                        viewModel.submitToolAnswer(item.id, answer)
+                                                    },
+                                                    onLongPress = viewModel::onMessageLongPress,
+                                                    selectionModeActive = selectionModeActive,
+                                                    onExitSelectionMode = viewModel::onExitSelectionMode,
+                                                )
 
-                                        is MessageItem.ToolCall ->
-                                            ToolCallCard(
-                                                item = item,
-                                                onLongPress = viewModel::onMessageLongPress,
-                                                selectionModeActive = selectionModeActive,
-                                                onExitSelectionMode = viewModel::onExitSelectionMode,
-                                            )
+                                            is MessageItem.ToolCall ->
+                                                ToolCallCard(
+                                                    item = item,
+                                                    onLongPress = viewModel::onMessageLongPress,
+                                                    selectionModeActive = selectionModeActive,
+                                                    onExitSelectionMode = viewModel::onExitSelectionMode,
+                                                )
 
-                                        else ->
-                                            MessageBubble(
-                                                item = item,
-                                                provider = uiState.session?.provider.orEmpty(),
-                                                isSessionActive = sessionAllowsInteractiveInput,
-                                                isLatestPendingApproval =
-                                                    (item as? MessageItem.StatusChange)?.let { statusChange ->
-                                                        isLatestPendingApprovalRequest(
-                                                            item = statusChange,
-                                                            latestPendingCallId = latestPendingApprovalCallId,
-                                                        )
-                                                    } ?: true,
-                                                isSending = uiState.isSending,
-                                                onApprove = {
-                                                    val callId = (item as? MessageItem.StatusChange)?.callId
-                                                    if (callId.isNullOrBlank()) {
-                                                        viewModel.approveToolCall()
-                                                    } else {
-                                                        viewModel.approveToolCall(callId)
-                                                    }
-                                                },
-                                                onDeny = {
-                                                    val callId = (item as? MessageItem.StatusChange)?.callId
-                                                    if (callId.isNullOrBlank()) {
-                                                        viewModel.denyToolCall()
-                                                    } else {
-                                                        viewModel.denyToolCall(callId)
-                                                    }
-                                                },
-                                                onLongPress = viewModel::onMessageLongPress,
-                                                selectionModeActive = selectionModeActive,
-                                                onExitSelectionMode = viewModel::onExitSelectionMode,
-                                                isSelectionMode = isItemInSelectionMode,
-                                                modifier = itemDismissModifier,
-                                            )
+                                            else ->
+                                                MessageBubble(
+                                                    item = item,
+                                                    provider = uiState.session?.provider.orEmpty(),
+                                                    isSessionActive = sessionAllowsInteractiveInput,
+                                                    isLatestPendingApproval =
+                                                        (item as? MessageItem.StatusChange)?.let { statusChange ->
+                                                            isLatestPendingApprovalRequest(
+                                                                item = statusChange,
+                                                                latestPendingCallId = latestPendingApprovalCallId,
+                                                            )
+                                                        } ?: true,
+                                                    isSending = uiState.isSending,
+                                                    onApprove = {
+                                                        val callId = (item as? MessageItem.StatusChange)?.callId
+                                                        if (callId.isNullOrBlank()) {
+                                                            viewModel.approveToolCall()
+                                                        } else {
+                                                            viewModel.approveToolCall(callId)
+                                                        }
+                                                    },
+                                                    onDeny = {
+                                                        val callId = (item as? MessageItem.StatusChange)?.callId
+                                                        if (callId.isNullOrBlank()) {
+                                                            viewModel.denyToolCall()
+                                                        } else {
+                                                            viewModel.denyToolCall(callId)
+                                                        }
+                                                    },
+                                                    onLongPress = viewModel::onMessageLongPress,
+                                                    selectionModeActive = selectionModeActive,
+                                                    onExitSelectionMode = viewModel::onExitSelectionMode,
+                                                    isSelectionMode = isItemInSelectionMode,
+                                                    modifier = itemDismissModifier,
+                                                )
+                                        }
                                     }
                                 }
                             }
@@ -616,14 +634,28 @@ fun SessionDetailScreen(
                     }
                 }
 
-                if (uiState.scrollState.fabVisible) {
+                AnimatedVisibility(
+                    visible = uiState.scrollState.fabVisible,
+                    enter =
+                        fadeIn(animationSpec = tween(durationMillis = 150)) +
+                            scaleIn(
+                                animationSpec = tween(durationMillis = 150),
+                                initialScale = 0.92f,
+                            ),
+                    exit =
+                        fadeOut(animationSpec = tween(durationMillis = 150)) +
+                            scaleOut(
+                                animationSpec = tween(durationMillis = 150),
+                                targetScale = 0.92f,
+                            ),
+                ) {
                     ScrollToBottomButton(
                         count = uiState.scrollState.newMsgCount,
                         onClick = viewModel::onFabTapped,
                         modifier =
                             Modifier
                                 .align(Alignment.BottomEnd)
-                                .padding(end = 16.dp, bottom = 88.dp),
+                                .padding(end = 16.dp, bottom = 80.dp),
                     )
                 }
             }
@@ -706,46 +738,57 @@ private fun ScrollToBottomButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val isDarkTheme = LocalUseDarkTheme.current
-    val shadowTokens = MaterialTheme.appleShadow
-
-    BadgedBox(
-        modifier = modifier,
-        badge = {
-            if (count > 0) {
-                Badge(
-                    containerColor = MaterialTheme.colorScheme.primary,
-                    contentColor = MaterialTheme.colorScheme.onPrimary,
-                ) {
-                    Text(
-                        text = count.toString(),
-                        style = MaterialTheme.typography.labelSmall,
-                    )
-                }
-            }
-        },
-    ) {
+    Box(modifier = modifier) {
         Surface(
             modifier =
                 Modifier
-                    .size(40.dp)
-                    .appleChrome(
-                        shape = CircleShape,
-                        isDarkTheme = isDarkTheme,
-                        outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
-                        shadowTokens = shadowTokens,
-                    )
+                    .size(36.dp)
                     .clickable(onClick = onClick),
             shape = CircleShape,
-            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.94f),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
+            shadowElevation = 2.dp,
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Icon(
-                    imageVector = Icons.Filled.ArrowDownward,
+                    imageVector = Icons.Filled.KeyboardArrowDown,
                     contentDescription = "回到底部",
+                    modifier = Modifier.size(18.dp),
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+        }
+
+        if (count > 0) {
+            UnreadBadge(count = count)
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.UnreadBadge(count: Int) {
+    Surface(
+        modifier =
+            Modifier
+                .align(Alignment.TopEnd)
+                .padding(top = 0.dp)
+                .offset(x = 4.dp, y = (-4).dp),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.primary,
+    ) {
+        Box(
+            modifier = Modifier.size(16.dp),
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                text = count.toString(),
+                style =
+                    MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 10.sp,
+                        lineHeight = 10.sp,
+                    ),
+                color = MaterialTheme.colorScheme.onPrimary,
+            )
         }
     }
 }
