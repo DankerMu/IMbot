@@ -368,7 +368,7 @@ class EventProcessorTest {
     }
 
     @Test
-    fun `session_started appends running status change`() {
+    fun `session_started is silent and produces no status bubble`() {
         val result =
             processor.process(
                 event(
@@ -377,21 +377,11 @@ class EventProcessorTest {
                 ),
             )
 
-        assertEquals(
-            listOf(
-                MessageItem.StatusChange(
-                    id = "id-1",
-                    status = "running",
-                    message = null,
-                    seq = 1,
-                ),
-            ),
-            result,
-        )
+        assertEquals(emptyList<MessageItem>(), result)
     }
 
     @Test
-    fun `session_idle appends idle status change with follow up hint`() {
+    fun `session_idle is silent and produces no status bubble`() {
         val result =
             processor.process(
                 event(
@@ -400,17 +390,42 @@ class EventProcessorTest {
                 ),
             )
 
-        assertEquals(
-            listOf(
-                MessageItem.StatusChange(
-                    id = "id-1",
-                    status = "idle",
-                    message = "本轮完成，可继续对话",
+        assertEquals(emptyList<MessageItem>(), result)
+    }
+
+    @Test
+    fun `session_status_changed to running is silent`() {
+        val result =
+            processor.process(
+                event(
                     seq = 1,
+                    eventType = "session_status_changed",
+                    payload = payload("status" to "running"),
                 ),
-            ),
-            result,
-        )
+            )
+
+        assertEquals(emptyList<MessageItem>(), result)
+    }
+
+    @Test
+    fun `session_status_changed with error message is shown`() {
+        val result =
+            processor.process(
+                event(
+                    seq = 1,
+                    eventType = "session_status_changed",
+                    payload =
+                        payload(
+                            "status" to "running",
+                            "message" to "Host companion disconnected unexpectedly",
+                        ),
+                ),
+            )
+
+        assertEquals(1, result.size)
+        val status = result[0] as MessageItem.StatusChange
+        assertEquals("running", status.status)
+        assertEquals("Host companion disconnected unexpectedly", status.message)
     }
 
     @Test

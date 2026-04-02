@@ -511,7 +511,7 @@ class DetailViewModelTest {
         }
 
     @Test
-    fun `session_started and session_result update session status`() =
+    fun `session_started is silent but session_result shows terminal status`() =
         runTest(mainDispatcherRule.dispatcher) {
             val relay =
                 FakeRelayHttpClient().apply {
@@ -527,9 +527,10 @@ class DetailViewModelTest {
             ws.emitEvent(event(seq = 1, eventType = "session_started"))
             advanceUntilIdle()
 
+            // session_started updates session status but does NOT create a status bubble
             assertEquals("running", viewModel.uiState.value.session?.status)
             assertFalse(viewModel.uiState.value.canSend)
-            assertStatusChange(viewModel.uiState.value.messages.single(), status = "running", message = null)
+            assertTrue(viewModel.uiState.value.messages.isEmpty())
 
             ws.emitEvent(
                 event(
@@ -540,10 +541,10 @@ class DetailViewModelTest {
             )
             advanceUntilIdle()
 
+            // session_result is a terminal state → shows status bubble
             val messages = viewModel.uiState.value.messages
-            assertEquals(2, messages.size)
-            assertStatusChange(messages[0], status = "running", message = null)
-            assertStatusChange(messages[1], status = "completed", message = "任务完成")
+            assertEquals(1, messages.size)
+            assertStatusChange(messages[0], status = "completed", message = "任务完成")
             assertEquals("completed", viewModel.uiState.value.session?.status)
             assertFalse(viewModel.uiState.value.canSend)
         }

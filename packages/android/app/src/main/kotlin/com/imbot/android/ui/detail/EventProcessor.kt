@@ -80,19 +80,9 @@ class EventProcessor(
             "assistant_message" -> finalizeAssistantMessage(event)
             "tool_call_started" -> appendToolCallStarted(event)
             "tool_call_completed" -> appendToolCallCompleted(event)
-            "session_status_changed" -> appendStatusChange(event)
-            "session_started" ->
-                appendStatusChange(
-                    status = "running",
-                    message = null,
-                    seq = event.seq,
-                )
-            "session_idle" ->
-                appendStatusChange(
-                    status = "idle",
-                    message = "本轮完成，可继续对话",
-                    seq = event.seq,
-                )
+            "session_status_changed" -> appendStatusChangeIfSignificant(event)
+            "session_started" -> Unit // silent — top bar shows status
+            "session_idle" -> Unit // silent — top bar shows status
             "session_result" ->
                 appendStatusChange(
                     status = event.payload.stringValue("status").orEmpty(),
@@ -307,14 +297,24 @@ class EventProcessor(
         }
     }
 
-    private fun appendStatusChange(event: ServerMessage.Event) {
+    private fun appendStatusChangeIfSignificant(event: ServerMessage.Event) {
         val payload = event.payload ?: return
+        val status = payload.stringValue("status").orEmpty()
+        val message = payload.stringValue("message")
+        // Only show terminal states (completed/failed/cancelled) and messages
+        // indicating errors or disconnections. Routine running/idle/queued
+        // transitions are already reflected in the top-bar status indicator.
+        val isTerminal = status in terminalStatuses
+        val hasErrorMessage = !message.isNullOrBlank()
+        if (!isTerminal && !hasErrorMessage) return
         appendStatusChange(
-            status = payload.stringValue("status").orEmpty(),
-            message = payload.stringValue("message"),
+            status = status,
+            message = message,
             seq = event.seq,
         )
     }
+
+    private val terminalStatuses = setOf("completed", "failed", "cancelled")
 
     private fun appendStatusChange(
         status: String,
