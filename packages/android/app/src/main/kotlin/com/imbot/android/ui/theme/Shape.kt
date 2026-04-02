@@ -35,7 +35,7 @@ data class IMbotComponentShapes(
     val bottomSheet: Shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
     val dialog: Shape = RoundedCornerShape(20.dp),
     val input: Shape = RoundedCornerShape(12.dp),
-    val codeBlock: Shape = RoundedCornerShape(8.dp),
+    val codeBlock: Shape = RoundedCornerShape(12.dp),
 )
 
 val IMbotMaterialShapes =

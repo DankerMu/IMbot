@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -39,6 +40,22 @@ import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalProviderColors
 import com.imbot.android.ui.theme.LocalStatusColors
 
+internal val AgentBubbleShape =
+    RoundedCornerShape(
+        topStart = 4.dp,
+        topEnd = 16.dp,
+        bottomStart = 16.dp,
+        bottomEnd = 16.dp,
+    )
+
+internal val UserBubbleShape =
+    RoundedCornerShape(
+        topStart = 16.dp,
+        topEnd = 4.dp,
+        bottomStart = 16.dp,
+        bottomEnd = 16.dp,
+    )
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun MessageBubble(
@@ -55,13 +72,10 @@ fun MessageBubble(
     isSelectionMode: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
-    val bubbleShape = MaterialTheme.shapes.extraLarge
-
     when (item) {
         is MessageItem.UserMessage ->
             UserMessageBubble(
                 item = item,
-                bubbleShape = bubbleShape,
                 onLongPress = onLongPress,
                 selectionModeActive = selectionModeActive,
                 onExitSelectionMode = onExitSelectionMode,
@@ -73,7 +87,6 @@ fun MessageBubble(
             AgentMessageBubble(
                 item = item,
                 provider = provider,
-                bubbleShape = bubbleShape,
                 onLongPress = onLongPress,
                 selectionModeActive = selectionModeActive,
                 onExitSelectionMode = onExitSelectionMode,
@@ -100,7 +113,6 @@ fun MessageBubble(
 @Composable
 private fun UserMessageBubble(
     item: MessageItem.UserMessage,
-    bubbleShape: androidx.compose.ui.graphics.Shape,
     onLongPress: ((MessageItem) -> Unit)? = null,
     selectionModeActive: Boolean = false,
     onExitSelectionMode: (() -> Unit)? = null,
@@ -117,13 +129,11 @@ private fun UserMessageBubble(
         Surface(
             color =
                 selectedBubbleColor(
-                    baseColor =
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f).compositeOver(
-                            MaterialTheme.colorScheme.surface,
-                        ),
+                    baseColor = MaterialTheme.colorScheme.primaryContainer,
                     isSelectionMode = isSelectionMode,
                 ),
-            shape = bubbleShape,
+            shape = UserBubbleShape,
+            shadowElevation = 0.5.dp,
             modifier =
                 Modifier
                     .messageLongPressable(
@@ -140,7 +150,7 @@ private fun UserMessageBubble(
                     text = item.text,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                     style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurface,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
             }
         }
@@ -157,7 +167,6 @@ private fun UserMessageBubble(
 private fun AgentMessageBubble(
     item: MessageItem.AgentMessage,
     provider: String,
-    bubbleShape: androidx.compose.ui.graphics.Shape,
     onLongPress: ((MessageItem) -> Unit)? = null,
     selectionModeActive: Boolean = false,
     onExitSelectionMode: (() -> Unit)? = null,
@@ -204,10 +213,11 @@ private fun AgentMessageBubble(
             Surface(
                 color =
                     selectedBubbleColor(
-                        baseColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.76f),
+                        baseColor = MaterialTheme.colorScheme.surfaceContainer,
                         isSelectionMode = isSelectionMode,
                     ),
-                shape = bubbleShape,
+                shape = AgentBubbleShape,
+                shadowElevation = 0.5.dp,
                 modifier =
                     Modifier
                         .weight(1f)
@@ -282,14 +292,14 @@ private fun StatusChangeBubble(
         contentAlignment = Alignment.Center,
     ) {
         Surface(
-            color = statusColor.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.surface),
+            color = statusColor.copy(alpha = 0.05f).compositeOver(MaterialTheme.colorScheme.surface),
             shape = componentShapes.pill,
         ) {
             Text(
                 text = item.message?.takeIf(String::isNotBlank) ?: statusLabel(item.status),
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f),
                 textAlign = TextAlign.Center,
             )
         }
