@@ -355,8 +355,9 @@ private fun MarkdownTable(
     modifier: Modifier = Modifier,
     contentColor: Color = MaterialTheme.colorScheme.onSurface,
 ) {
-    val borderColor = MaterialTheme.colorScheme.outlineVariant
-    val headerBackground = MaterialTheme.colorScheme.surfaceVariant
+    val useDarkTheme = LocalUseDarkTheme.current
+    val borderColor = if (useDarkTheme) MaterialTheme.colorScheme.outlineVariant else Color(0xFFE2E8F0)
+    val headerBackground = if (useDarkTheme) MaterialTheme.colorScheme.surfaceVariant else Color(0xFFF8FAFC)
     val columnCount = maxOf(header.size, rows.maxOfOrNull(List<String>::size) ?: 0)
 
     BoxWithConstraints(
@@ -384,6 +385,7 @@ private fun MarkdownTable(
                     alignments = alignments,
                     backgroundColor = headerBackground,
                     borderColor = borderColor,
+                    useDarkTheme = useDarkTheme,
                     textStyle =
                         MaterialTheme.typography.bodyMedium.copy(
                             fontWeight = FontWeight.Medium,
@@ -397,11 +399,16 @@ private fun MarkdownTable(
                         alignments = alignments,
                         backgroundColor =
                             if (isStripedTableRow(rowIndex)) {
-                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                if (useDarkTheme) {
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                } else {
+                                    Color(0xFFF8FAFC)
+                                }
                             } else {
                                 MaterialTheme.colorScheme.surface
                             },
                         borderColor = borderColor,
+                        useDarkTheme = useDarkTheme,
                         textStyle = MaterialTheme.typography.bodyMedium.copy(color = contentColor),
                     )
                 }
@@ -417,6 +424,7 @@ private fun MarkdownTableRow(
     alignments: List<MarkdownTableAlignment>,
     backgroundColor: Color,
     borderColor: Color,
+    useDarkTheme: Boolean,
     textStyle: TextStyle,
 ) {
     Row(
@@ -435,7 +443,20 @@ private fun MarkdownTableRow(
                         .defaultMinSize(minWidth = MarkdownTableMinColumnWidth)
                         .fillMaxHeight()
                         .background(backgroundColor)
-                        .border(width = 1.dp, color = borderColor)
+                        .then(
+                            if (useDarkTheme) {
+                                Modifier.border(width = 1.dp, color = borderColor)
+                            } else {
+                                Modifier.drawBehind {
+                                    drawLine(
+                                        color = borderColor,
+                                        start = Offset(0f, size.height),
+                                        end = Offset(size.width, size.height),
+                                        strokeWidth = 1.dp.toPx(),
+                                    )
+                                }
+                            },
+                        )
                         .padding(
                             horizontal = MarkdownTableCellHorizontalPadding,
                             vertical = MarkdownTableCellVerticalPadding,
