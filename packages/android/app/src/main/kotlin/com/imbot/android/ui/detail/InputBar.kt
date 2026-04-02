@@ -175,7 +175,7 @@ private fun PillTextField(
                     Modifier
                         .fillMaxWidth()
                         .clip(shape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
                         .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
                 if (value.isEmpty()) {
