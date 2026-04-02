@@ -232,7 +232,8 @@ private fun AgentMessageBubble(
                         isSelectionMode = isSelectionMode,
                     ),
                 shape = componentShapes.assistantMessageBubble,
-                border = bubbleBorder,
+                border = if (useDarkTheme) bubbleBorder else null,
+                shadowElevation = if (useDarkTheme) 0.dp else 1.dp,
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
