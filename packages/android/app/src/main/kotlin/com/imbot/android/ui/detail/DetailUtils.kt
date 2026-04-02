@@ -12,6 +12,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 internal const val SCROLL_PAUSE_THRESHOLD_DP = 100f
+private const val TOOL_CALL_COPY_SUMMARY_LIMIT = 200
 
 private val DefaultDetailStatusColors =
     StatusColors(
@@ -255,16 +256,23 @@ internal fun copyableText(item: MessageItem): String? =
                     append(toolName)
                     item.args?.takeIf(String::isNotBlank)?.let { args ->
                         append("\nInput: ")
-                        append(args)
+                        append(summarizeToolCallCopyField(args))
                     }
                     item.result?.takeIf(String::isNotBlank)?.let { result ->
                         append("\nOutput: ")
-                        append(result)
+                        append(summarizeToolCallCopyField(result))
                     }
                 }
             }
 
         is MessageItem.StatusChange -> null
+    }
+
+private fun summarizeToolCallCopyField(text: String): String =
+    if (text.length > TOOL_CALL_COPY_SUMMARY_LIMIT) {
+        text.take(TOOL_CALL_COPY_SUMMARY_LIMIT) + "..."
+    } else {
+        text
     }
 
 internal fun copyableAgentTranscript(messages: List<MessageItem>): String =

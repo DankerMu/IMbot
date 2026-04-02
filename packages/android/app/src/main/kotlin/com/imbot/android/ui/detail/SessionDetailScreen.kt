@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -99,7 +100,9 @@ fun SessionDetailScreen(
     val coroutineScope = rememberCoroutineScope()
     val density = LocalDensity.current
     val messageMenuTarget = uiState.messageMenuTarget
-    val messageActions = messageMenuTarget?.let(::availableActions).orEmpty()
+    val selectionModeMessageId = uiState.selectionModeMessageId
+    val selectionModeActive = selectionModeMessageId != null
+    val messageActions = messageMenuTarget?.takeIf(::hasActions)?.let(::availableActions).orEmpty()
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showCancelDialog by remember { mutableStateOf(false) }
@@ -108,7 +111,7 @@ fun SessionDetailScreen(
     var initialLoadHandled by rememberSaveable(sessionId) { mutableStateOf(false) }
     val renderedKeys = remember(sessionId) { mutableSetOf<String>() }
 
-    BackHandler(enabled = uiState.selectionModeMessageId != null) {
+    BackHandler(enabled = selectionModeActive) {
         viewModel.onExitSelectionMode()
     }
 
@@ -309,7 +312,11 @@ fun SessionDetailScreen(
                     navigationIcon = {
                         IconButton(
                             onClick = {
-                                onNavigateBack(false)
+                                if (selectionModeActive) {
+                                    viewModel.onExitSelectionMode()
+                                } else {
+                                    onNavigateBack(false)
+                                }
                             },
                         ) {
                             Icon(
@@ -489,9 +496,24 @@ fun SessionDetailScreen(
                                 key = { _, item -> timelineKey(item) },
                             ) { index, item ->
                                 val key = timelineKey(item)
+                                val isItemInSelectionMode =
+                                    isSelectionMode(
+                                        item = item,
+                                        selectionModeMessageId = selectionModeMessageId,
+                                    )
                                 val shouldStaggerInitial =
                                     !initialLoadHandled && index < IMbotAnimations.STAGGER_ITEM_LIMIT
                                 val shouldAnimateNew = initialLoadHandled && key !in renderedKeys
+                                val itemDismissModifier =
+                                    if (
+                                        selectionModeActive &&
+                                        !isItemInSelectionMode &&
+                                        item !is MessageItem.ToolCall
+                                    ) {
+                                        Modifier.clickable(onClick = viewModel::onExitSelectionMode)
+                                    } else {
+                                        Modifier
+                                    }
 
                                 AnimatedTimelineEntry(
                                     itemKey = key,
@@ -508,6 +530,8 @@ fun SessionDetailScreen(
                                             ToolCallCard(
                                                 item = item,
                                                 onLongPress = viewModel::onMessageLongPress,
+                                                selectionModeActive = selectionModeActive,
+                                                onExitSelectionMode = viewModel::onExitSelectionMode,
                                             )
 
                                         else ->
@@ -515,11 +539,10 @@ fun SessionDetailScreen(
                                                 item = item,
                                                 provider = uiState.session?.provider.orEmpty(),
                                                 onLongPress = viewModel::onMessageLongPress,
-                                                isSelectionMode =
-                                                    isSelectionMode(
-                                                        item = item,
-                                                        selectionModeMessageId = uiState.selectionModeMessageId,
-                                                    ),
+                                                selectionModeActive = selectionModeActive,
+                                                onExitSelectionMode = viewModel::onExitSelectionMode,
+                                                isSelectionMode = isItemInSelectionMode,
+                                                modifier = itemDismissModifier,
                                             )
                                     }
                                 }

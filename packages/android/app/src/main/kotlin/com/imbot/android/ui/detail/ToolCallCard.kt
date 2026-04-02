@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -45,12 +46,14 @@ import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 fun ToolCallCard(
     item: MessageItem.ToolCall,
     onLongPress: ((MessageItem) -> Unit)? = null,
+    selectionModeActive: Boolean = false,
+    onExitSelectionMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     var expanded by rememberSaveable(item.callId) { mutableStateOf(item.isRunning) }
     val componentShapes = LocalIMbotComponentShapes.current
     val hapticFeedback = LocalHapticFeedback.current
-    val canLongPress = onLongPress != null && availableActions(item).isNotEmpty()
+    val canLongPress = onLongPress != null && hasActions(item)
     val chevronRotation by
         animateFloatAsState(
             targetValue = if (expanded) 180f else 0f,
@@ -79,17 +82,14 @@ fun ToolCallCard(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .combinedClickable(
-                            onClick = { expanded = !expanded },
-                            onLongClick =
-                                if (canLongPress) {
-                                    {
-                                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onLongPress?.invoke(item)
-                                    }
-                                } else {
-                                    null
-                                },
+                        .toolCallInteractions(
+                            item = item,
+                            canLongPress = canLongPress,
+                            selectionModeActive = selectionModeActive,
+                            onExitSelectionMode = onExitSelectionMode,
+                            onToggleExpanded = { expanded = !expanded },
+                            onLongPress = onLongPress,
+                            hapticFeedback = hapticFeedback,
                         )
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -154,6 +154,13 @@ fun ToolCallCard(
                     modifier =
                         Modifier
                             .fillMaxWidth()
+                            .let { baseModifier ->
+                                if (selectionModeActive && onExitSelectionMode != null) {
+                                    baseModifier.clickable(onClick = onExitSelectionMode)
+                                } else {
+                                    baseModifier
+                                }
+                            }
                             .padding(horizontal = 16.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -174,6 +181,45 @@ fun ToolCallCard(
         }
     }
 }
+
+@OptIn(ExperimentalFoundationApi::class)
+private fun Modifier.toolCallInteractions(
+    item: MessageItem.ToolCall,
+    canLongPress: Boolean,
+    selectionModeActive: Boolean,
+    onExitSelectionMode: (() -> Unit)?,
+    onToggleExpanded: () -> Unit,
+    onLongPress: ((MessageItem) -> Unit)?,
+    hapticFeedback: androidx.compose.ui.hapticfeedback.HapticFeedback,
+): Modifier =
+    when {
+        selectionModeActive && onExitSelectionMode != null -> {
+            if (canLongPress) {
+                combinedClickable(
+                    onClick = onExitSelectionMode,
+                    onLongClick = {
+                        hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onLongPress?.invoke(item)
+                    },
+                )
+            } else {
+                clickable(onClick = onExitSelectionMode)
+            }
+        }
+        else ->
+            combinedClickable(
+                onClick = onToggleExpanded,
+                onLongClick =
+                    if (canLongPress) {
+                        {
+                            hapticFeedback.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onLongPress?.invoke(item)
+                        }
+                    } else {
+                        null
+                    },
+            )
+    }
 
 @Composable
 private fun ToolCallSection(

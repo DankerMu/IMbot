@@ -34,20 +34,27 @@ internal sealed interface MessageAction {
     data object SelectText : MessageAction
 }
 
-internal fun availableActions(item: MessageItem): List<MessageAction> =
+internal fun hasActions(item: MessageItem): Boolean =
     when (item) {
-        is MessageItem.AgentMessage -> {
-            if (item.isStreaming) {
-                emptyList()
-            } else {
-                buildList {
-                    copyableText(item)?.let { text ->
-                        add(MessageAction.CopyMessage(text))
-                    }
-                    add(MessageAction.SelectText)
+        is MessageItem.AgentMessage -> !item.isStreaming
+        is MessageItem.UserMessage -> true
+        is MessageItem.ToolCall -> item.toolName.isNotBlank()
+        is MessageItem.StatusChange -> false
+    }
+
+internal fun availableActions(item: MessageItem): List<MessageAction> {
+    if (!hasActions(item)) {
+        return emptyList()
+    }
+
+    return when (item) {
+        is MessageItem.AgentMessage ->
+            buildList {
+                copyableText(item)?.let { text ->
+                    add(MessageAction.CopyMessage(text))
                 }
+                add(MessageAction.SelectText)
             }
-        }
 
         is MessageItem.UserMessage ->
             buildList {
@@ -64,6 +71,7 @@ internal fun availableActions(item: MessageItem): List<MessageAction> =
 
         is MessageItem.StatusChange -> emptyList()
     }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
