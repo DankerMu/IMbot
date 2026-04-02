@@ -36,7 +36,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -238,7 +237,7 @@ private fun DeleteBackground() {
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(Color(0xFFFF3B30))
+                .background(MaterialTheme.colorScheme.error)
                 .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically,
@@ -246,7 +245,7 @@ private fun DeleteBackground() {
         Icon(
             imageVector = Icons.Filled.Delete,
             contentDescription = null,
-            tint = Color.White,
+            tint = MaterialTheme.colorScheme.onError,
         )
     }
 }

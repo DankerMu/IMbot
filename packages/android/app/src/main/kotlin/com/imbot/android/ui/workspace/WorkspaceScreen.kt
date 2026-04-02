@@ -196,7 +196,7 @@ fun WorkspaceScreen(
                         )
                     }
 
-                    uiState.hosts.all { host -> host.roots.isEmpty() } -> {
+                    uiState.hosts.isEmpty() -> {
                         WorkspaceEmptyState(
                             title = "暂无根目录",
                             description = "添加一个根目录后，就能直接按目录恢复会话。",
@@ -212,7 +212,7 @@ fun WorkspaceScreen(
                             verticalArrangement = Arrangement.spacedBy(20.dp),
                         ) {
                             items(
-                                items = uiState.hosts.filter { host -> host.roots.isNotEmpty() },
+                                items = uiState.hosts,
                                 key = { hostWithRoots -> hostWithRoots.host.id },
                             ) { hostWithRoots ->
                                 HostSection(
@@ -272,26 +272,40 @@ private fun HostSection(
             color = MaterialTheme.colorScheme.surface,
         ) {
             Column {
-                hostWithRoots.roots.forEachIndexed { index, root ->
-                    WorkspaceRootRow(
-                        root = root,
-                        onClick = {
-                            onOpenRoot(root)
-                        },
-                        onRemove = {
-                            onRemoveRoot(root)
-                        },
-                    )
-                    if (index < hostWithRoots.roots.lastIndex) {
-                        HorizontalDivider(
-                            modifier = Modifier.padding(start = 72.dp),
-                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f),
+                if (hostWithRoots.roots.isEmpty()) {
+                    EmptyHostRootsPlaceholder()
+                } else {
+                    hostWithRoots.roots.forEachIndexed { index, root ->
+                        WorkspaceRootRow(
+                            root = root,
+                            onClick = {
+                                onOpenRoot(root)
+                            },
+                            onRemove = {
+                                onRemoveRoot(root)
+                            },
                         )
+                        if (index < hostWithRoots.roots.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 72.dp),
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f),
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun EmptyHostRootsPlaceholder() {
+    Text(
+        text = "暂无目录",
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable

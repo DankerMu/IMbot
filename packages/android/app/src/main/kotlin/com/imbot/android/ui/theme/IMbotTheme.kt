@@ -5,6 +5,7 @@ package com.imbot.android.ui.theme
 import android.annotation.SuppressLint
 import android.os.Build
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
@@ -132,7 +133,7 @@ fun IMbotTheme(
 
     Crossfade(
         targetState = themeResolution,
-        animationSpec = IMbotAnimations.GentleSpring,
+        animationSpec = tween(durationMillis = IMbotAnimations.THEME_CROSSFADE_MS),
         label = "imbot-theme",
     ) { resolvedTheme ->
         @SuppressLint("NewApi") // guarded by resolvedTheme.useDynamicColor (sdkInt >= S)

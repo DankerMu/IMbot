@@ -35,12 +35,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.imbot.android.ui.components.StreamingCursor
-import com.imbot.android.ui.theme.LabelSecondaryDark
-import com.imbot.android.ui.theme.LabelTertiary
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalProviderColors
 import com.imbot.android.ui.theme.LocalStatusColors
-import com.imbot.android.ui.theme.LocalUseDarkTheme
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -266,7 +263,6 @@ private fun StatusChangeBubble(
     modifier: Modifier = Modifier,
 ) {
     val componentShapes = LocalIMbotComponentShapes.current
-    val isDarkTheme = LocalUseDarkTheme.current
     if (item.eventType == "approval_required" || item.eventType == "approval_resolved") {
         ApprovalCard(
             item = item,
@@ -281,7 +277,6 @@ private fun StatusChangeBubble(
     }
 
     val statusColor = detailStatusColor(item.status, LocalStatusColors.current)
-    val textColor = if (isDarkTheme) LabelSecondaryDark else LabelTertiary
     Box(
         modifier = modifier.fillMaxWidth(),
         contentAlignment = Alignment.Center,
@@ -294,7 +289,7 @@ private fun StatusChangeBubble(
                 text = item.message?.takeIf(String::isNotBlank) ?: statusLabel(item.status),
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.labelMedium,
-                color = textColor,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
         }

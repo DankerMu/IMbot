@@ -43,6 +43,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalUseDarkTheme
 import com.imbot.android.ui.theme.SuccessColor
+import com.imbot.android.ui.theme.SuccessOnSurface
 import com.imbot.android.ui.theme.SurfaceTertiary
 import com.imbot.android.ui.theme.SurfaceTertiaryDark
 import com.imbot.android.ui.theme.appleChrome
@@ -62,13 +63,33 @@ fun OnboardingScreen(
     val componentShapes = LocalIMbotComponentShapes.current
     val spacing = MaterialTheme.spacing
     val isDarkTheme = LocalUseDarkTheme.current
+    val colorScheme = MaterialTheme.colorScheme
+    val defaultButtonColors = ButtonDefaults.buttonColors()
     val buttonColors =
-        ButtonDefaults.buttonColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary,
-            disabledContainerColor = if (isDarkTheme) SurfaceTertiaryDark else SurfaceTertiary,
-            disabledContentColor = MaterialTheme.colorScheme.outline,
-        )
+        remember(
+            defaultButtonColors,
+            colorScheme.primary,
+            colorScheme.onPrimary,
+            colorScheme.outline,
+            isDarkTheme,
+        ) {
+            defaultButtonColors.copy(
+                containerColor = colorScheme.primary,
+                contentColor = colorScheme.onPrimary,
+                disabledContainerColor = if (isDarkTheme) SurfaceTertiaryDark else SurfaceTertiary,
+                disabledContentColor = colorScheme.outline,
+            )
+        }
+    val logoBrush =
+        remember(colorScheme.primary, colorScheme.primaryContainer) {
+            Brush.linearGradient(
+                colors =
+                    listOf(
+                        colorScheme.primary,
+                        colorScheme.primaryContainer,
+                    ),
+            )
+        }
 
     LaunchedEffect(viewModel) {
         viewModel.events.collectLatest { event ->
@@ -99,14 +120,7 @@ fun OnboardingScreen(
                     Modifier
                         .size(92.dp)
                         .background(
-                            brush =
-                                Brush.linearGradient(
-                                    colors =
-                                        listOf(
-                                            MaterialTheme.colorScheme.primary,
-                                            MaterialTheme.colorScheme.primaryContainer,
-                                        ),
-                                ),
+                            brush = logoBrush,
                             shape = CircleShape,
                         ),
                 contentAlignment = Alignment.Center,
@@ -229,7 +243,7 @@ private fun TestResultPanel(testResult: TestResult) {
     val componentShapes = LocalIMbotComponentShapes.current
     val isDarkTheme = LocalUseDarkTheme.current
     val shadowTokens = MaterialTheme.appleShadow
-    val successColor = SuccessColor
+    val successColor = if (isDarkTheme) SuccessColor else SuccessOnSurface
     val errorColor = MaterialTheme.colorScheme.error
 
     Surface(
