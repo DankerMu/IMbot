@@ -39,11 +39,16 @@ internal fun InteractiveToolCard(
     modifier: Modifier = Modifier,
 ) {
     var answerDraft by rememberSaveable(item.id) { mutableStateOf(item.answer.orEmpty()) }
+    var selectedSet by rememberSaveable(item.id) { mutableStateOf(emptySet<String>()) }
     val primaryQuestion = item.primaryQuestion
     val isExpired = !item.isAnswered && !isLatestPending
     val inputEnabled = isSessionActive && !item.isAnswered && isLatestPending && !isSending
-    val canSubmit = answerDraft.trim().isNotEmpty() && inputEnabled
-    val selectedOptions = selectedOptionLabels(answerDraft)
+    val canSubmit =
+        if (primaryQuestion.multiSelect) {
+            selectedSet.isNotEmpty() && inputEnabled
+        } else {
+            answerDraft.trim().isNotEmpty() && inputEnabled
+        }
     val containerColor =
         if (item.isAnswered || isExpired) {
             MaterialTheme.colorScheme.surfaceVariant
@@ -82,48 +87,39 @@ internal fun InteractiveToolCard(
                 style = MaterialTheme.typography.bodyLarge,
             )
 
-            primaryQuestion.options?.takeIf { !item.isAnswered }?.let { options ->
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    options.forEach { option ->
-                        if (primaryQuestion.multiSelect) {
-                            FilterChip(
-                                selected = option.label in selectedOptions,
-                                onClick = {
-                                    answerDraft =
-                                        toggleSelectedOption(
-                                            answerDraft = answerDraft,
-                                            optionLabel = option.label,
-                                        )
-                                },
-                                enabled = inputEnabled,
-                                label = {
-                                    InteractiveToolOptionText(option = option)
-                                },
-                            )
+            InteractiveToolOptionsSection(
+                item = item,
+                inputEnabled = inputEnabled,
+                selectedSet = selectedSet,
+                onToggleSelected = { label ->
+                    selectedSet =
+                        if (label in selectedSet) {
+                            selectedSet - label
                         } else {
-                            OutlinedButton(
-                                onClick = {
-                                    answerDraft = option.label
-                                },
-                                enabled = inputEnabled,
-                            ) {
-                                InteractiveToolOptionText(option = option)
-                            }
+                            selectedSet + label
                         }
-                    }
-                }
-            }
+                },
+                onSelectOption = { label ->
+                    answerDraft = label
+                },
+            )
 
             InteractiveToolAnswerSection(
                 item = item,
                 answerDraft = answerDraft,
                 inputEnabled = inputEnabled,
                 canSubmit = canSubmit,
+                showTextField = !primaryQuestion.multiSelect,
                 onAnswerDraftChanged = { answerDraft = it },
-                onSubmitAnswer = { onSubmitAnswer(answerDraft) },
+                onSubmitAnswer = {
+                    val submittedAnswer =
+                        if (primaryQuestion.multiSelect) {
+                            selectedSet.joinToString(", ")
+                        } else {
+                            answerDraft
+                        }
+                    onSubmitAnswer(submittedAnswer)
+                },
             )
             InteractiveToolCardStatusNote(
                 isExpired = isExpired,
@@ -145,6 +141,48 @@ private fun InteractiveToolQuestionHeader(header: String) {
             style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSecondaryContainer,
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun InteractiveToolOptionsSection(
+    item: MessageItem.InteractiveToolCall,
+    inputEnabled: Boolean,
+    selectedSet: Set<String>,
+    onToggleSelected: (String) -> Unit,
+    onSelectOption: (String) -> Unit,
+) {
+    val primaryQuestion = item.primaryQuestion
+    val options = primaryQuestion.options?.takeIf { !item.isAnswered } ?: return
+
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        options.forEach { option ->
+            if (primaryQuestion.multiSelect) {
+                FilterChip(
+                    selected = option.label in selectedSet,
+                    onClick = {
+                        onToggleSelected(option.label)
+                    },
+                    enabled = inputEnabled,
+                    label = {
+                        InteractiveToolOptionText(option = option)
+                    },
+                )
+            } else {
+                OutlinedButton(
+                    onClick = {
+                        onSelectOption(option.label)
+                    },
+                    enabled = inputEnabled,
+                ) {
+                    InteractiveToolOptionText(option = option)
+                }
+            }
+        }
     }
 }
 
@@ -183,6 +221,7 @@ private fun InteractiveToolAnswerSection(
     answerDraft: String,
     inputEnabled: Boolean,
     canSubmit: Boolean,
+    showTextField: Boolean,
     onAnswerDraftChanged: (String) -> Unit,
     onSubmitAnswer: () -> Unit,
 ) {
@@ -199,16 +238,18 @@ private fun InteractiveToolAnswerSection(
         return
     }
 
-    OutlinedTextField(
-        value = answerDraft,
-        onValueChange = onAnswerDraftChanged,
-        modifier = Modifier.fillMaxWidth(),
-        enabled = inputEnabled,
-        minLines = 2,
-        placeholder = {
-            Text("输入你的回答")
-        },
-    )
+    if (showTextField) {
+        OutlinedTextField(
+            value = answerDraft,
+            onValueChange = onAnswerDraftChanged,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = inputEnabled,
+            minLines = 2,
+            placeholder = {
+                Text("输入你的回答")
+            },
+        )
+    }
 
     Button(
         onClick = onSubmitAnswer,
@@ -243,33 +284,6 @@ private fun InteractiveToolCardStatusNote(
         style = MaterialTheme.typography.labelSmall,
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-}
-
-private fun selectedOptionLabels(answerDraft: String): Set<String> =
-    answerDraft
-        .split(",")
-        .map(String::trim)
-        .filter(String::isNotBlank)
-        .toSet()
-
-private fun toggleSelectedOption(
-    answerDraft: String,
-    optionLabel: String,
-): String {
-    val selectedOptions =
-        answerDraft
-            .split(",")
-            .map(String::trim)
-            .filter(String::isNotBlank)
-            .toMutableList()
-
-    if (optionLabel in selectedOptions) {
-        selectedOptions.remove(optionLabel)
-    } else {
-        selectedOptions += optionLabel
-    }
-
-    return selectedOptions.joinToString(", ")
 }
 
 @Composable

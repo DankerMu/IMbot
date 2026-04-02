@@ -18,6 +18,7 @@ internal const val SCROLL_PAUSE_THRESHOLD_DP = 100f
 internal const val DEFAULT_ASK_USER_QUESTION_MESSAGE = "Agent is asking for input"
 internal const val MAX_ASK_USER_QUESTION_OPTIONS = 10
 internal const val ASK_USER_QUESTION_OPTIONS_TRUNCATED_NOTE = "仅显示前 10 个选项"
+private const val MAX_ASK_USER_QUESTIONS = 5
 private const val TOOL_CALL_COPY_SUMMARY_LIMIT = 200
 
 private val DefaultDetailStatusColors =
@@ -180,14 +181,7 @@ internal fun parseAskUserQuestion(inputJson: String?): Pair<String, List<String>
                     array.optString(index).takeIf { it.isNotBlank() }
                 }
             }?.takeIf { it.isNotEmpty() }
-        val decoratedQuestion =
-            question?.let { parsedQuestion ->
-                if (optionCount > MAX_ASK_USER_QUESTION_OPTIONS) {
-                    "$parsedQuestion\n\n$ASK_USER_QUESTION_OPTIONS_TRUNCATED_NOTE"
-                } else {
-                    parsedQuestion
-                }
-            }
+        val decoratedQuestion = question?.let { parsedQuestion -> decorateAskUserQuestion(parsedQuestion, optionCount) }
 
         when {
             decoratedQuestion != null -> decoratedQuestion to options
@@ -207,28 +201,37 @@ private fun defaultParsedQuestion(question: String = DEFAULT_ASK_USER_QUESTION_M
         multiSelect = false,
     )
 
+private fun decorateAskUserQuestion(
+    question: String,
+    optionCount: Int,
+): String =
+    if (optionCount > MAX_ASK_USER_QUESTION_OPTIONS) {
+        "$question\n\n$ASK_USER_QUESTION_OPTIONS_TRUNCATED_NOTE"
+    } else {
+        question
+    }
+
 private fun parseStandardAskUserQuestions(array: JSONArray): List<ParsedQuestion> =
-    (0 until array.length()).map { index ->
+    (0 until array.length().coerceAtMost(MAX_ASK_USER_QUESTIONS)).map { index ->
         val questionObject = array.getJSONObject(index)
-        val questionText =
+        val rawQuestionText =
             questionObject
                 .optString("question", "")
                 .takeIf(String::isNotBlank)
                 ?: DEFAULT_ASK_USER_QUESTION_MESSAGE
         val header = questionObject.optString("header", "").takeIf(String::isNotBlank)
         val multiSelect = questionObject.optBoolean("multiSelect", false)
+        val optionArray = questionObject.optJSONArray("options")
         val options =
-            questionObject
-                .optJSONArray("options")
-                ?.let { optionArray ->
-                    parseAskUserQuestionOptions(
-                        array = optionArray,
-                        allowScalarFallback = true,
-                    )
-                }?.takeIf { it.isNotEmpty() }
+            optionArray?.let {
+                parseAskUserQuestionOptions(
+                    array = it,
+                    allowScalarFallback = true,
+                )
+            }?.takeIf { it.isNotEmpty() }
 
         ParsedQuestion(
-            question = questionText,
+            question = decorateAskUserQuestion(rawQuestionText, optionArray?.length() ?: 0),
             header = header,
             options = options,
             multiSelect = multiSelect,
@@ -237,18 +240,22 @@ private fun parseStandardAskUserQuestions(array: JSONArray): List<ParsedQuestion
 
 private fun parseSimplifiedAskUserQuestion(json: JSONObject): List<ParsedQuestion> {
     val question = json.optString("question", "").takeIf(String::isNotBlank)
+    val optionArray = json.optJSONArray("options")
     val options =
-        json.optJSONArray("options")
-            ?.let { optionArray ->
-                parseAskUserQuestionOptions(
-                    array = optionArray,
-                    allowScalarFallback = false,
-                )
-            }?.takeIf { it.isNotEmpty() }
+        optionArray?.let {
+            parseAskUserQuestionOptions(
+                array = it,
+                allowScalarFallback = false,
+            )
+        }?.takeIf { it.isNotEmpty() }
 
     return listOf(
         ParsedQuestion(
-            question = question ?: DEFAULT_ASK_USER_QUESTION_MESSAGE,
+            question =
+                decorateAskUserQuestion(
+                    question = question ?: DEFAULT_ASK_USER_QUESTION_MESSAGE,
+                    optionCount = optionArray?.length() ?: 0,
+                ),
             header = null,
             options = options,
             multiSelect = false,

@@ -219,7 +219,7 @@ class DetailUtilsTest {
     }
 
     @Test
-    fun `parseAskUserQuestionV2 supports multi select mixed options and truncation`() {
+    fun `parseAskUserQuestionV2 supports multi select mixed options and caps large option sets`() {
         assertEquals(
             listOf(
                 ParsedQuestion(
