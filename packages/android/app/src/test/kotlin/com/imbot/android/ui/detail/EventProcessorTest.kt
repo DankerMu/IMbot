@@ -334,6 +334,77 @@ class EventProcessorTest {
     }
 
     @Test
+    fun `tool_call_completed marks payload error field as failed`() {
+        processor.process(
+            event(
+                seq = 1,
+                eventType = "tool_call_started",
+                payload = payload("call_id" to "call-1", "tool_name" to "edit", "title" to "编辑文件"),
+            ),
+        )
+
+        val result =
+            processor.process(
+                event(
+                    seq = 2,
+                    eventType = "tool_call_completed",
+                    payload =
+                        payload(
+                            "call_id" to "call-1",
+                            "result" to "old_string not found",
+                            "error" to "old_string not found",
+                        ),
+                ),
+            )
+
+        assertTrue((result.single() as MessageItem.ToolCall).isError)
+    }
+
+    @Test
+    fun `tool_call_completed marks ENOENT result as failed`() {
+        processor.process(
+            event(
+                seq = 1,
+                eventType = "tool_call_started",
+                payload = payload("call_id" to "call-1", "tool_name" to "read", "title" to "读取文件"),
+            ),
+        )
+
+        val result =
+            processor.process(
+                event(
+                    seq = 2,
+                    eventType = "tool_call_completed",
+                    payload = payload("call_id" to "call-1", "result" to "ENOENT: no such file"),
+                ),
+            )
+
+        assertTrue((result.single() as MessageItem.ToolCall).isError)
+    }
+
+    @Test
+    fun `tool_call_completed keeps success result non error`() {
+        processor.process(
+            event(
+                seq = 1,
+                eventType = "tool_call_started",
+                payload = payload("call_id" to "call-1", "tool_name" to "bash", "title" to "执行命令"),
+            ),
+        )
+
+        val result =
+            processor.process(
+                event(
+                    seq = 2,
+                    eventType = "tool_call_completed",
+                    payload = payload("call_id" to "call-1", "result" to "success"),
+                ),
+            )
+
+        assertFalse((result.single() as MessageItem.ToolCall).isError)
+    }
+
+    @Test
     fun `interactive tool completion marks card answered`() {
         processor.process(
             event(

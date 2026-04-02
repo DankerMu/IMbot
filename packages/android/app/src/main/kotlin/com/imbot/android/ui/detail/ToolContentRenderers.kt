@@ -4,6 +4,7 @@ package com.imbot.android.ui.detail
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.imbot.android.ui.components.CodeBlock
@@ -62,6 +64,16 @@ internal fun BashToolContent(item: MessageItem.ToolCall) {
                     )
                 }
             }
+        }
+
+        if (command == null && output.isNullOrBlank()) {
+            Text(
+                text = "等待输出...",
+                style = MaterialTheme.typography.bodySmall,
+                fontFamily = FontFamily.Monospace,
+                color = Color(0xFFA1A1AA),
+                fontStyle = FontStyle.Italic,
+            )
         }
 
         if (!output.isNullOrBlank()) {
@@ -107,7 +119,7 @@ internal fun ReadToolContent(item: MessageItem.ToolCall) {
         }
 
         if (!content.isNullOrBlank()) {
-            CodeBlock(
+            ScrollableCodeBlock(
                 code = content,
                 language = language ?: "text",
             )
@@ -151,21 +163,30 @@ internal fun WriteToolContent(item: MessageItem.ToolCall) {
             }
 
             !writeContent.isNullOrBlank() -> {
-                CodeBlock(
+                ScrollableCodeBlock(
                     code = writeContent,
                     language = language ?: "text",
                 )
             }
+        }
 
-            !result.isNullOrBlank() -> {
-                SelectionContainer {
-                    Text(
-                        text = result,
-                        style = MaterialTheme.typography.bodySmall,
-                        fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
+        if (!result.isNullOrBlank()) {
+            SelectionContainer {
+                Text(
+                    text = result,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = FontFamily.Monospace,
+                    color =
+                        if (item.isError) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    modifier =
+                        Modifier
+                            .heightIn(max = 120.dp)
+                            .verticalScroll(rememberScrollState()),
+                )
             }
         }
     }
@@ -286,6 +307,25 @@ internal fun ToolCallSection(
                 color = MaterialTheme.colorScheme.onSurface,
             )
         }
+    }
+}
+
+@Composable
+private fun ScrollableCodeBlock(
+    code: String,
+    language: String,
+) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .heightIn(max = 300.dp)
+                .verticalScroll(rememberScrollState()),
+    ) {
+        CodeBlock(
+            code = code,
+            language = language,
+        )
     }
 }
 

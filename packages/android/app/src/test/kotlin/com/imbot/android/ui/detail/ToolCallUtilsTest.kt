@@ -2,8 +2,11 @@
 
 package com.imbot.android.ui.detail
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolCallUtilsTest {
@@ -12,6 +15,13 @@ class ToolCallUtilsTest {
         assertEquals("ls -la", extractBashCommand("""{"command":"ls -la"}"""))
         assertNull(extractBashCommand(null))
         assertEquals("not json", extractBashCommand("not json"))
+    }
+
+    @Test
+    fun `extractBashCommand truncates raw fallback to 80 chars`() {
+        val rawCommand = "x".repeat(81)
+
+        assertEquals("x".repeat(80), extractBashCommand(rawCommand))
     }
 
     @Test
@@ -28,10 +38,12 @@ class ToolCallUtilsTest {
     fun `extractSearchPattern handles pattern and query fields`() {
         assertEquals("class Foo", extractSearchPattern("""{"pattern":"class Foo"}"""))
         assertEquals("react hooks", extractSearchPattern("""{"query":"react hooks"}"""))
+        assertEquals("https://example.com", extractSearchPattern("""{"url":"https://example.com"}"""))
     }
 
     @Test
     fun `extractJsonField returns requested string field`() {
+        assertNull(extractJsonField(null, "field"))
         assertEquals("new text", extractJsonField("""{"new_string":"new text"}""", "new_string"))
         assertNull(extractJsonField("""{"new_string":"new text"}""", "missing"))
     }
@@ -59,6 +71,24 @@ class ToolCallUtilsTest {
                 item = toolCall(toolName = "LSP", title = "", args = null),
             ),
         )
+        assertEquals(
+            "Search · TODO",
+            buildToolSummary(
+                category = ToolCategory.SEARCH,
+                item = toolCall(toolName = "search", args = """{"pattern":"TODO"}"""),
+            ),
+        )
+    }
+
+    @Test
+    fun `isToolCallError detects payload and common error prefixes`() {
+        assertTrue(isToolCallError(null, null))
+        assertTrue(isToolCallError("success", JSONObject("""{"error":"old_string not found"}""")))
+        assertTrue(isToolCallError("error: command failed", null))
+        assertTrue(isToolCallError("ENOENT: no such file", null))
+        assertTrue(isToolCallError("EPERM: access denied", null))
+        assertTrue(isToolCallError("permission denied", null))
+        assertFalse(isToolCallError("success", null))
     }
 }
 

@@ -273,7 +273,7 @@ class EventProcessor(
                         item.copy(
                             result = result,
                             isRunning = false,
-                            isError = isToolCallError(result),
+                            isError = isToolCallError(result, payload),
                             seq = event.seq,
                         )
 
@@ -301,7 +301,7 @@ class EventProcessor(
                         args = input,
                         result = result,
                         isRunning = false,
-                        isError = isToolCallError(result),
+                        isError = isToolCallError(result, payload),
                         seq = event.seq,
                     )
             }
@@ -475,10 +475,19 @@ class EventProcessor(
             text
         }
     }
+}
 
-    private fun isToolCallError(result: String?): Boolean {
-        return result == null || result.startsWith(prefix = "Error", ignoreCase = true)
-    }
+internal fun isToolCallError(
+    result: String?,
+    payload: JSONObject?,
+): Boolean {
+    val lower = result?.lowercase().orEmpty()
+    return result == null ||
+        payload?.has("error") == true ||
+        lower.startsWith("error") ||
+        lower.startsWith("enoent") ||
+        lower.startsWith("eperm") ||
+        lower.startsWith("permission denied")
 }
 
 private fun JSONObject?.toolName(): String? =

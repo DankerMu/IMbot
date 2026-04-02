@@ -20,12 +20,20 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.imbot.android.ui.theme.LocalUseDarkTheme
 
+private const val MAX_DIFF_LINES = 100
+
 @Composable
 internal fun DiffView(
     oldText: String,
     newText: String,
     modifier: Modifier = Modifier,
 ) {
+    val oldAllLines = oldText.lines()
+    val newAllLines = newText.lines()
+    val oldLines = oldAllLines.take(MAX_DIFF_LINES)
+    val newLines = newAllLines.take(MAX_DIFF_LINES)
+    val oldTruncated = oldAllLines.size > MAX_DIFF_LINES
+    val newTruncated = newAllLines.size > MAX_DIFF_LINES
     val isDarkTheme = LocalUseDarkTheme.current
     val removedBackground = androidx.compose.ui.graphics.Color(0x1AFF3B30)
     val removedForeground =
@@ -53,7 +61,7 @@ internal fun DiffView(
     ) {
         SelectionContainer {
             Column(modifier = Modifier.fillMaxWidth()) {
-                oldText.lines().forEach { line ->
+                oldLines.forEach { line ->
                     Text(
                         text = "- $line",
                         style = MaterialTheme.typography.bodySmall,
@@ -66,7 +74,7 @@ internal fun DiffView(
                                 .padding(horizontal = 12.dp, vertical = 1.dp),
                     )
                 }
-                newText.lines().forEach { line ->
+                newLines.forEach { line ->
                     Text(
                         text = "+ $line",
                         style = MaterialTheme.typography.bodySmall,
@@ -80,6 +88,15 @@ internal fun DiffView(
                     )
                 }
             }
+        }
+
+        if (oldTruncated || newTruncated) {
+            Text(
+                text = "... truncated",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            )
         }
     }
 }
