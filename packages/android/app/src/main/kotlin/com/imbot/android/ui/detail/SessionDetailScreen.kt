@@ -118,7 +118,7 @@ fun SessionDetailScreen(
     val latestPendingInteractiveCallId = findLatestPendingInteractiveToolCallId(uiState.messages)
     val latestPendingApprovalCallId = findLatestPendingApprovalCallId(uiState.messages)
     val timelineMessages = remember(uiState.messages) { deduplicateStatusChanges(uiState.messages) }
-    val displayedLastIndex by rememberUpdatedState(timelineMessages.lastIndex)
+    val displayedTimelineLastIndex by rememberUpdatedState(timelineMessages.lastIndex)
 
     var menuExpanded by remember { mutableStateOf(false) }
     var showCancelDialog by remember { mutableStateOf(false) }
@@ -166,7 +166,12 @@ fun SessionDetailScreen(
         viewModel.events.collectLatest { event ->
             when (event) {
                 is DetailEvent.ScrollToBottom -> {
-                    val targetIndex = minOf(event.targetIndex, displayedLastIndex)
+                    val targetIndex =
+                        if (event.targetIndex > displayedTimelineLastIndex) {
+                            displayedTimelineLastIndex
+                        } else {
+                            event.targetIndex
+                        }
                     if (targetIndex >= 0) {
                         snapshotFlow { listState.layoutInfo.totalItemsCount }
                             .first { count -> count > targetIndex }

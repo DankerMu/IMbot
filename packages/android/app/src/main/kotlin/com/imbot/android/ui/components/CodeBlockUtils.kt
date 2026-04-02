@@ -80,8 +80,33 @@ private fun rawCodeLanguageLabel(infoString: String?): String? =
 private fun takeCodeLines(
     code: String,
     count: Int,
-): String =
-    code
-        .split('\n')
-        .take(count)
-        .joinToString(separator = "\n")
+): String {
+    if (count <= 0 || code.isEmpty()) {
+        return ""
+    }
+
+    var nextSearchStart = 0
+    var remainingVisibleLineBreaks = count - 1
+    var containsRequestedLineCount = true
+    while (remainingVisibleLineBreaks > 0) {
+        val lineBreakIndex = code.indexOf('\n', startIndex = nextSearchStart)
+        if (lineBreakIndex < 0) {
+            containsRequestedLineCount = false
+            break
+        }
+        nextSearchStart = lineBreakIndex + 1
+        remainingVisibleLineBreaks--
+    }
+
+    val endIndex =
+        if (containsRequestedLineCount) {
+            code.indexOf('\n', startIndex = nextSearchStart)
+        } else {
+            -1
+        }
+    return if (endIndex >= 0) {
+        code.substring(0, endIndex)
+    } else {
+        code
+    }
+}

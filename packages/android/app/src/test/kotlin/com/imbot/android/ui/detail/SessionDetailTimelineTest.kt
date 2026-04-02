@@ -10,6 +10,13 @@ class SessionDetailTimelineTest {
         assertEquals(24.dp, MESSAGE_GROUP_SPACING)
         assertEquals(8.dp, MESSAGE_WITHIN_GROUP_SPACING)
         assertEquals(
+            MESSAGE_GROUP_SPACING,
+            messageSpacing(
+                previousItem = null,
+                currentItem = agentMessage(content = "first"),
+            ),
+        )
+        assertEquals(
             MESSAGE_WITHIN_GROUP_SPACING,
             messageSpacing(
                 previousItem = agentMessage(content = "first"),
@@ -63,6 +70,17 @@ class SessionDetailTimelineTest {
     }
 
     @Test
+    fun `deduplicateStatusChanges preserves approval required status items`() {
+        val first = statusChange(id = "status-1", status = "running", eventType = "approval_required")
+        val second = statusChange(id = "status-2", status = "running", eventType = "approval_required")
+
+        assertEquals(
+            listOf(first, second),
+            deduplicateStatusChanges(listOf(first, second)),
+        )
+    }
+
+    @Test
     fun `deduplicateStatusChanges handles empty lists`() {
         assertEquals(emptyList<MessageItem>(), deduplicateStatusChanges(emptyList()))
     }
@@ -88,8 +106,10 @@ private fun userMessage(text: String) =
 private fun statusChange(
     id: String,
     status: String,
+    eventType: String? = null,
 ) = MessageItem.StatusChange(
     id = id,
     status = status,
     message = status,
+    eventType = eventType,
 )

@@ -103,32 +103,33 @@ fun CodeBlock(
     val lineNumbers = remember(displayState.displayedCode) { buildCodeLineNumbers(displayState.displayedCode) }
     var copyFeedbackToken by remember(code) { mutableIntStateOf(0) }
     var showCopiedState by remember(code) { mutableStateOf(false) }
+    val highlightedCode = displayState.displayedCode
     val shouldHighlight =
-        remember(code, normalizedLanguage, isTerminal) {
+        remember(highlightedCode, normalizedLanguage, isTerminal) {
             normalizedLanguage != null &&
                 !isTerminal &&
-                code.isNotEmpty() &&
-                code.length <= MAX_HIGHLIGHT_SIZE
+                highlightedCode.isNotEmpty() &&
+                highlightedCode.length <= MAX_HIGHLIGHT_SIZE
         }
     val tokens by
-        produceState(initialValue = emptyList<TokenSpan>(), code, normalizedLanguage, shouldHighlight) {
+        produceState(initialValue = emptyList<TokenSpan>(), highlightedCode, normalizedLanguage, shouldHighlight) {
             value =
                 if (!shouldHighlight) {
                     emptyList()
                 } else {
                     withContext(Dispatchers.Default) {
-                        CodeTokenizer.tokenize(code = code, language = normalizedLanguage)
+                        CodeTokenizer.tokenize(code = highlightedCode, language = normalizedLanguage)
                     }
                 }
         }
     val highlightedText =
-        remember(displayState.displayedCode, tokens, codeTheme, palette.codeTextColor, shouldHighlight) {
+        remember(highlightedCode, tokens, codeTheme, palette.codeTextColor, shouldHighlight) {
             if (!shouldHighlight) {
-                AnnotatedString(displayState.displayedCode)
+                AnnotatedString(highlightedCode)
             } else {
                 buildCodeAnnotatedString(
-                    code = displayState.displayedCode,
-                    tokens = tokens.filter { token -> token.end <= displayState.displayedCode.length },
+                    code = highlightedCode,
+                    tokens = tokens,
                     codeTheme = codeTheme,
                     defaultColor = palette.codeTextColor,
                 )
