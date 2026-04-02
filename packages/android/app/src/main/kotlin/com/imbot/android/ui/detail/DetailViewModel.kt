@@ -333,7 +333,9 @@ class DetailViewModel
                         )
                     }
                 }.onFailure { error ->
-                    interactiveToolCallId?.let(eventProcessor::clearInteractiveToolAnswer)
+                    interactiveToolCallId?.let { id ->
+                        eventProcessor.clearInteractiveToolAnswer(id, "发送失败，点击重试")
+                    }
                     removeOptimisticMessage(normalizedText)
                     publishMessages(
                         newMessages = combinedMessages(),

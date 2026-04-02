@@ -31,6 +31,7 @@ sealed class MessageItem {
         val options: List<String>?,
         val isAnswered: Boolean = false,
         val answer: String? = null,
+        val errorMessage: String? = null,
         val timestamp: String,
         val seq: Int? = null,
     ) : MessageItem()
@@ -124,11 +125,14 @@ class EventProcessor(
         messages[toolCallIndex] = item.copy(answer = answer)
     }
 
-    internal fun clearInteractiveToolAnswer(callId: String) {
+    internal fun clearInteractiveToolAnswer(
+        callId: String,
+        errorMessage: String? = null,
+    ) {
         val toolCallIndex = findToolCallIndex(callId)
         val item = messages.getOrNull(toolCallIndex) as? MessageItem.InteractiveToolCall ?: return
         if (!item.isAnswered) {
-            messages[toolCallIndex] = item.copy(answer = null)
+            messages[toolCallIndex] = item.copy(answer = null, errorMessage = errorMessage)
         }
     }
 

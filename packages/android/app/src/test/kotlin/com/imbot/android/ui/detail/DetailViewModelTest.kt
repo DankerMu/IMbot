@@ -36,6 +36,7 @@ import okhttp3.OkHttpClient
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -179,6 +180,74 @@ class DetailViewModelTest {
 
             assertEquals(1, relay.sendMessageCalls)
             assertEquals(listOf("B"), relay.sentMessages)
+        }
+
+    @Test
+    fun `submitToolAnswer failure sets errorMessage on card and reverts answer`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    sendMessageHandler = { _, _, _, _ -> Result.failure(RuntimeException("网络超时")) }
+                }
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "tool_call_started",
+                    payload =
+                        payload(
+                            "call_id" to "tool-1",
+                            "tool_name" to "AskUserQuestion",
+                            "args" to """{"question":"你好?"}""",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.submitToolAnswer("回答")
+            advanceUntilIdle()
+
+            val messages = viewModel.uiState.value.messages
+            val interactive = messages.filterIsInstance<MessageItem.InteractiveToolCall>().first()
+            assertFalse(interactive.isAnswered)
+            assertNull(interactive.answer)
+            assertEquals("发送失败，点击重试", interactive.errorMessage)
+            assertFalse(viewModel.uiState.value.isSending)
+        }
+
+    @Test
+    fun `approveToolCall failure shows error state`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    sendMessageHandler = { _, _, _, _ -> Result.failure(RuntimeException("连接断开")) }
+                }
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "approval_required",
+                    payload =
+                        payload(
+                            "call_id" to "appr-1",
+                            "tool_name" to "bash",
+                            "description" to "rm -rf /tmp",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.approveToolCall("appr-1")
+            advanceUntilIdle()
+
+            assertNotNull(viewModel.uiState.value.error)
+            assertFalse(viewModel.uiState.value.isSending)
         }
 
     @Test

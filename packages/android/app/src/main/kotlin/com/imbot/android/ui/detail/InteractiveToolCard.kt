@@ -158,6 +158,14 @@ private fun InteractiveToolAnswerSection(
     ) {
         Text("提交回答")
     }
+
+    item.errorMessage?.let { error ->
+        Text(
+            text = error,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
 }
 
 @Composable
