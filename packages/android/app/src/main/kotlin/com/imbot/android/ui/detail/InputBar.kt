@@ -2,7 +2,6 @@
 
 package com.imbot.android.ui.detail
 
-import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -11,7 +10,6 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,7 +34,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
@@ -60,12 +57,10 @@ internal fun InputBar(
     val inputEnabled = canInputToSession(status) && canSend && !isSending
     val canSubmit = inputEnabled && (commandChip != null || draft.isNotBlank())
     val componentShapes = LocalIMbotComponentShapes.current
-    val surfaceColor =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
-        } else {
-            MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
-        }
+    // Semi-transparent background provides a subtle frosted-glass feel.
+    // Compose blur() cannot replicate CSS backdrop-filter (it blurs the
+    // element itself, not what's behind it), so we rely on alpha only.
+    val surfaceColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
 
     LaunchedEffect(commandChip?.command) {
         if (commandChip != null) {
@@ -79,11 +74,6 @@ internal fun InputBar(
                 .fillMaxWidth()
                 .background(surfaceColor),
     ) {
-        FrostedInputBarBackground(
-            surfaceColor = surfaceColor,
-            blurEnabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
-        )
-
         Column(modifier = Modifier.fillMaxWidth()) {
             HorizontalDivider(
                 color = MaterialTheme.colorScheme.outlineVariant,
@@ -149,27 +139,6 @@ internal fun InputBar(
         }
     }
 }
-
-@Composable
-private fun BoxScope.FrostedInputBarBackground(
-    surfaceColor: Color,
-    blurEnabled: Boolean,
-): Unit =
-    with(this) {
-        Box(
-            modifier =
-                Modifier
-                    .matchParentSize()
-                    .then(
-                        if (blurEnabled) {
-                            Modifier.blur(20.dp)
-                        } else {
-                            Modifier
-                        },
-                    )
-                    .background(surfaceColor),
-        )
-    }
 
 @Composable
 private fun PillTextField(
