@@ -18,16 +18,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,6 +38,13 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.imbot.android.network.RelayHost
+import com.imbot.android.ui.theme.LocalIMbotComponentShapes
+import com.imbot.android.ui.theme.LocalUseDarkTheme
+import com.imbot.android.ui.theme.ProviderBook
+import com.imbot.android.ui.theme.ProviderClaude
+import com.imbot.android.ui.theme.ProviderOpenClaw
+import com.imbot.android.ui.theme.appleChrome
+import com.imbot.android.ui.theme.appleShadow
 
 @Suppress("CyclomaticComplexMethod")
 @Composable
@@ -52,6 +57,10 @@ fun ProviderPickerStep(
     onRetry: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val componentShapes = LocalIMbotComponentShapes.current
+    val isDarkTheme = LocalUseDarkTheme.current
+    val shadowTokens = MaterialTheme.appleShadow
+
     Column(
         modifier =
             modifier
@@ -89,38 +98,28 @@ fun ProviderPickerStep(
                         isOnline -> "在线"
                         else -> "离线"
                     }
+                val selected = selectedProvider == provider.id
 
-                OutlinedCard(
+                Surface(
                     modifier =
                         Modifier
                             .fillMaxWidth()
+                            .appleChrome(
+                                shape = componentShapes.card,
+                                isDarkTheme = isDarkTheme,
+                                outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+                                shadowTokens = shadowTokens,
+                            )
                             .clickable(enabled = isOnline) {
                                 onSelectProvider(provider.id, host!!.id)
                             },
-                    shape = RoundedCornerShape(24.dp),
-                    colors =
-                        CardDefaults.outlinedCardColors(
-                            containerColor =
-                                when {
-                                    selectedProvider == provider.id ->
-                                        MaterialTheme.colorScheme.primaryContainer
-                                    !isOnline -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-                                    else -> MaterialTheme.colorScheme.surface
-                                },
-                        ),
-                    border =
-                        CardDefaults.outlinedCardBorder(
-                            enabled = true,
-                        ).copy(
-                            brush =
-                                androidx.compose.ui.graphics.SolidColor(
-                                    when {
-                                        selectedProvider == provider.id -> MaterialTheme.colorScheme.primary
-                                        !isOnline -> MaterialTheme.colorScheme.outlineVariant
-                                        else -> MaterialTheme.colorScheme.outline
-                                    },
-                                ),
-                        ),
+                    shape = componentShapes.card,
+                    color =
+                        when {
+                            selected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f)
+                            !isOnline -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                            else -> MaterialTheme.colorScheme.surface
+                        },
                 ) {
                     Row(
                         modifier =
@@ -136,7 +135,7 @@ fun ProviderPickerStep(
                                     .size(52.dp)
                                     .background(
                                         color = provider.tint.copy(alpha = 0.14f),
-                                        shape = RoundedCornerShape(18.dp),
+                                        shape = MaterialTheme.shapes.medium,
                                     ),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -172,6 +171,7 @@ fun ProviderPickerStep(
                         AssistChip(
                             onClick = {},
                             enabled = false,
+                            shape = componentShapes.button,
                             label = {
                                 Text(statusLabel)
                             },
@@ -211,7 +211,7 @@ private fun ProviderLoadingState(modifier: Modifier = Modifier) {
                         .alpha(alpha)
                         .background(
                             color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(24.dp),
+                            shape = MaterialTheme.shapes.large,
                         ),
             )
         }
@@ -235,7 +235,7 @@ private fun InlineErrorBanner(
                 .fillMaxWidth()
                 .background(
                     color = MaterialTheme.colorScheme.errorContainer,
-                    shape = RoundedCornerShape(18.dp),
+                    shape = MaterialTheme.shapes.large,
                 )
                 .padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -268,21 +268,21 @@ private val providerSpecs =
             title = "Claude Code",
             fallbackHostName = "MacBook",
             icon = Icons.Filled.Computer,
-            tint = Color(0xFFE56B2B),
+            tint = ProviderClaude,
         ),
         ProviderSpec(
             id = "book",
             title = "book",
             fallbackHostName = "Novel Workspace",
             icon = Icons.AutoMirrored.Filled.MenuBook,
-            tint = Color(0xFF2E7D5B),
+            tint = ProviderBook,
         ),
         ProviderSpec(
             id = "openclaw",
             title = "OpenClaw",
             fallbackHostName = "Relay VPS",
             icon = Icons.Filled.CloudQueue,
-            tint = Color(0xFFB24C3C),
+            tint = ProviderOpenClaw,
         ),
     )
 

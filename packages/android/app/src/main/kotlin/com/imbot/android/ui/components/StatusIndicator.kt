@@ -7,6 +7,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -24,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import com.imbot.android.ui.theme.IMbotAnimations
 import com.imbot.android.ui.theme.LocalStatusColors
@@ -47,9 +49,9 @@ fun StatusIndicator(
         animateColorAsState(
             targetValue = targetColor,
             animationSpec =
-                tween(
-                    durationMillis = IMbotAnimations.STATUS_MORPH_MS,
-                    easing = IMbotAnimations.standardEasing,
+                spring(
+                    dampingRatio = IMbotAnimations.GentleSpring.dampingRatio,
+                    stiffness = IMbotAnimations.GentleSpring.stiffness,
                 ),
             label = "status-indicator-color",
         )
@@ -88,11 +90,11 @@ fun StatusIndicator(
         StatusIndicatorVariant.Badge ->
             Surface(
                 modifier = modifier,
-                color = animatedColor.copy(alpha = 0.14f),
-                shape = MaterialTheme.shapes.small,
+                color = animatedColor.copy(alpha = 0.1f).compositeOver(MaterialTheme.colorScheme.surface),
+                shape = MaterialTheme.shapes.extraLarge,
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.padding(horizontal = 9.dp, vertical = 5.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {

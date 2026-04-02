@@ -1,5 +1,8 @@
 package com.imbot.android.ui.theme
 
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.imbot.android.data.SettingsRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,8 +21,10 @@ class ThemeResolutionTest {
 
         assertFalse(resolution.useDarkTheme)
         assertFalse(resolution.useDynamicColor)
-        assertEquals(PrimaryLight, StaticLightColorScheme.primary)
-        assertEquals(BackgroundLight, StaticLightColorScheme.background)
+        assertEquals(BrandBlue, StaticLightColorScheme.primary)
+        assertEquals(Background, StaticLightColorScheme.background)
+        assertEquals(SurfaceLight, StaticLightColorScheme.surface)
+        assertEquals(DestructiveColor, StaticLightColorScheme.error)
     }
 
     @Test
@@ -33,8 +38,10 @@ class ThemeResolutionTest {
 
         assertTrue(resolution.useDarkTheme)
         assertFalse(resolution.useDynamicColor)
-        assertEquals(PrimaryDark, StaticDarkColorScheme.primary)
+        assertEquals(BrandBlue, StaticDarkColorScheme.primary)
         assertEquals(BackgroundDark, StaticDarkColorScheme.background)
+        assertEquals(SurfaceDark, StaticDarkColorScheme.surface)
+        assertEquals(LabelPrimaryDark, StaticDarkColorScheme.onSurface)
     }
 
     @Test
@@ -91,9 +98,16 @@ class ThemeResolutionTest {
     fun `provider colors match foundation spec`() {
         val providerColors = ProviderColors()
 
-        assertEquals(ClaudeAmber, providerColors.claude)
-        assertEquals(BookViolet, providerColors.book)
-        assertEquals(OpenClawRed, providerColors.openclaw)
+        assertEquals(ProviderClaude, providerColors.claude)
+        assertEquals(ProviderBook, providerColors.book)
+        assertEquals(ProviderOpenClaw, providerColors.openclaw)
+    }
+
+    @Test
+    fun `shape tokens use apple radii`() {
+        assertEquals(RoundedCornerShape(8.dp), IMbotMaterialShapes.small)
+        assertEquals(RoundedCornerShape(12.dp), IMbotMaterialShapes.medium)
+        assertEquals(RoundedCornerShape(16.dp), IMbotMaterialShapes.large)
     }
 
     @Test
@@ -111,5 +125,15 @@ class ThemeResolutionTest {
         assertEquals(DarkStatusColors.completed, statusColorFor("completed", DarkStatusColors))
         assertEquals(DarkStatusColors.failed, statusColorFor("failed", DarkStatusColors))
         assertEquals(DarkStatusColors.cancelled, statusColorFor("cancelled", DarkStatusColors))
+    }
+
+    @Test
+    fun `typography tokens match redesign spec`() {
+        assertEquals(17.sp, IMbotTypography.titleLarge.fontSize)
+        assertEquals(androidx.compose.ui.text.font.FontWeight.SemiBold, IMbotTypography.titleLarge.fontWeight)
+        assertEquals(17.sp, IMbotTypography.bodyLarge.fontSize)
+        assertEquals(12.sp, IMbotTypography.labelLarge.fontSize)
+        assertEquals(11.sp, IMbotTypography.labelMedium.fontSize)
+        assertTrue(IMbotTypography.headlineLarge.letterSpacing.value < 0f)
     }
 }

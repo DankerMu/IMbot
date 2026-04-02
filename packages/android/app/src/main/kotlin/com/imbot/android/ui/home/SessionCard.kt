@@ -17,13 +17,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -37,7 +36,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -46,6 +44,9 @@ import com.imbot.android.ui.components.StatusIndicator
 import com.imbot.android.ui.components.StatusIndicatorVariant
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalProviderColors
+import com.imbot.android.ui.theme.LocalUseDarkTheme
+import com.imbot.android.ui.theme.appleChrome
+import com.imbot.android.ui.theme.appleShadow
 import com.imbot.android.ui.theme.providerColorFor
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -60,6 +61,8 @@ fun SessionCard(
     var showContextMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by rememberSaveable(session.id) { mutableStateOf(false) }
     val componentShapes = LocalIMbotComponentShapes.current
+    val isDarkTheme = LocalUseDarkTheme.current
+    val shadowTokens = MaterialTheme.appleShadow
     val dismissState =
         rememberSwipeToDismissBoxState(
             confirmValueChange = { value ->
@@ -115,10 +118,16 @@ fun SessionCard(
         modifier = modifier,
     ) {
         Box {
-            Card(
+            Surface(
                 modifier =
                     Modifier
                         .fillMaxWidth()
+                        .appleChrome(
+                            shape = componentShapes.card,
+                            isDarkTheme = isDarkTheme,
+                            outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f),
+                            shadowTokens = shadowTokens,
+                        )
                         .combinedClickable(
                             onClick = onClick,
                             onLongClick = {
@@ -127,19 +136,15 @@ fun SessionCard(
                                 }
                             },
                         ),
-                colors =
-                    CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                    ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
                 shape = componentShapes.card,
+                color = MaterialTheme.colorScheme.surface,
             ) {
                 Column(
                     modifier =
                         Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                            .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -152,44 +157,46 @@ fun SessionCard(
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             ProviderBadge(provider = session.provider)
-                            Text(
-                                text = providerDisplayName(session.provider),
-                                style = MaterialTheme.typography.labelLarge,
-                                fontWeight = FontWeight.SemiBold,
-                            )
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = providerDisplayName(session.provider),
+                                        style = MaterialTheme.typography.titleLarge,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    StatusIndicator(
+                                        status = session.status,
+                                        variant = StatusIndicatorVariant.Dot,
+                                    )
+                                }
+                                Text(
+                                    text = summarizeWorkspacePath(session.workspaceCwd),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
                         }
                         Text(
                             text = formatRelativeTime(session.lastActiveAt),
-                            style = MaterialTheme.typography.labelMedium,
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
 
                     Text(
-                        text = summarizeWorkspacePath(session.workspaceCwd),
-                        style = MaterialTheme.typography.bodySmall,
+                        text = summarizePrompt(session.initialPrompt),
+                        style = MaterialTheme.typography.bodyLarge,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = summarizePrompt(session.initialPrompt),
-                            style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.weight(1f),
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        StatusIndicator(
-                            status = session.status,
-                            variant = StatusIndicatorVariant.Dot,
-                        )
-                    }
                 }
             }
 
@@ -230,7 +237,7 @@ private fun DeleteBackground() {
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(Color(0xFFD64545))
+                .background(MaterialTheme.colorScheme.error)
                 .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically,
@@ -238,7 +245,7 @@ private fun DeleteBackground() {
         Icon(
             imageVector = Icons.Filled.Delete,
             contentDescription = null,
-            tint = Color.White,
+            tint = MaterialTheme.colorScheme.onError,
         )
     }
 }
@@ -250,7 +257,7 @@ private fun ProviderBadge(provider: String) {
     Box(
         modifier =
             Modifier
-                .size(42.dp)
+                .size(36.dp)
                 .background(
                     color = badgeColor.copy(alpha = 0.16f),
                     shape = CircleShape,

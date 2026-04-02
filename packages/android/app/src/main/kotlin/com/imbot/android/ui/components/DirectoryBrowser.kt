@@ -22,10 +22,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -36,6 +36,12 @@ import androidx.compose.ui.unit.dp
 import com.imbot.android.network.BrowseEntry
 import com.imbot.android.network.RelayWorkspaceRoot
 import com.imbot.android.ui.newsession.DirectoryBreadcrumb
+import com.imbot.android.ui.theme.LocalIMbotComponentShapes
+import com.imbot.android.ui.theme.LocalUseDarkTheme
+import com.imbot.android.ui.theme.SurfaceTertiary
+import com.imbot.android.ui.theme.SurfaceTertiaryDark
+import com.imbot.android.ui.theme.appleChrome
+import com.imbot.android.ui.theme.appleShadow
 
 @Suppress("CyclomaticComplexMethod")
 @Composable
@@ -55,6 +61,8 @@ fun DirectoryBrowser(
 ) {
     val currentPath = browsePath
     val showingRoots = currentPath == null
+    val componentShapes = LocalIMbotComponentShapes.current
+    val isDarkTheme = LocalUseDarkTheme.current
 
     Column(
         modifier = modifier,
@@ -127,12 +135,20 @@ fun DirectoryBrowser(
             }
         }
 
-        OutlinedButton(
+        Button(
             onClick = {
                 currentPath?.let(onSelect)
             },
             enabled = !currentPath.isNullOrBlank() && !isLoading && error == null,
             modifier = Modifier.fillMaxWidth(),
+            shape = componentShapes.button,
+            colors =
+                ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    disabledContainerColor = if (isDarkTheme) SurfaceTertiaryDark else SurfaceTertiary,
+                    disabledContentColor = MaterialTheme.colorScheme.outline,
+                ),
         ) {
             if (currentPath != null && currentPath == selectedPath) {
                 androidx.compose.material3.Icon(
@@ -158,6 +174,8 @@ private fun BreadcrumbBar(
     breadcrumbs: List<DirectoryBreadcrumb>,
     onBrowse: (String) -> Unit,
 ) {
+    val componentShapes = LocalIMbotComponentShapes.current
+
     Row(
         modifier =
             Modifier
@@ -167,12 +185,19 @@ private fun BreadcrumbBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         breadcrumbs.forEachIndexed { index, breadcrumb ->
-            OutlinedButton(
-                onClick = {
-                    onBrowse(breadcrumb.path)
-                },
+            Surface(
+                shape = componentShapes.button,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier =
+                    Modifier.clickable {
+                        onBrowse(breadcrumb.path)
+                    },
             ) {
-                Text(breadcrumb.label)
+                Text(
+                    text = breadcrumb.label,
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.labelLarge,
+                )
             }
 
             if (index < breadcrumbs.lastIndex) {
@@ -193,21 +218,28 @@ private fun DirectoryEntryCard(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    OutlinedCard(
+    val componentShapes = LocalIMbotComponentShapes.current
+    val isDarkTheme = LocalUseDarkTheme.current
+    val shadowTokens = MaterialTheme.appleShadow
+
+    Surface(
         modifier =
             Modifier
                 .fillMaxWidth()
+                .appleChrome(
+                    shape = componentShapes.card,
+                    isDarkTheme = isDarkTheme,
+                    outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                    shadowTokens = shadowTokens,
+                )
                 .clickable(onClick = onClick),
-        colors =
-            CardDefaults.outlinedCardColors(
-                containerColor =
-                    if (selected) {
-                        MaterialTheme.colorScheme.secondaryContainer
-                    } else {
-                        MaterialTheme.colorScheme.surface
-                    },
-            ),
-        shape = RoundedCornerShape(20.dp),
+        color =
+            if (selected) {
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f)
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        shape = componentShapes.card,
     ) {
         Row(
             modifier =
@@ -267,7 +299,7 @@ private fun DirectoryLoadingState(modifier: Modifier = Modifier) {
                     Modifier
                         .fillMaxWidth()
                         .height(72.dp),
-                shape = RoundedCornerShape(20.dp),
+                shape = MaterialTheme.shapes.large,
             )
         }
     }
@@ -310,7 +342,7 @@ private fun DirectoryEmptyState(message: String) {
                         .size(56.dp)
                         .background(
                             color = MaterialTheme.colorScheme.surfaceVariant,
-                            shape = RoundedCornerShape(20.dp),
+                            shape = MaterialTheme.shapes.large,
                         ),
                 contentAlignment = Alignment.Center,
             ) {

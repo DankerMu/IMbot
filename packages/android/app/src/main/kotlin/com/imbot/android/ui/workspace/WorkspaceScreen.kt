@@ -7,6 +7,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -25,6 +26,7 @@ import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,9 +34,11 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -52,7 +56,11 @@ import com.imbot.android.ui.components.EmptyState
 import com.imbot.android.ui.components.ErrorBannerHost
 import com.imbot.android.ui.components.ErrorScope
 import com.imbot.android.ui.components.ShimmerSkeleton
+import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalProviderColors
+import com.imbot.android.ui.theme.LocalUseDarkTheme
+import com.imbot.android.ui.theme.appleChrome
+import com.imbot.android.ui.theme.appleShadow
 import com.imbot.android.ui.theme.providerColorFor
 import kotlinx.coroutines.flow.collectLatest
 
@@ -67,6 +75,8 @@ fun WorkspaceScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val addRootState by viewModel.addRootState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val isDarkTheme = LocalUseDarkTheme.current
+    val shadowTokens = MaterialTheme.appleShadow
     val pullRefreshState =
         rememberPullRefreshState(
             refreshing = uiState.isRefreshing,
@@ -122,13 +132,28 @@ fun WorkspaceScreen(
         modifier = modifier,
         topBar = {
             TopAppBar(
+                colors =
+                    TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                    ),
                 title = {
                     Text("目录管理")
                 },
             )
         },
         floatingActionButton = {
-            FloatingActionButton(onClick = viewModel::showAddRootSheet) {
+            FloatingActionButton(
+                onClick = viewModel::showAddRootSheet,
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary,
+                modifier =
+                    Modifier.appleChrome(
+                        shape = androidx.compose.foundation.shape.CircleShape,
+                        isDarkTheme = isDarkTheme,
+                        outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.24f),
+                        shadowTokens = shadowTokens,
+                    ),
+            ) {
                 Icon(
                     imageVector = Icons.Filled.Add,
                     contentDescription = "添加根目录",
@@ -171,7 +196,7 @@ fun WorkspaceScreen(
                         )
                     }
 
-                    uiState.hosts.all { host -> host.roots.isEmpty() } -> {
+                    uiState.hosts.isEmpty() -> {
                         WorkspaceEmptyState(
                             title = "暂无根目录",
                             description = "添加一个根目录后，就能直接按目录恢复会话。",
@@ -183,34 +208,24 @@ fun WorkspaceScreen(
                     else -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
                             verticalArrangement = Arrangement.spacedBy(20.dp),
                         ) {
-                            uiState.hosts.forEach { hostWithRoots ->
-                                item(key = "host-${hostWithRoots.host.id}") {
-                                    HostHeader(
-                                        name = hostWithRoots.host.name,
-                                        status = hostWithRoots.host.status,
-                                    )
-                                }
-
-                                items(
-                                    items = hostWithRoots.roots,
-                                    key = { root -> root.id },
-                                ) { root ->
-                                    WorkspaceRootRow(
-                                        root = root,
-                                        onClick = {
-                                            onOpenRoot(root)
-                                        },
-                                        onRemove = {
-                                            viewModel.requestRemoveRoot(
-                                                hostId = hostWithRoots.host.id,
-                                                rootId = root.id,
-                                                label = root.label ?: root.path.defaultRootLabel(),
-                                            )
-                                        },
-                                    )
-                                }
+                            items(
+                                items = uiState.hosts,
+                                key = { hostWithRoots -> hostWithRoots.host.id },
+                            ) { hostWithRoots ->
+                                HostSection(
+                                    hostWithRoots = hostWithRoots,
+                                    onOpenRoot = onOpenRoot,
+                                    onRemoveRoot = { root ->
+                                        viewModel.requestRemoveRoot(
+                                            hostId = hostWithRoots.host.id,
+                                            rootId = root.id,
+                                            label = root.label ?: root.path.defaultRootLabel(),
+                                        )
+                                    },
+                                )
                             }
                         }
                     }
@@ -224,6 +239,73 @@ fun WorkspaceScreen(
             }
         }
     }
+}
+
+@Composable
+private fun HostSection(
+    hostWithRoots: HostWithRoots,
+    onOpenRoot: (RelayWorkspaceRoot) -> Unit,
+    onRemoveRoot: (RelayWorkspaceRoot) -> Unit,
+) {
+    val componentShapes = LocalIMbotComponentShapes.current
+    val isDarkTheme = LocalUseDarkTheme.current
+    val shadowTokens = MaterialTheme.appleShadow
+
+    Column(
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        HostHeader(
+            name = hostWithRoots.host.name,
+            status = hostWithRoots.host.status,
+        )
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .appleChrome(
+                        shape = componentShapes.card,
+                        isDarkTheme = isDarkTheme,
+                        outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                        shadowTokens = shadowTokens,
+                    ),
+            shape = componentShapes.card,
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Column {
+                if (hostWithRoots.roots.isEmpty()) {
+                    EmptyHostRootsPlaceholder()
+                } else {
+                    hostWithRoots.roots.forEachIndexed { index, root ->
+                        WorkspaceRootRow(
+                            root = root,
+                            onClick = {
+                                onOpenRoot(root)
+                            },
+                            onRemove = {
+                                onRemoveRoot(root)
+                            },
+                        )
+                        if (index < hostWithRoots.roots.lastIndex) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(start = 72.dp),
+                                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.16f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun EmptyHostRootsPlaceholder() {
+    Text(
+        text = "暂无目录",
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
+        style = MaterialTheme.typography.bodyMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
@@ -275,14 +357,14 @@ private fun WorkspaceRootRow(
             Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onClick)
-                .padding(horizontal = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Box(
             modifier =
                 Modifier
-                    .size(42.dp)
+                    .size(36.dp)
                     .background(
                         color = providerColor.copy(alpha = 0.18f),
                         shape = androidx.compose.foundation.shape.CircleShape,
@@ -318,6 +400,7 @@ private fun WorkspaceRootRow(
             Icon(
                 imageVector = Icons.Filled.Close,
                 contentDescription = "移除根目录",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }

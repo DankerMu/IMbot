@@ -2,6 +2,7 @@
 
 package com.imbot.android.ui.newsession
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,10 +16,9 @@ import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedCard
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextField
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -28,6 +28,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.imbot.android.ui.theme.LocalIMbotComponentShapes
+import com.imbot.android.ui.theme.LocalUseDarkTheme
+import com.imbot.android.ui.theme.appleChrome
+import com.imbot.android.ui.theme.appleShadow
+import com.imbot.android.ui.theme.imbotFilledTextFieldColors
 
 @Composable
 fun PromptInputStep(
@@ -40,6 +45,9 @@ fun PromptInputStep(
     modifier: Modifier = Modifier,
 ) {
     var modelMenuExpanded by remember { mutableStateOf(false) }
+    val componentShapes = LocalIMbotComponentShapes.current
+    val isDarkTheme = LocalUseDarkTheme.current
+    val shadowTokens = MaterialTheme.appleShadow
 
     Column(
         modifier =
@@ -55,7 +63,19 @@ fun PromptInputStep(
             fontWeight = FontWeight.SemiBold,
         )
 
-        OutlinedCard(modifier = Modifier.fillMaxWidth()) {
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .appleChrome(
+                        shape = componentShapes.card,
+                        isDarkTheme = isDarkTheme,
+                        outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                        shadowTokens = shadowTokens,
+                    ),
+            shape = componentShapes.card,
+            color = MaterialTheme.colorScheme.surface,
+        ) {
             Column(
                 modifier =
                     Modifier
@@ -75,7 +95,7 @@ fun PromptInputStep(
             }
         }
 
-        OutlinedTextField(
+        TextField(
             value = prompt,
             onValueChange = onPromptChanged,
             modifier = Modifier.fillMaxWidth(),
@@ -83,24 +103,36 @@ fun PromptInputStep(
                 Text("Prompt")
             },
             placeholder = {
-                Text("输入你的 prompt...")
+                Text("说点什么开始...")
             },
-            minLines = 5,
+            minLines = 6,
             maxLines = 10,
+            shape = componentShapes.input,
+            colors = imbotFilledTextFieldColors(),
+            textStyle = MaterialTheme.typography.bodyLarge,
         )
 
         Box {
-            OutlinedButton(
-                onClick = {
-                    modelMenuExpanded = true
-                },
+            Surface(
+                shape = componentShapes.button,
+                color = MaterialTheme.colorScheme.surfaceVariant,
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            modelMenuExpanded = true
+                        },
             ) {
-                Text("Model: $model")
-                androidx.compose.material3.Icon(
-                    imageVector = Icons.Filled.ArrowDropDown,
-                    contentDescription = null,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
+                Box(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                ) {
+                    Text("Model: $model")
+                    androidx.compose.material3.Icon(
+                        imageVector = Icons.Filled.ArrowDropDown,
+                        contentDescription = null,
+                        modifier = Modifier.align(androidx.compose.ui.Alignment.CenterEnd),
+                    )
+                }
             }
 
             DropdownMenu(

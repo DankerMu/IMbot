@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -36,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.imbot.android.ui.components.StreamingCursor
+import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalProviderColors
 import com.imbot.android.ui.theme.LocalStatusColors
 
@@ -55,10 +55,13 @@ fun MessageBubble(
     isSelectionMode: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
+    val bubbleShape = MaterialTheme.shapes.extraLarge
+
     when (item) {
         is MessageItem.UserMessage ->
             UserMessageBubble(
                 item = item,
+                bubbleShape = bubbleShape,
                 onLongPress = onLongPress,
                 selectionModeActive = selectionModeActive,
                 onExitSelectionMode = onExitSelectionMode,
@@ -70,6 +73,7 @@ fun MessageBubble(
             AgentMessageBubble(
                 item = item,
                 provider = provider,
+                bubbleShape = bubbleShape,
                 onLongPress = onLongPress,
                 selectionModeActive = selectionModeActive,
                 onExitSelectionMode = onExitSelectionMode,
@@ -96,6 +100,7 @@ fun MessageBubble(
 @Composable
 private fun UserMessageBubble(
     item: MessageItem.UserMessage,
+    bubbleShape: androidx.compose.ui.graphics.Shape,
     onLongPress: ((MessageItem) -> Unit)? = null,
     selectionModeActive: Boolean = false,
     onExitSelectionMode: (() -> Unit)? = null,
@@ -112,10 +117,13 @@ private fun UserMessageBubble(
         Surface(
             color =
                 selectedBubbleColor(
-                    baseColor = MaterialTheme.colorScheme.primaryContainer,
+                    baseColor =
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f).compositeOver(
+                            MaterialTheme.colorScheme.surface,
+                        ),
                     isSelectionMode = isSelectionMode,
                 ),
-            shape = RoundedCornerShape(24.dp),
+            shape = bubbleShape,
             modifier =
                 Modifier
                     .messageLongPressable(
@@ -131,14 +139,14 @@ private fun UserMessageBubble(
                 Text(
                     text = item.text,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
             }
         }
         Text(
             text = formatRelativeTimestamp(item.timestamp),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -149,6 +157,7 @@ private fun UserMessageBubble(
 private fun AgentMessageBubble(
     item: MessageItem.AgentMessage,
     provider: String,
+    bubbleShape: androidx.compose.ui.graphics.Shape,
     onLongPress: ((MessageItem) -> Unit)? = null,
     selectionModeActive: Boolean = false,
     onExitSelectionMode: (() -> Unit)? = null,
@@ -177,7 +186,7 @@ private fun AgentMessageBubble(
             Box(
                 modifier =
                     Modifier
-                        .size(34.dp)
+                        .size(30.dp)
                         .background(
                             color = badgeColor.copy(alpha = 0.16f),
                             shape = CircleShape,
@@ -195,10 +204,10 @@ private fun AgentMessageBubble(
             Surface(
                 color =
                     selectedBubbleColor(
-                        baseColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
+                        baseColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.76f),
                         isSelectionMode = isSelectionMode,
                     ),
-                shape = RoundedCornerShape(24.dp),
+                shape = bubbleShape,
                 modifier =
                     Modifier
                         .weight(1f)
@@ -237,7 +246,7 @@ private fun AgentMessageBubble(
 
         Text(
             text = formatRelativeTimestamp(item.timestamp),
-            style = MaterialTheme.typography.labelSmall,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -253,6 +262,7 @@ private fun StatusChangeBubble(
     onDeny: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val componentShapes = LocalIMbotComponentShapes.current
     if (item.eventType == "approval_required" || item.eventType == "approval_resolved") {
         ApprovalCard(
             item = item,
@@ -272,14 +282,14 @@ private fun StatusChangeBubble(
         contentAlignment = Alignment.Center,
     ) {
         Surface(
-            color = statusColor.copy(alpha = 0.12f),
-            shape = RoundedCornerShape(18.dp),
+            color = statusColor.copy(alpha = 0.08f).compositeOver(MaterialTheme.colorScheme.surface),
+            shape = componentShapes.pill,
         ) {
             Text(
                 text = item.message?.takeIf(String::isNotBlank) ?: statusLabel(item.status),
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
                 style = MaterialTheme.typography.labelMedium,
-                color = statusColor,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
         }

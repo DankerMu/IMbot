@@ -41,6 +41,14 @@ class AnimationConstantsTest {
     }
 
     @Test
+    fun `spring parameters match redesign spec`() {
+        assertEquals(0.5f, IMbotAnimations.DefaultSpring.dampingRatio)
+        assertEquals(400f, IMbotAnimations.DefaultSpring.stiffness)
+        assertEquals(1.0f, IMbotAnimations.GentleSpring.dampingRatio)
+        assertEquals(200f, IMbotAnimations.GentleSpring.stiffness)
+    }
+
+    @Test
     fun `connection banner recovery duration matches spec`() {
         assertEquals(2000, IMbotAnimations.BANNER_RECOVERY_DISPLAY_MS)
     }
