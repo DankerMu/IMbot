@@ -131,7 +131,7 @@ object CodeTokenizer {
 }
 
 internal fun normalizeLanguage(language: String?): String? =
-    when (language?.trim()?.lowercase()) {
+    when (language?.trim()?.split(Regex("\\s+"))?.firstOrNull()?.lowercase()) {
         "kt", "kts", "kotlin" -> "kotlin"
         "ts", "tsx", "typescript", "js", "jsx", "javascript" -> "typescript"
         "py", "python" -> "python"
@@ -143,6 +143,11 @@ internal fun normalizeLanguage(language: String?): String? =
 
 private val multiline = setOf(RegexOption.MULTILINE)
 private val multilineIgnoreCase = setOf(RegexOption.MULTILINE, RegexOption.IGNORE_CASE)
+private const val GENERIC_ANNOTATION_PATTERN =
+    """(?<![\w@.])@(?:[A-Za-z_][A-Za-z0-9_]*:)?[A-Za-z_][A-Za-z0-9_]*"""
+private const val GENERIC_OPERATOR_PATTERN =
+    """(?:\+=|-=|->|!=|==|>=|<=|&&|\|\||[+\-=<>!&|])"""
+private const val GENERIC_BRACKET_PATTERN = """[(){}\[\]]"""
 
 private val kotlinPatterns =
     listOf(
@@ -151,6 +156,7 @@ private val kotlinPatterns =
         TokenPattern(CodeTokenType.String, Regex("\"\"\"[\\s\\S]*?\"\"\"")),
         TokenPattern(CodeTokenType.String, Regex("\"(?:\\\\.|[^\"\\\\])*\"", multiline)),
         TokenPattern(CodeTokenType.String, Regex("""'(?:\\.|[^'\\])*'""", multiline)),
+        TokenPattern(CodeTokenType.Annotation, Regex(GENERIC_ANNOTATION_PATTERN)),
         TokenPattern(
             CodeTokenType.Keyword,
             Regex(
@@ -159,6 +165,7 @@ private val kotlinPatterns =
                     """this|true|typealias|val|var|when|while)\b""",
             ),
         ),
+        TokenPattern(CodeTokenType.Operator, Regex(GENERIC_OPERATOR_PATTERN)),
         TokenPattern(CodeTokenType.Number, Regex("""\b\d+(?:\.\d+)?\b""")),
         TokenPattern(CodeTokenType.Function, Regex("""\bfun\s+([A-Za-z_][A-Za-z0-9_]*)"""), groupIndex = 1),
         TokenPattern(
@@ -168,6 +175,7 @@ private val kotlinPatterns =
                     """Map|MutableMap|Set|MutableSet|Result|[A-Z][A-Za-z0-9_]*)\b""",
             ),
         ),
+        TokenPattern(CodeTokenType.Bracket, Regex(GENERIC_BRACKET_PATTERN)),
     )
 
 private val typescriptPatterns =
@@ -177,6 +185,7 @@ private val typescriptPatterns =
         TokenPattern(CodeTokenType.String, Regex("""`(?:\\.|[^`\\])*`""", multiline)),
         TokenPattern(CodeTokenType.String, Regex("\"(?:\\\\.|[^\"\\\\])*\"", multiline)),
         TokenPattern(CodeTokenType.String, Regex("""'(?:\\.|[^'\\])*'""", multiline)),
+        TokenPattern(CodeTokenType.Annotation, Regex(GENERIC_ANNOTATION_PATTERN)),
         TokenPattern(
             CodeTokenType.Keyword,
             Regex(
@@ -186,12 +195,14 @@ private val typescriptPatterns =
                     """var|while)\b""",
             ),
         ),
+        TokenPattern(CodeTokenType.Operator, Regex(GENERIC_OPERATOR_PATTERN)),
         TokenPattern(CodeTokenType.Number, Regex("""\b\d+(?:\.\d+)?\b""")),
         TokenPattern(CodeTokenType.Function, Regex("""\bfunction\s+([A-Za-z_][A-Za-z0-9_]*)"""), groupIndex = 1),
         TokenPattern(
             CodeTokenType.Type,
             Regex("""\b(?:string|number|boolean|void|unknown|never|any|Promise|Array|Record|Map|Set|[A-Z][A-Za-z0-9_]*)\b"""),
         ),
+        TokenPattern(CodeTokenType.Bracket, Regex(GENERIC_BRACKET_PATTERN)),
     )
 
 private val pythonPatterns =
@@ -201,26 +212,31 @@ private val pythonPatterns =
         TokenPattern(CodeTokenType.String, Regex("\"\"\"[\\s\\S]*?\"\"\"")),
         TokenPattern(CodeTokenType.String, Regex("\"(?:\\\\.|[^\"\\\\])*\"", multiline)),
         TokenPattern(CodeTokenType.String, Regex("""'(?:\\.|[^'\\])*'""", multiline)),
+        TokenPattern(CodeTokenType.Annotation, Regex(GENERIC_ANNOTATION_PATTERN)),
         TokenPattern(
             CodeTokenType.Keyword,
             Regex(
                 """\b(?:and|as|class|def|elif|else|False|for|from|if|import|in|is|lambda|None|not|or|pass|return|True|while|with)\b""",
             ),
         ),
+        TokenPattern(CodeTokenType.Operator, Regex(GENERIC_OPERATOR_PATTERN)),
         TokenPattern(CodeTokenType.Number, Regex("""\b\d+(?:\.\d+)?\b""")),
         TokenPattern(CodeTokenType.Function, Regex("""\bdef\s+([A-Za-z_][A-Za-z0-9_]*)"""), groupIndex = 1),
         TokenPattern(
             CodeTokenType.Type,
             Regex("""\b(?:str|int|float|bool|dict|list|tuple|set|None|[A-Z][A-Za-z0-9_]*)\b"""),
         ),
+        TokenPattern(CodeTokenType.Bracket, Regex(GENERIC_BRACKET_PATTERN)),
     )
 
 private val jsonPatterns =
     listOf(
         TokenPattern(CodeTokenType.Property, Regex("\"(?:\\\\.|[^\"\\\\])*\"(?=\\s*:)")),
         TokenPattern(CodeTokenType.String, Regex("\"(?:\\\\.|[^\"\\\\])*\"", multiline)),
+        TokenPattern(CodeTokenType.Operator, Regex(GENERIC_OPERATOR_PATTERN)),
         TokenPattern(CodeTokenType.Number, Regex("""-?\b\d+(?:\.\d+)?\b""")),
         TokenPattern(CodeTokenType.Keyword, Regex("""\b(?:true|false|null)\b""")),
+        TokenPattern(CodeTokenType.Bracket, Regex(GENERIC_BRACKET_PATTERN)),
     )
 
 private val sqlPatterns =
@@ -229,6 +245,7 @@ private val sqlPatterns =
         TokenPattern(CodeTokenType.Comment, Regex("""--.*$""", multiline)),
         TokenPattern(CodeTokenType.String, Regex("\"(?:\\\\.|[^\"\\\\])*\"", multiline)),
         TokenPattern(CodeTokenType.String, Regex("""'(?:\\.|[^'\\])*'""", multiline)),
+        TokenPattern(CodeTokenType.Annotation, Regex(GENERIC_ANNOTATION_PATTERN)),
         TokenPattern(
             CodeTokenType.Keyword,
             Regex(
@@ -238,11 +255,13 @@ private val sqlPatterns =
                 multilineIgnoreCase,
             ),
         ),
+        TokenPattern(CodeTokenType.Operator, Regex(GENERIC_OPERATOR_PATTERN)),
         TokenPattern(CodeTokenType.Number, Regex("""\b\d+(?:\.\d+)?\b""")),
         TokenPattern(
             CodeTokenType.Type,
             Regex("""\b(?:int|integer|text|varchar|boolean|timestamp|date|float|double|decimal)\b""", multilineIgnoreCase),
         ),
+        TokenPattern(CodeTokenType.Bracket, Regex(GENERIC_BRACKET_PATTERN)),
     )
 
 private val bashPatterns =
@@ -250,10 +269,13 @@ private val bashPatterns =
         TokenPattern(CodeTokenType.Comment, Regex("""#.*$""", multiline)),
         TokenPattern(CodeTokenType.String, Regex("\"(?:\\\\.|[^\"\\\\])*\"", multiline)),
         TokenPattern(CodeTokenType.String, Regex("""'(?:\\.|[^'\\])*'""", multiline)),
+        TokenPattern(CodeTokenType.Annotation, Regex(GENERIC_ANNOTATION_PATTERN)),
         TokenPattern(
             CodeTokenType.Keyword,
             Regex("""\b(?:case|do|done|elif|else|esac|export|fi|for|function|if|in|local|return|then|while)\b"""),
         ),
+        TokenPattern(CodeTokenType.Operator, Regex(GENERIC_OPERATOR_PATTERN)),
         TokenPattern(CodeTokenType.Number, Regex("""\b\d+(?:\.\d+)?\b""")),
         TokenPattern(CodeTokenType.Function, Regex("""\b([A-Za-z_][A-Za-z0-9_]*)\s*\(\s*\)\s*\{"""), groupIndex = 1),
+        TokenPattern(CodeTokenType.Bracket, Regex(GENERIC_BRACKET_PATTERN)),
     )

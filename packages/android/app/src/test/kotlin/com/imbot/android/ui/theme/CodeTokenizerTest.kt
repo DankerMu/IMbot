@@ -1,6 +1,7 @@
 package com.imbot.android.ui.theme
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
@@ -78,6 +79,56 @@ class CodeTokenizerTest {
     @Test
     fun `empty code returns no tokens`() {
         assertTrue(CodeTokenizer.tokenize("", "kotlin").isEmpty())
+    }
+
+    @Test
+    fun `annotations operators and brackets are recognized for kotlin`() {
+        val code = """@Suppress("X") value += other && ready -> { call() }"""
+        val tokens = CodeTokenizer.tokenize(code, "kotlin")
+
+        assertContainsToken(tokens, code, "@Suppress", CodeTokenType.Annotation)
+        assertContainsToken(tokens, code, "+=", CodeTokenType.Operator)
+        assertContainsToken(tokens, code, "&&", CodeTokenType.Operator)
+        assertContainsToken(tokens, code, "->", CodeTokenType.Operator)
+        assertContainsToken(tokens, code, "{", CodeTokenType.Bracket)
+        assertContainsToken(tokens, code, "(", CodeTokenType.Bracket)
+        assertContainsToken(tokens, code, ")", CodeTokenType.Bracket)
+    }
+
+    @Test
+    fun `file scoped annotations are recognized`() {
+        val code = "@file:Suppress(\"MagicNumber\")"
+        val tokens = CodeTokenizer.tokenize(code, "kotlin")
+
+        assertContainsToken(tokens, code, "@file:Suppress", CodeTokenType.Annotation)
+    }
+
+    @Test
+    fun `mixed kotlin line keeps annotation keyword function and brackets in order`() {
+        val code = "@Test fun foo() {"
+        val tokens = CodeTokenizer.tokenize(code, "kotlin")
+
+        assertEquals(
+            listOf(
+                CodeTokenType.Annotation,
+                CodeTokenType.Keyword,
+                CodeTokenType.Function,
+                CodeTokenType.Bracket,
+                CodeTokenType.Bracket,
+                CodeTokenType.Bracket,
+            ),
+            tokens.map(TokenSpan::type),
+        )
+    }
+
+    @Test
+    fun `standalone at sign and email do not become annotations`() {
+        assertFalse(
+            CodeTokenizer.tokenize("@", "kotlin").any { it.type == CodeTokenType.Annotation },
+        )
+        assertFalse(
+            CodeTokenizer.tokenize("user@test.com", "kotlin").any { it.type == CodeTokenType.Annotation },
+        )
     }
 
     @Test

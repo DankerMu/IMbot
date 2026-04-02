@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.imbot.android.ui.theme.LocalUseDarkTheme
 import kotlin.math.ceil
 
 @Composable
@@ -47,13 +48,14 @@ internal fun MarkdownKatexInlineText(
 ) {
     val colors = MaterialTheme.colorScheme
     val density = LocalDensity.current
+    val inlineCodeBackground = markdownInlineCodeBackground(LocalUseDarkTheme.current)
     val html =
-        remember(text, style, colors, density) {
+        remember(text, style, colors, density, inlineCodeBackground) {
             buildKatexDocumentHtml(
                 bodyHtml = buildMarkdownInlineHtml(text),
                 textColor = colors.onSurface.toCssColor(),
                 linkColor = colors.primary.toCssColor(),
-                inlineCodeBackground = colors.surfaceVariant.copy(alpha = 0.75f).toCssColor(includeAlpha = true),
+                inlineCodeBackground = inlineCodeBackground.toCssColor(includeAlpha = true),
                 fontSizePx = style.resolveFontSizeCssPx(density),
                 lineHeightPx = style.resolveLineHeightCssPx(density),
                 fontWeight = style.fontWeight?.weight ?: 400,
@@ -77,13 +79,14 @@ internal fun MarkdownKatexMathBlock(
     val colors = MaterialTheme.colorScheme
     val style = MaterialTheme.typography.titleMedium
     val density = LocalDensity.current
+    val inlineCodeBackground = markdownInlineCodeBackground(LocalUseDarkTheme.current)
     val html =
-        remember(expression, style, colors, density) {
+        remember(expression, style, colors, density, inlineCodeBackground) {
             buildKatexDocumentHtml(
                 bodyHtml = encodeHtml("$$${expression.trim()}$$"),
                 textColor = colors.onSurface.toCssColor(),
                 linkColor = colors.primary.toCssColor(),
-                inlineCodeBackground = colors.surfaceVariant.copy(alpha = 0.75f).toCssColor(includeAlpha = true),
+                inlineCodeBackground = inlineCodeBackground.toCssColor(includeAlpha = true),
                 fontSizePx = style.resolveFontSizeCssPx(density),
                 lineHeightPx = style.resolveLineHeightCssPx(density),
                 fontWeight = style.fontWeight?.weight ?: 500,
