@@ -27,14 +27,23 @@ sealed class MessageItem {
     data class InteractiveToolCall(
         val id: String,
         val toolName: String,
-        val question: String,
-        val options: List<String>?,
+        val questions: List<ParsedQuestion>,
         val isAnswered: Boolean = false,
         val answer: String? = null,
         val errorMessage: String? = null,
         val timestamp: String,
         val seq: Int? = null,
-    ) : MessageItem()
+    ) : MessageItem() {
+        val primaryQuestion: ParsedQuestion
+            get() =
+                questions.firstOrNull()
+                    ?: ParsedQuestion(
+                        question = DEFAULT_ASK_USER_QUESTION_MESSAGE,
+                        header = null,
+                        options = null,
+                        multiSelect = false,
+                    )
+    }
 
     data class ToolCall(
         val callId: String,
@@ -211,13 +220,12 @@ class EventProcessor(
 
         closeStreamingAgentMessage()
         if (isInteractiveToolCall(toolName)) {
-            val (question, options) = parseAskUserQuestion(input)
+            val questions = parseAskUserQuestionV2(input)
             messages +=
                 MessageItem.InteractiveToolCall(
                     id = callId,
                     toolName = toolName,
-                    question = question,
-                    options = options,
+                    questions = questions,
                     timestamp = event.timestamp,
                     seq = event.seq,
                 )
@@ -270,13 +278,12 @@ class EventProcessor(
             }
         } else {
             if (isInteractiveToolCall(toolName)) {
-                val (question, options) = parseAskUserQuestion(input)
+                val questions = parseAskUserQuestionV2(input)
                 messages +=
                     MessageItem.InteractiveToolCall(
                         id = callId,
                         toolName = toolName,
-                        question = question,
-                        options = options,
+                        questions = questions,
                         isAnswered = true,
                         answer = result,
                         timestamp = event.timestamp,
