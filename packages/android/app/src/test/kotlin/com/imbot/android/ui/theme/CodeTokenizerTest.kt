@@ -56,6 +56,19 @@ class CodeTokenizerTest {
     }
 
     @Test
+    fun `json negative numbers stay a single number token`() {
+        val code = """{"delta":-1}"""
+        val tokens = CodeTokenizer.tokenize(code, "json")
+
+        assertContainsToken(tokens, code, "-1", CodeTokenType.Number)
+        assertFalse(
+            tokens.any { token ->
+                token.type == CodeTokenType.Operator && code.substring(token.start, token.end) == "-"
+            },
+        )
+    }
+
+    @Test
     fun `single double and template strings are detected`() {
         val code = "const a = 'one'; const b = \"two\"; const c = `three ${'$'}{value}`"
         val tokens = CodeTokenizer.tokenize(code, "typescript")

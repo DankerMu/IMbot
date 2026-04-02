@@ -7,6 +7,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
@@ -63,6 +64,7 @@ private val MarkdownTableMinColumnWidth = 140.dp
 private val MarkdownInlineCodeCornerRadius = 4.dp
 private val MarkdownInlineCodeHorizontalPadding = 4.dp
 private val MarkdownInlineCodeVerticalPadding = 2.dp
+private const val MAX_ROUNDED_INLINE_CODE_SPANS = 50
 private const val URL_ANNOTATION_TAG = "URL"
 private const val INLINE_CODE_ANNOTATION_TAG = "INLINE_CODE"
 
@@ -322,39 +324,50 @@ private fun MarkdownTable(
 ) {
     val borderColor = MaterialTheme.colorScheme.outlineVariant
     val headerBackground = MaterialTheme.colorScheme.surfaceVariant
+    val columnCount = maxOf(header.size, rows.maxOfOrNull(List<String>::size) ?: 0)
 
-    Box(
-        modifier =
-            modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+    BoxWithConstraints(
+        modifier = modifier.fillMaxWidth(),
     ) {
-        Column(
+        val minTableWidth = MarkdownTableMinColumnWidth * columnCount
+        val tableWidth = if (maxWidth > minTableWidth) maxWidth else minTableWidth
+
+        Box(
             modifier =
                 Modifier
-                    .clip(MaterialTheme.shapes.medium)
-                    .border(width = 1.dp, color = borderColor, shape = MaterialTheme.shapes.medium),
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
         ) {
-            MarkdownTableRow(
-                cells = header,
-                alignments = alignments,
-                backgroundColor = headerBackground,
-                borderColor = borderColor,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-            )
-            rows.forEachIndexed { rowIndex, row ->
+            Column(
+                modifier =
+                    Modifier
+                        .width(tableWidth)
+                        .clip(MaterialTheme.shapes.medium)
+                        .border(width = 1.dp, color = borderColor, shape = MaterialTheme.shapes.medium),
+            ) {
                 MarkdownTableRow(
-                    cells = row,
+                    cells = header,
+                    columnCount = columnCount,
                     alignments = alignments,
-                    backgroundColor =
-                        if (isStripedTableRow(rowIndex)) {
-                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
-                        } else {
-                            MaterialTheme.colorScheme.surface
-                        },
+                    backgroundColor = headerBackground,
                     borderColor = borderColor,
-                    textStyle = MaterialTheme.typography.bodyMedium,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                 )
+                rows.forEachIndexed { rowIndex, row ->
+                    MarkdownTableRow(
+                        cells = row,
+                        columnCount = columnCount,
+                        alignments = alignments,
+                        backgroundColor =
+                            if (isStripedTableRow(rowIndex)) {
+                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            } else {
+                                MaterialTheme.colorScheme.surface
+                            },
+                        borderColor = borderColor,
+                        textStyle = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         }
     }
@@ -363,6 +376,7 @@ private fun MarkdownTable(
 @Composable
 private fun MarkdownTableRow(
     cells: List<String>,
+    columnCount: Int,
     alignments: List<MarkdownTableAlignment>,
     backgroundColor: Color,
     borderColor: Color,
@@ -371,13 +385,16 @@ private fun MarkdownTableRow(
     Row(
         modifier =
             Modifier
+                .fillMaxWidth()
                 .height(IntrinsicSize.Min),
     ) {
-        cells.forEachIndexed { index, cell ->
+        repeat(columnCount) { index ->
+            val cell = cells.getOrElse(index) { "" }
             val cellAlignment = alignments.getOrElse(index) { MarkdownTableAlignment.Start }
             Box(
                 modifier =
                     Modifier
+                        .weight(1f)
                         .defaultMinSize(minWidth = MarkdownTableMinColumnWidth)
                         .fillMaxHeight()
                         .background(backgroundColor)
@@ -428,29 +445,54 @@ private fun MarkdownInlineText(
     val inlineCodeBackground = markdownInlineCodeBackground(LocalUseDarkTheme.current)
     val linkColor = MaterialTheme.colorScheme.primary
     val inlineCodeTextColor = MaterialTheme.colorScheme.onSurface
+    val useRoundedInlineCodeBackgrounds =
+        remember(text) { countInlineCodeSpans(text) <= MAX_ROUNDED_INLINE_CODE_SPANS }
     val annotated =
-        remember(text, inlineCodeBackground, linkColor, inlineCodeTextColor) {
+        remember(
+            text,
+            inlineCodeBackground,
+            linkColor,
+            inlineCodeTextColor,
+            useRoundedInlineCodeBackgrounds,
+        ) {
             buildMarkdownAnnotatedString(
                 text = text,
                 linkColor = linkColor,
                 inlineCodeTextColor = inlineCodeTextColor,
+                inlineCodeBackground = inlineCodeBackground,
+                useRoundedInlineCodeBackgrounds = useRoundedInlineCodeBackgrounds,
             )
         }
-    var textLayoutResult by remember(text, style, annotated) { mutableStateOf<TextLayoutResult?>(null) }
+    var inlineCodeBackgroundRects by
+        remember(annotated, useRoundedInlineCodeBackgrounds) {
+            mutableStateOf(emptyList<Rect>())
+        }
+    val inlineCodeBackgroundModifier =
+        if (useRoundedInlineCodeBackgrounds) {
+            Modifier.drawBehind {
+                drawInlineCodeBackgrounds(
+                    rects = inlineCodeBackgroundRects,
+                    inlineCodeBackground = inlineCodeBackground,
+                )
+            }
+        } else {
+            Modifier
+        }
 
     ClickableText(
         text = annotated,
-        modifier =
-            modifier.drawBehind {
-                drawInlineCodeBackgrounds(
-                    annotated = annotated,
-                    textLayoutResult = textLayoutResult,
-                    inlineCodeBackground = inlineCodeBackground,
-                )
-            },
+        modifier = modifier.then(inlineCodeBackgroundModifier),
         style = style,
         onTextLayout = { layoutResult ->
-            textLayoutResult = layoutResult
+            inlineCodeBackgroundRects =
+                if (useRoundedInlineCodeBackgrounds) {
+                    buildInlineCodeBackgroundRects(
+                        annotated = annotated,
+                        textLayoutResult = layoutResult,
+                    )
+                } else {
+                    emptyList()
+                }
         },
         onClick = { offset ->
             annotated.getStringAnnotations(tag = URL_ANNOTATION_TAG, start = offset, end = offset)
@@ -748,6 +790,8 @@ private fun buildMarkdownAnnotatedString(
     text: String,
     linkColor: Color,
     inlineCodeTextColor: Color,
+    inlineCodeBackground: Color,
+    useRoundedInlineCodeBackgrounds: Boolean,
 ): AnnotatedString {
     val builder = AnnotatedString.Builder()
     var currentIndex = 0
@@ -777,21 +821,32 @@ private fun buildMarkdownAnnotatedString(
             token.startsWith("`") && token.endsWith("`") -> {
                 val inlineCode = token.removePrefix("`").removeSuffix("`")
                 val start = builder.length
-                builder.withStyle(
-                    SpanStyle(
-                        fontFamily = CodeFontFamily,
-                        fontSize = 13.sp,
-                        color = inlineCodeTextColor,
-                    ),
-                ) {
+                val inlineCodeStyle =
+                    if (useRoundedInlineCodeBackgrounds) {
+                        SpanStyle(
+                            fontFamily = CodeFontFamily,
+                            fontSize = 13.sp,
+                            color = inlineCodeTextColor,
+                        )
+                    } else {
+                        SpanStyle(
+                            fontFamily = CodeFontFamily,
+                            fontSize = 13.sp,
+                            color = inlineCodeTextColor,
+                            background = inlineCodeBackground,
+                        )
+                    }
+                builder.withStyle(inlineCodeStyle) {
                     append(inlineCode)
                 }
-                builder.addStringAnnotation(
-                    tag = INLINE_CODE_ANNOTATION_TAG,
-                    annotation = INLINE_CODE_ANNOTATION_TAG,
-                    start = start,
-                    end = builder.length,
-                )
+                if (useRoundedInlineCodeBackgrounds) {
+                    builder.addStringAnnotation(
+                        tag = INLINE_CODE_ANNOTATION_TAG,
+                        annotation = INLINE_CODE_ANNOTATION_TAG,
+                        start = start,
+                        end = builder.length,
+                    )
+                }
             }
 
             token.startsWith("[") -> {
@@ -827,38 +882,50 @@ private fun buildMarkdownAnnotatedString(
     return builder.toAnnotatedString()
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawInlineCodeBackgrounds(
+private fun countInlineCodeSpans(text: String): Int =
+    INLINE_TOKEN_REGEX.findAll(text).count { match ->
+        val token = match.value
+        token.startsWith("`") && token.endsWith("`")
+    }
+
+private fun buildInlineCodeBackgroundRects(
     annotated: AnnotatedString,
-    textLayoutResult: TextLayoutResult?,
+    textLayoutResult: TextLayoutResult,
+): List<Rect> =
+    annotated
+        .getStringAnnotations(
+            tag = INLINE_CODE_ANNOTATION_TAG,
+            start = 0,
+            end = annotated.length,
+        )
+        .flatMap { annotation ->
+            buildInlineCodeRects(
+                text = annotated.text,
+                textLayoutResult = textLayoutResult,
+                start = annotation.start,
+                end = annotation.end,
+            )
+        }
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawInlineCodeBackgrounds(
+    rects: List<Rect>,
     inlineCodeBackground: Color,
 ) {
-    val layoutResult = textLayoutResult ?: return
     val horizontalPadding = MarkdownInlineCodeHorizontalPadding.toPx()
     val verticalPadding = MarkdownInlineCodeVerticalPadding.toPx()
     val cornerRadius = MarkdownInlineCodeCornerRadius.toPx()
 
-    annotated.getStringAnnotations(
-        tag = INLINE_CODE_ANNOTATION_TAG,
-        start = 0,
-        end = annotated.length,
-    ).forEach { annotation ->
-        buildInlineCodeRects(
-            text = annotated.text,
-            textLayoutResult = layoutResult,
-            start = annotation.start,
-            end = annotation.end,
-        ).forEach { rect ->
-            drawRoundRect(
-                color = inlineCodeBackground,
-                topLeft = Offset(rect.left - horizontalPadding, rect.top - verticalPadding),
-                size =
-                    Size(
-                        width = rect.width + (horizontalPadding * 2),
-                        height = rect.height + (verticalPadding * 2),
-                    ),
-                cornerRadius = CornerRadius(cornerRadius, cornerRadius),
-            )
-        }
+    rects.forEach { rect ->
+        drawRoundRect(
+            color = inlineCodeBackground,
+            topLeft = Offset(rect.left - horizontalPadding, rect.top - verticalPadding),
+            size =
+                Size(
+                    width = rect.width + (horizontalPadding * 2),
+                    height = rect.height + (verticalPadding * 2),
+                ),
+            cornerRadius = CornerRadius(cornerRadius, cornerRadius),
+        )
     }
 }
 

@@ -56,7 +56,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 internal const val CODE_COPY_FEEDBACK_DURATION_MS = 2_000L
-private const val MAX_CODE_LINE_NUMBER = 999
+internal const val MAX_CODE_GUTTER_LINES = 500
 
 internal fun extractCodeLanguageLabel(infoString: String?): String? {
     val firstToken = infoString?.trim()?.split(Regex("\\s+"))?.firstOrNull()?.lowercase()
@@ -68,15 +68,12 @@ internal fun buildCodeLineNumbers(code: String): List<String> {
         if (code.isEmpty()) {
             0
         } else {
-            code.split('\n').size
+            code.count { it == '\n' } + 1
         }
-    return (1..lineCount).map { lineNumber ->
-        if (lineNumber > MAX_CODE_LINE_NUMBER) {
-            "..."
-        } else {
-            lineNumber.toString()
-        }
+    if (lineCount == 0 || lineCount > MAX_CODE_GUTTER_LINES) {
+        return emptyList()
     }
+    return (1..lineCount).map(Int::toString)
 }
 
 @Composable

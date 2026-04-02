@@ -22,16 +22,17 @@ class MarkdownRenderingTest {
     }
 
     @Test
-    fun `code line numbers skip empty code and clamp after 999`() {
+    fun `code line numbers skip empty code and large blocks`() {
         assertTrue(buildCodeLineNumbers("").isEmpty())
         assertEquals(listOf("1"), buildCodeLineNumbers("val ready = true"))
 
-        val longCode = (1..1000).joinToString(separator = "\n") { "line $it" }
-        val lineNumbers = buildCodeLineNumbers(longCode)
+        val maxGutterCode = (1..500).joinToString(separator = "\n") { "line $it" }
+        val maxGutterLineNumbers = buildCodeLineNumbers(maxGutterCode)
+        assertEquals(500, maxGutterLineNumbers.size)
+        assertEquals("500", maxGutterLineNumbers.last())
 
-        assertEquals(1000, lineNumbers.size)
-        assertEquals("999", lineNumbers[998])
-        assertEquals("...", lineNumbers[999])
+        val oversizedCode = (1..501).joinToString(separator = "\n") { "line $it" }
+        assertTrue(buildCodeLineNumbers(oversizedCode).isEmpty())
     }
 
     @Test

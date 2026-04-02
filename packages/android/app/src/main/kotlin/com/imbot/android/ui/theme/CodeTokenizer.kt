@@ -233,8 +233,8 @@ private val jsonPatterns =
     listOf(
         TokenPattern(CodeTokenType.Property, Regex("\"(?:\\\\.|[^\"\\\\])*\"(?=\\s*:)")),
         TokenPattern(CodeTokenType.String, Regex("\"(?:\\\\.|[^\"\\\\])*\"", multiline)),
+        TokenPattern(CodeTokenType.Number, Regex("""-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?""")),
         TokenPattern(CodeTokenType.Operator, Regex(GENERIC_OPERATOR_PATTERN)),
-        TokenPattern(CodeTokenType.Number, Regex("""-?\b\d+(?:\.\d+)?\b""")),
         TokenPattern(CodeTokenType.Keyword, Regex("""\b(?:true|false|null)\b""")),
         TokenPattern(CodeTokenType.Bracket, Regex(GENERIC_BRACKET_PATTERN)),
     )
