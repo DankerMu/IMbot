@@ -52,7 +52,10 @@ export const ERROR_CODES = [
   "directory_not_found",
   "session_not_resumable",
   "command_timeout",
-  "seq_gap_detected"
+  "seq_gap_detected",
+  "no_pending_control_request",
+  "call_id_mismatch",
+  "session_not_found"
 ] as const;
 
 export type ErrorCode = (typeof ERROR_CODES)[number];
@@ -68,5 +71,8 @@ export const ERROR_HTTP_STATUS: Readonly<Record<ErrorCode, number>> = {
   directory_not_found: 400,
   session_not_resumable: 409,
   command_timeout: 504,
-  seq_gap_detected: 500
+  seq_gap_detected: 500,
+  no_pending_control_request: 409,
+  call_id_mismatch: 409,
+  session_not_found: 404
 };
