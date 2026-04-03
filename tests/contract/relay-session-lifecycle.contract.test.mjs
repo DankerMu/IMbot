@@ -1069,7 +1069,7 @@ test("relay rejects concurrent lifecycle mutations while a resume is in flight",
   assert.deepEqual(sessionStartedCount, { count: 2 });
 });
 
-test("relay rejects deleting a running session", async (t) => {
+test("relay auto-cancels and deletes a running session", async (t) => {
   const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-delete-running-");
   const companion = new WebSocket(
     `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
@@ -1093,8 +1093,7 @@ test("relay rejects deleting a running session", async (t) => {
     }
   });
 
-  assert.equal(deleteResponse.status, 409);
-  assert.deepEqual(await deleteResponse.json(), { error: "state_conflict" });
+  assert.equal(deleteResponse.status, 204);
 
   const sessionAfterDelete = runtime.db
     .prepare("SELECT status FROM sessions WHERE id = ?")
@@ -1103,10 +1102,8 @@ test("relay rejects deleting a running session", async (t) => {
     .prepare("SELECT COUNT(*) AS count FROM audit_logs WHERE action = 'session.delete' AND session_id = ?")
     .get(sessionId);
 
-  assert.deepEqual(sessionAfterDelete, {
-    status: "running"
-  });
-  assert.deepEqual(deleteAudit, { count: 0 });
+  assert.equal(sessionAfterDelete, undefined);
+  assert.deepEqual(deleteAudit, { count: 1 });
 });
 
 test("relay returns host_offline when resuming a completed session after the companion disconnects", async (t) => {
