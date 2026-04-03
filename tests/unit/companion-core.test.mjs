@@ -1037,6 +1037,47 @@ test("CompanionRuntime list_sessions handler dispatches correctly", async () => 
   }
 });
 
+test("CompanionRuntime list_sessions rejects unconfigured providers", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-list-invalid-provider-"));
+  const sentMessages = [];
+
+  let runtime;
+  try {
+    const config = createRuntimeConfig(tempDir);
+    delete config.providers.book;
+
+    runtime = await companion.createCompanionRuntime({
+      config,
+      logger: silentLogger
+    });
+    runtime.relayClient.send = (message) => {
+      sentMessages.push(message);
+    };
+
+    runtime.relayClient.emit("message", {
+      cmd: "list_sessions",
+      req_id: "req-list-book",
+      cwd: tempDir,
+      provider: "book"
+    });
+
+    await waitFor(() => sentMessages.length === 1);
+    assert.deepEqual(sentMessages[0], {
+      type: "ack",
+      req_id: "req-list-book",
+      status: "error",
+      error_code: "invalid_request",
+      message: "Provider book is not configured on this companion"
+    });
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("CompanionRuntime add_root and remove_root handlers dispatch correctly", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-roots-"));
   const rootPath = path.join(tempDir, "novel");
