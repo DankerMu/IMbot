@@ -29,11 +29,23 @@ export type CompanionHeartbeatMessage = {
   uptime: number;
 };
 
+export type CompanionReportLocalSessionsMessage = {
+  type: "report_local_sessions";
+  host_id: string;
+  sessions: Array<{
+    provider_session_id: string;
+    provider: "claude" | "book";
+    cwd: string;
+    created_at: string;
+  }>;
+};
+
 export type CompanionMessage =
   | CompanionAckOk
   | CompanionAckError
   | CompanionEventMessage
-  | CompanionHeartbeatMessage;
+  | CompanionHeartbeatMessage
+  | CompanionReportLocalSessionsMessage;
 
 export type ServerMessage =
   | {

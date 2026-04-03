@@ -85,6 +85,13 @@ function parseOffset(value: string | number | undefined): number {
   return parsed;
 }
 
+function toBooleanFields(session: Session): Session {
+  return {
+    ...session,
+    local_available: Boolean(session.local_available)
+  };
+}
+
 export function registerSessionRoutes(
   app: FastifyInstance,
   deps: {
@@ -153,7 +160,7 @@ export function registerSessionRoutes(
       .get(...params) as { count: number };
 
     return {
-      sessions,
+      sessions: sessions.map(toBooleanFields),
       total: total.count,
       limit,
       offset
@@ -169,7 +176,7 @@ export function registerSessionRoutes(
       throw new RelayError("not_found", `Session ${id} not found`);
     }
 
-    return session;
+    return toBooleanFields(session);
   });
 
   app.post("/sessions/:id/resume", { schema: { params: sessionIdParamsSchema } }, async (request) => {

@@ -224,6 +224,7 @@ test("relay creates a session, persists events, and broadcasts companion traffic
   assert.equal(createPayload.session.host_id, "macbook-1");
   assert.equal(createPayload.session.id, createCommand.session_id);
   assert.equal(createPayload.session.status, "running");
+  assert.equal(createPayload.session.local_available, true);
 
   const sessionId = createPayload.session.id;
   assert.equal(
@@ -282,6 +283,17 @@ test("relay creates a session, persists events, and broadcasts companion traffic
   assert.equal(listResponse.status, 200);
   assert.equal(listPayload.total, 1);
   assert.equal(listPayload.sessions[0].id, sessionId);
+  assert.equal(listPayload.sessions[0].local_available, true);
+
+  const sessionResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}`, {
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+  const sessionPayload = await sessionResponse.json();
+  assert.equal(sessionResponse.status, 200);
+  assert.equal(sessionPayload.id, sessionId);
+  assert.equal(sessionPayload.local_available, true);
 
   const eventsResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}/events?since_seq=0`, {
     headers: {
@@ -373,6 +385,7 @@ test("relay persists and broadcasts session_idle events before updating the sess
   const createResponse = await createResponsePromise;
   const createPayload = await createResponse.json();
   assert.equal(createResponse.status, 201);
+  assert.equal(createPayload.session.local_available, true);
 
   const sessionId = createPayload.session.id;
   android.send(

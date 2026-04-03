@@ -58,6 +58,7 @@ CREATE TABLE sessions (
                        CHECK (status IN ('queued', 'running', 'idle', 'completed', 'failed', 'cancelled')),
   error_message        TEXT,                 -- populated on failure
   error_code           TEXT,                 -- machine-readable error
+  local_available      INTEGER NOT NULL DEFAULT 0, -- SQLite boolean: companion host has local CLI persistence
   created_at           TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at           TEXT NOT NULL DEFAULT (datetime('now')),
   last_active_at       TEXT NOT NULL DEFAULT (datetime('now'))

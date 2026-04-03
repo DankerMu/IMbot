@@ -75,6 +75,27 @@ test("VALID_TRANSITIONS preserves existing transitions unchanged", () => {
   assert.deepEqual(wire.VALID_TRANSITIONS.cancelled, ["running"]);
 });
 
+test("CompanionReportLocalSessionsMessage matches the expected wire shape", () => {
+  const message = {
+    type: "report_local_sessions",
+    host_id: "macbook-1",
+    sessions: [
+      {
+        provider_session_id: "abc-123",
+        provider: "claude",
+        cwd: "/tmp",
+        created_at: "2026-04-01T00:00:00Z"
+      }
+    ]
+  };
+
+  assert.equal(message.type, "report_local_sessions");
+  assert.equal(message.host_id, "macbook-1");
+  assert.equal(message.sessions.length, 1);
+  assert.equal(message.sessions[0].provider, "claude");
+  assert.equal(message.sessions[0].provider_session_id, "abc-123");
+});
+
 test("ExponentialBackoff returns increasing delays up to the max", () => {
   const delays = withMockedRandom(0, () => {
     const backoff = new wire.ExponentialBackoff(1000, 30000, 1000);

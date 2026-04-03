@@ -16,6 +16,7 @@ export interface Session {
   status: SessionStatus;
   error_message: string | null;
   error_code: string | null;
+  local_available: boolean;
   created_at: string;
   updated_at: string;
   last_active_at: string;
