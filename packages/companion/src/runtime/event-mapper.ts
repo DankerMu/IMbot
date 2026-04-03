@@ -17,7 +17,7 @@ export type RuntimeMappedMessage =
  * `tool_result` events can be correlated with their `tool_use` origin.
  */
 export class RuntimeEventMapper {
-  private pendingCallIds: string[] = [];
+  private pendingCallId: string | null = null;
 
   map(raw: unknown): RuntimeMappedMessage | null {
     if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
@@ -71,7 +71,7 @@ export class RuntimeEventMapper {
 
     if (type === "tool_use") {
       const callId = getString(record.id) ?? getString(record.tool_use_id) ?? randomUUID();
-      this.pendingCallIds.push(callId);
+      this.pendingCallId = callId;
       return {
         kind: "event",
         eventType: "tool_call_started",
@@ -84,10 +84,12 @@ export class RuntimeEventMapper {
     }
 
     if (type === "tool_result") {
+      const pending = this.pendingCallId;
+      this.pendingCallId = null;
       const callId =
         getString(record.id) ??
         getString(record.tool_use_id) ??
-        this.pendingCallIds.pop() ??
+        pending ??
         randomUUID();
       return {
         kind: "event",
