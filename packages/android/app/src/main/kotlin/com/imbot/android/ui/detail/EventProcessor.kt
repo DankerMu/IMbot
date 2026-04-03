@@ -216,6 +216,9 @@ class EventProcessor(
         if (callId.isBlank()) {
             return
         }
+        if (messages.any { (it is MessageItem.InteractiveToolCall && it.id == callId) || (it is MessageItem.ToolCall && it.callId == callId) }) {
+            return
+        }
         val toolName = payload.toolName().orEmpty()
         val input = truncatePayload(payload.compactValue("args") ?: payload.compactValue("input"))
 

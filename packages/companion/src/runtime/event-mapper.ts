@@ -32,6 +32,10 @@ export class RuntimeEventMapper {
   private readonly emittedTools = new Map<string, string>();
   private suppressUserMessageCount = 0;
 
+  markToolEmitted(callId: string, toolName: string): void {
+    this.emittedTools.set(callId, toolName.toLowerCase());
+  }
+
   map(raw: unknown): RuntimeMappedMessage | null {
     if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
       return null;

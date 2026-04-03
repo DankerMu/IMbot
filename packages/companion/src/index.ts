@@ -145,6 +145,10 @@ export async function createCompanionRuntime(options?: {
     heartbeat.stop();
     adapter.rejectAllPendingControlResponses("Relay disconnected");
   });
+  relayClient.on("error", () => {
+    // Swallowed — the subsequent "close" event triggers reconnection.
+    // Without this listener, Node crashes the process on unhandled "error".
+  });
 
   return {
     config,
