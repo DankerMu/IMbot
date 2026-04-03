@@ -390,12 +390,13 @@ test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () =
     assert.equal(spawnCalls.length, 1);
     assert.equal(spawnCalls[0].binary, "claude");
     assert.deepEqual(spawnCalls[0].args, [
-      "-p",
       "--input-format",
       "stream-json",
       "--output-format",
       "stream-json",
       "--verbose",
+      "--permission-prompt-tool",
+      "stdio",
       "--permission-mode",
       "bypassPermissions"
     ]);
@@ -480,12 +481,13 @@ test("ClaudeRuntimeAdapter uses the current Claude resume flags and avoids remov
     assert.equal(spawnCalls.length, 1);
     assert.equal(spawnCalls[0].binary, "claude");
     assert.deepEqual(spawnCalls[0].args, [
-      "-p",
       "--input-format",
       "stream-json",
       "--output-format",
       "stream-json",
       "--verbose",
+      "--permission-prompt-tool",
+      "stdio",
       "-r",
       "provider-session-existing"
     ]);
@@ -1181,6 +1183,33 @@ test("CompanionRuntime does not kill running CLI processes when the relay WS dis
     assert.deepEqual(cancelCalls, []);
     assert.deepEqual(shutdownCalls, []);
     assert.deepEqual(runtime.adapter.getActiveSessionIds(), ["relay-1", "relay-2"]);
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("CompanionRuntime rejects pending interactive tool responses when the relay WS disconnects", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-disconnect-pending-"));
+  const reasons = [];
+
+  let runtime;
+  try {
+    runtime = await companion.createCompanionRuntime({
+      config: createRuntimeConfig(tempDir),
+      logger: silentLogger
+    });
+    runtime.adapter.rejectAllPendingControlResponses = (reason) => {
+      reasons.push(reason);
+    };
+
+    runtime.relayClient.emit("disconnected", 1006, "abnormal");
+    await delay(20);
+
+    assert.deepEqual(reasons, ["Relay disconnected"]);
   } finally {
     if (runtime) {
       await runtime.close();

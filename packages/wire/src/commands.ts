@@ -38,6 +38,15 @@ export type CompleteSessionCommand = {
   session_id: string;
 };
 
+export type AnswerInteractiveToolCommand = {
+  cmd: "answer_interactive_tool";
+  req_id: string;
+  session_id: string;
+  call_id: string;
+  answer: string;
+  question_index?: number;
+};
+
 export type ListSessionsCommand = {
   cmd: "list_sessions";
   req_id: string;
@@ -80,6 +89,7 @@ export type CompanionCommand =
   | SendMessageCommand
   | CancelSessionCommand
   | CompleteSessionCommand
+  | AnswerInteractiveToolCommand
   | ListSessionsCommand
   | BrowseDirectoryCommand
   | AddRootCommand

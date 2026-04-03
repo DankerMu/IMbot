@@ -416,7 +416,7 @@ test("RuntimeEventMapper assigns call_id to both tool_use and tool_result", () =
   assert.equal(completed.payload.call_id, "toolu_read_1");
 });
 
-test("RuntimeEventMapper suppresses tool_result for top-level AskUserQuestion tool_use", () => {
+test("RuntimeEventMapper passes through tool_result for top-level AskUserQuestion tool_use", () => {
   const mapper = new RuntimeEventMapper();
 
   mapper.map({
@@ -431,7 +431,10 @@ test("RuntimeEventMapper suppresses tool_result for top-level AskUserQuestion to
     result: "option A"
   });
 
-  assert.equal(completed, null, "AskUserQuestion tool_result should be suppressed");
+  assert.equal(completed.kind, "event");
+  assert.equal(completed.eventType, "tool_call_completed");
+  assert.equal(completed.payload.tool, "AskUserQuestion");
+  assert.equal(completed.payload.result, "option A");
 });
 
 test("RuntimeEventMapper generates independent call_id when tool_result has its own id", () => {
@@ -491,10 +494,9 @@ test("RuntimeEventMapper extracts tool_use from assistant message content array 
   assert.equal(mapped.payload.input.questions[0].options.length, 3);
 });
 
-test("RuntimeEventMapper suppresses auto-error tool_result for AskUserQuestion (stream-json format)", () => {
+test("RuntimeEventMapper passes through AskUserQuestion tool_result in stream-json format", () => {
   const mapper = new RuntimeEventMapper();
 
-  // AskUserQuestion tool_use sets pendingInteractiveTool
   mapper.map({
     type: "assistant",
     message: {
@@ -510,7 +512,6 @@ test("RuntimeEventMapper suppresses auto-error tool_result for AskUserQuestion (
     }
   });
 
-  // Auto-error tool_result should be suppressed
   const completed = mapper.map({
     type: "user",
     message: {
@@ -519,14 +520,18 @@ test("RuntimeEventMapper suppresses auto-error tool_result for AskUserQuestion (
         {
           type: "tool_result",
           tool_use_id: "toolu_01VcgrJ8TUY6656wYRDGoCqi",
-          content: "Answer questions?",
-          is_error: true
+          tool_name: "AskUserQuestion",
+          content: "Alpha"
         }
       ]
     }
   });
 
-  assert.equal(completed, null, "AskUserQuestion tool_result should be suppressed");
+  assert.equal(completed.kind, "event");
+  assert.equal(completed.eventType, "tool_call_completed");
+  assert.equal(completed.payload.call_id, "toolu_01VcgrJ8TUY6656wYRDGoCqi");
+  assert.equal(completed.payload.tool, "AskUserQuestion");
+  assert.equal(completed.payload.result, "Alpha");
 });
 
 test("RuntimeEventMapper passes through tool_result for non-interactive tools (stream-json format)", () => {

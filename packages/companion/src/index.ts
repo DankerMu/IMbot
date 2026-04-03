@@ -104,6 +104,9 @@ export async function createCompanionRuntime(options?: {
   dispatcher.register("complete_session", async (command) => {
     await adapter.completeSession(command.session_id);
   });
+  dispatcher.register("answer_interactive_tool", async (command) => {
+    adapter.answerInteractiveTool(command.session_id, command.call_id, command.answer, command.question_index ?? 0);
+  });
   dispatcher.register("list_sessions", async (command) => {
     return await discoverSessions(command.cwd, command.provider, {
       logger
@@ -140,6 +143,7 @@ export async function createCompanionRuntime(options?: {
   });
   relayClient.on("disconnected", () => {
     heartbeat.stop();
+    adapter.rejectAllPendingControlResponses("Relay disconnected");
   });
 
   return {

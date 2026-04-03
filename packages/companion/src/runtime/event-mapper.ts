@@ -12,7 +12,6 @@ export type RuntimeMappedMessage =
       readonly payload: unknown;
     };
 
-const INTERACTIVE_TOOLS = new Set(["askuserquestion"]);
 const SUPPRESSED_USER_MSG_TOOLS = new Set(["skill"]);
 
 function isLower(name: string | null, set: Set<string>): boolean {
@@ -29,11 +28,9 @@ function isLower(name: string | null, set: Set<string>): boolean {
  *    the expanded skill prompt as a plain user message — suppress it.
  */
 export class RuntimeEventMapper {
-  /** Maps tool call id → lowercase tool name for dedup + interactive lookup. */
+  /** Maps tool call id → lowercase tool name for dedup. */
   private readonly emittedTools = new Map<string, string>();
   private suppressUserMessageCount = 0;
-  /** When true, suppress assistant text + tool_result until session idles or user speaks. */
-  private interactiveToolActive = false;
 
   map(raw: unknown): RuntimeMappedMessage | null {
     if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
@@ -66,11 +63,6 @@ export class RuntimeEventMapper {
         );
       }
 
-      // Suppress model text generated after interactive tool auto-failure
-      if (this.interactiveToolActive) {
-        return null;
-      }
-
       const text = extractEventText(record);
       if (!text) {
         return null;
@@ -85,9 +77,6 @@ export class RuntimeEventMapper {
     }
 
     if (type === "assistant_message") {
-      if (this.interactiveToolActive) {
-        return null;
-      }
       const text = extractEventText(record);
       if (!text) {
         return null;
@@ -115,7 +104,6 @@ export class RuntimeEventMapper {
 
     // ── result / error ───────────────────────────────────────────────
     if (type === "result") {
-      this.interactiveToolActive = false;
       return {
         kind: "event",
         eventType: "session_result",
@@ -187,11 +175,6 @@ export class RuntimeEventMapper {
       this.suppressUserMessageCount++;
     }
 
-    // Interactive tool → suppress subsequent model text until turn ends
-    if (INTERACTIVE_TOOLS.has(lowerName)) {
-      this.interactiveToolActive = true;
-    }
-
     return {
       kind: "event",
       eventType: "tool_call_started",
@@ -208,14 +191,6 @@ export class RuntimeEventMapper {
     toolName: string | null,
     result: unknown
   ): RuntimeMappedMessage | null {
-    // Interactive tools: suppress auto-error from Claude Code -p mode
-    const storedName = rawId ? this.emittedTools.get(rawId) : null;
-    const resolvedLower = toolName?.toLowerCase() ?? storedName ?? "";
-
-    if (INTERACTIVE_TOOLS.has(resolvedLower)) {
-      return null;
-    }
-
     const callId = rawId ?? randomUUID();
     return {
       kind: "event",

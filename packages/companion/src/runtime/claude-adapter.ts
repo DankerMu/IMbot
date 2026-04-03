@@ -33,11 +33,19 @@ interface RuntimeSession {
   completing: boolean;
   closed: boolean;
   idleTimer: NodeJS.Timeout | null;
+  pendingControlTimer: NodeJS.Timeout | null;
   isIdle: boolean;
   emitIdleOnReady: boolean;
   exitPromise: Promise<void>;
   resolveExit: () => void;
   readonly eventMapper: RuntimeEventMapper;
+  pendingControlResponse: {
+    requestId: string;
+    callId: string;
+    originalInput: Record<string, unknown>;
+    resolve: (answer: string, questionIndex: number) => void;
+    reject: (reason: unknown) => void;
+  } | null;
 }
 
 export interface ClaudeRuntimeAdapterOptions {
@@ -79,12 +87,13 @@ export class ClaudeRuntimeAdapter {
       );
     }
     const args = [
-      "-p",
       "--input-format",
       "stream-json",
       "--output-format",
       "stream-json",
       "--verbose",
+      "--permission-prompt-tool",
+      "stdio",
       "--permission-mode",
       command.permission_mode
     ];
@@ -134,12 +143,13 @@ export class ClaudeRuntimeAdapter {
       cwd: command.cwd,
       binary: providerConfig.binary,
       args: [
-        "-p",
         "--input-format",
         "stream-json",
         "--output-format",
         "stream-json",
         "--verbose",
+        "--permission-prompt-tool",
+        "stdio",
         "-r",
         command.provider_session_id
       ],
@@ -173,6 +183,9 @@ export class ClaudeRuntimeAdapter {
       throw new CompanionError("session_not_found", `No active process for session ${relaySessionId}`);
     }
 
+    this.rejectPendingControlResponse(session, "Interactive tool was interrupted by session completion", {
+      writeControlResponse: true
+    });
     session.completing = true;
     session.isIdle = false;
     this.clearIdleTimer(session);
@@ -272,6 +285,9 @@ export class ClaudeRuntimeAdapter {
       return;
     }
 
+    this.rejectPendingControlResponse(session, "Interactive tool was interrupted by session cancellation", {
+      writeControlResponse: true
+    });
     session.cancelled = true;
     session.child.kill("SIGINT");
 
@@ -289,6 +305,7 @@ export class ClaudeRuntimeAdapter {
     const sessions = Array.from(this.activeByRelaySessionId.values());
     for (const session of sessions) {
       this.clearIdleTimer(session);
+      this.clearPendingControlTimer(session);
       await Promise.resolve(
         this.options.sendEvent({
           type: "event",
@@ -317,6 +334,35 @@ export class ClaudeRuntimeAdapter {
 
   getActiveSessionIds(): string[] {
     return Array.from(this.activeByRelaySessionId.keys());
+  }
+
+  rejectAllPendingControlResponses(reason: string): void {
+    for (const session of this.activeByRelaySessionId.values()) {
+      this.rejectPendingControlResponse(session, reason, {
+        writeControlResponse: true,
+        emitCompletion: true
+      });
+    }
+  }
+
+  answerInteractiveTool(relaySessionId: string, callId: string, answer: string, questionIndex = 0): void {
+    const session = this.requireActiveSession(relaySessionId);
+    const pending = session.pendingControlResponse;
+    if (!pending) {
+      throw new CompanionError(
+        "no_pending_control_request",
+        `No pending interactive tool request for session ${relaySessionId}`
+      );
+    }
+
+    if (pending.callId !== callId) {
+      throw new CompanionError(
+        "call_id_mismatch",
+        `Pending control request ${pending.callId} does not match ${callId}`
+      );
+    }
+
+    pending.resolve(answer, questionIndex);
   }
 
   getActiveSessions(): Array<{
@@ -379,11 +425,13 @@ export class ClaudeRuntimeAdapter {
       completing: false,
       closed: false,
       idleTimer: null,
+      pendingControlTimer: null,
       isIdle: false,
       emitIdleOnReady: params.emitIdleOnReady ?? false,
       exitPromise,
       resolveExit,
-      eventMapper: new RuntimeEventMapper()
+      eventMapper: new RuntimeEventMapper(),
+      pendingControlResponse: null
     };
 
     if (params.knownProviderSessionId) {
@@ -422,6 +470,22 @@ export class ClaudeRuntimeAdapter {
       parsed = JSON.parse(line) as unknown;
     } catch {
       this.logger.debug?.(`Skipping non-JSON runtime output: ${line}`);
+      return;
+    }
+
+    const record = asRecord(parsed);
+    const type = typeof record?.type === "string" ? record.type : null;
+    if (type === "control_request") {
+      await this.handleControlRequest(session, parsed);
+      return;
+    }
+
+    if (type === "control_cancel_request") {
+      await this.handleControlCancelRequest(session, parsed);
+      return;
+    }
+
+    if (type === "control_response") {
       return;
     }
 
@@ -483,10 +547,91 @@ export class ClaudeRuntimeAdapter {
     );
   }
 
+  private async handleControlRequest(session: RuntimeSession, raw: unknown): Promise<void> {
+    const record = asRecord(raw);
+    const requestId = typeof record?.request_id === "string" ? record.request_id : null;
+    const request = asRecord(record?.request);
+    const subtype = typeof request?.subtype === "string" ? request.subtype : null;
+    const toolName = typeof request?.tool_name === "string" ? request.tool_name : null;
+    const callId =
+      typeof request?.tool_use_id === "string" && request.tool_use_id !== "" ? request.tool_use_id : requestId;
+    const input = asRecord(request?.input) ?? {};
+
+    if (!requestId || !callId) {
+      return;
+    }
+
+    if (subtype !== "can_use_tool") {
+      this.writeControlErrorResponse(session, requestId, `Unsupported control request subtype: ${subtype ?? "unknown"}`);
+      return;
+    }
+
+    if (toolName !== "AskUserQuestion") {
+      this.writeControlSuccessResponse(session, requestId, input);
+      return;
+    }
+
+    if (session.pendingControlResponse) {
+      this.rejectPendingControlResponse(session, "Interactive tool request was superseded", {
+        writeControlResponse: true,
+        emitCompletion: true
+      });
+    }
+
+    session.pendingControlResponse = {
+      requestId,
+      callId,
+      originalInput: input,
+      resolve: (answer, questionIndex) => {
+        this.clearPendingControlTimer(session);
+        const updatedInput = buildUpdatedControlInput(input, answer, questionIndex);
+        this.writeControlSuccessResponse(session, requestId, updatedInput);
+        session.pendingControlResponse = null;
+      },
+      reject: (reason) => {
+        this.clearPendingControlTimer(session);
+        const message = getErrorMessage(reason, "Interactive tool request was cancelled");
+        this.writeControlErrorResponse(session, requestId, message);
+        session.pendingControlResponse = null;
+      }
+    };
+    this.startPendingControlTimer(session);
+
+    await Promise.resolve(
+      this.options.sendEvent({
+        type: "event",
+        session_id: session.relaySessionId,
+        event_type: "tool_call_started",
+        payload: {
+          call_id: callId,
+          tool: "AskUserQuestion",
+          input
+        }
+      })
+    );
+  }
+
+  private async handleControlCancelRequest(session: RuntimeSession, raw: unknown): Promise<void> {
+    const record = asRecord(raw);
+    const requestId = typeof record?.request_id === "string" ? record.request_id : null;
+    if (!requestId || session.pendingControlResponse?.requestId !== requestId) {
+      return;
+    }
+
+    this.rejectPendingControlResponse(session, "Interactive tool request was cancelled", {
+      writeControlResponse: false,
+      emitCompletion: true
+    });
+  }
+
   private async handleClose(session: RuntimeSession, code: number | null, signal: NodeJS.Signals | null): Promise<void> {
     this.clearIdleTimer(session);
+    this.clearPendingControlTimer(session);
     session.closed = true;
     session.stdout.close();
+    this.rejectPendingControlResponse(session, "Runtime exited while waiting for interactive tool input", {
+      writeControlResponse: false
+    });
 
     if (session.providerSessionId) {
       this.activeByProviderSessionId.delete(session.providerSessionId);
@@ -628,6 +773,9 @@ export class ClaudeRuntimeAdapter {
   private startIdleTimer(session: RuntimeSession): void {
     this.clearIdleTimer(session);
     session.idleTimer = setTimeout(() => {
+      this.rejectPendingControlResponse(session, "Interactive tool answer timeout", {
+        writeControlResponse: true
+      });
       this.logger.warn?.(`Session ${session.relaySessionId} idle timeout; completing`);
       void this.completeSession(session.relaySessionId).catch((error) => {
         this.logger.error?.(error);
@@ -636,10 +784,123 @@ export class ClaudeRuntimeAdapter {
     session.idleTimer.unref?.();
   }
 
+  private startPendingControlTimer(session: RuntimeSession): void {
+    this.clearPendingControlTimer(session);
+    session.pendingControlTimer = setTimeout(() => {
+      this.rejectPendingControlResponse(session, "Interactive tool answer timeout", {
+        writeControlResponse: true,
+        emitCompletion: true
+      });
+    }, this.idleTimeoutMs);
+    session.pendingControlTimer.unref?.();
+  }
+
   private clearIdleTimer(session: RuntimeSession): void {
     if (session.idleTimer) {
       clearTimeout(session.idleTimer);
       session.idleTimer = null;
+    }
+  }
+
+  private clearPendingControlTimer(session: RuntimeSession): void {
+    if (session.pendingControlTimer) {
+      clearTimeout(session.pendingControlTimer);
+      session.pendingControlTimer = null;
+    }
+  }
+
+  private rejectPendingControlResponse(
+    session: RuntimeSession,
+    reason: unknown,
+    options?: {
+      readonly writeControlResponse?: boolean;
+      readonly emitCompletion?: boolean;
+    }
+  ): void {
+    const pending = session.pendingControlResponse;
+    if (!pending) {
+      this.clearPendingControlTimer(session);
+      return;
+    }
+
+    this.clearPendingControlTimer(session);
+    session.pendingControlResponse = null;
+    const message = getErrorMessage(reason, "Interactive tool request was cancelled");
+
+    if (options?.writeControlResponse) {
+      if (session.child.stdin.writable) {
+        pending.reject(message);
+      }
+    }
+
+    if (options?.emitCompletion) {
+      void Promise.resolve(
+        this.options.sendEvent({
+          type: "event",
+          session_id: session.relaySessionId,
+          event_type: "tool_call_completed",
+          payload: {
+            call_id: pending.callId,
+            tool: "AskUserQuestion",
+            result: null,
+            cancelled: true
+          }
+        })
+      ).catch((error) => {
+        this.logger.error?.(error);
+      });
+    }
+  }
+
+  private writeControlSuccessResponse(
+    session: RuntimeSession,
+    requestId: string,
+    updatedInput: Record<string, unknown>
+  ): void {
+    this.writeControlMessage(session, {
+      type: "control_response",
+      response: {
+        subtype: "success",
+        request_id: requestId,
+        response: {
+          behavior: "allow",
+          updatedInput
+        }
+      }
+    });
+  }
+
+  private writeControlErrorResponse(session: RuntimeSession, requestId: string, error: string): void {
+    this.writeControlMessage(session, {
+      type: "control_response",
+      response: {
+        subtype: "error",
+        request_id: requestId,
+        error
+      }
+    });
+  }
+
+  private writeControlMessage(session: RuntimeSession, payload: Record<string, unknown>): void {
+    if (!session.child.stdin.writable) {
+      return;
+    }
+
+    const onError = (error: Error) => {
+      this.logger.warn?.(`Failed to write control message: ${error.message}`);
+    };
+
+    session.child.stdin.once("error", onError);
+
+    try {
+      session.child.stdin.write(`${JSON.stringify(payload)}\n`, (error) => {
+        session.child.stdin.off("error", onError);
+        if (error) {
+          this.logger.warn?.(`Failed to write control message: ${error.message}`);
+        }
+      });
+    } catch {
+      session.child.stdin.off("error", onError);
     }
   }
 }
@@ -670,4 +931,39 @@ async function waitForExit(exitPromise: Promise<void>, timeoutMs: number): Promi
 function appendTail(current: string, next: string, maxLength: number): string {
   const combined = `${current}${next}`;
   return combined.length > maxLength ? combined.slice(combined.length - maxLength) : combined;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function buildUpdatedControlInput(
+  originalInput: Record<string, unknown>,
+  answer: string,
+  questionIndex: number
+): Record<string, unknown> {
+  const answers = asRecord(originalInput.answers) ?? {};
+  return {
+    ...originalInput,
+    answers: {
+      ...answers,
+      [String(questionIndex)]: answer
+    }
+  };
+}
+
+function getErrorMessage(reason: unknown, fallback: string): string {
+  if (reason instanceof Error && reason.message) {
+    return reason.message;
+  }
+
+  if (typeof reason === "string" && reason) {
+    return reason;
+  }
+
+  return fallback;
 }
