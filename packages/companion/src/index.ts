@@ -108,8 +108,10 @@ export async function createCompanionRuntime(options?: {
     adapter.answerInteractiveTool(command.session_id, command.call_id, command.answer, command.question_index ?? 0);
   });
   dispatcher.register("list_sessions", async (command) => {
+    const providerConfig = config.providers[command.provider];
     return await discoverSessions(command.cwd, command.provider, {
-      logger
+      logger,
+      claudeProjectsDir: providerConfig?.projectsDir
     });
   });
   dispatcher.register("browse_directory", async (command) => {

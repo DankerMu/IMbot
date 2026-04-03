@@ -131,23 +131,26 @@ test("discoverSessions skips unreadable project directories and keeps remaining 
   }
 });
 
-test("discoverSessions uses the same history directory for claude and book", async () => {
-  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-provider-"));
+test("discoverSessions uses custom claudeProjectsDir for book provider", async () => {
+  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-book-provider-"));
   const cwd = "/Users/danker/Desktop/AI-vault";
 
   try {
-    createSessionFile(projectsDir, cwd, "session-shared", "2026-03-30T07:00:00.000Z");
+    createSessionFile(projectsDir, cwd, "book-session-1", "2026-03-30T07:00:00.000Z");
 
-    const claudeResults = await companion.discoverSessions(cwd, "claude", {
-      claudeProjectsDir: projectsDir,
-      logger: silentLogger
-    });
     const bookResults = await companion.discoverSessions(cwd, "book", {
       claudeProjectsDir: projectsDir,
       logger: silentLogger
     });
 
-    assert.deepEqual(bookResults, claudeResults);
+    assert.deepEqual(bookResults, [
+      {
+        provider_session_id: "book-session-1",
+        cwd,
+        created_at: "2026-03-30T07:00:00.000Z",
+        status: "completed"
+      }
+    ]);
   } finally {
     rmSync(projectsDir, { recursive: true, force: true });
   }

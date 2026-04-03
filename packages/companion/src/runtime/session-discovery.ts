@@ -22,7 +22,7 @@ export async function discoverSessions(
     options.claudeProjectsDir ?? path.join(os.homedir(), ".claude", "projects");
   const normalizedCwd = normalizeComparablePath(cwd);
 
-  // Claude and book currently share the same Claude Code history directory.
+  // The caller selects the provider-specific projects directory.
   void provider;
 
   let projectEntries: Dirent[];
