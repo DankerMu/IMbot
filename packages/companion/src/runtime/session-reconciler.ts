@@ -8,7 +8,7 @@ import type { CompanionProviderConfig } from "../config";
 import type { LoggerLike } from "../types";
 import { ConfigManager } from "../workspace/config-manager";
 import { discoverSessions } from "./session-discovery";
-import { SessionIndex } from "./session-index";
+import { SessionIndex, type SessionIndexEntry } from "./session-index";
 
 const MAX_REPORTED_SESSIONS = 200;
 
@@ -81,6 +81,12 @@ export class SessionReconciler {
       }
 
       for (const session of discovered) {
+        // Skip empty/unreadable JSONL files (status "unknown") — only report sessions
+        // that have actual conversation data to avoid phantom shadow records in relay.
+        if (session.status !== "completed") {
+          continue;
+        }
+
         if (this.options.sessionIndex.hasProviderSessionId(session.provider_session_id)) {
           skipped += 1;
           continue;
@@ -116,8 +122,9 @@ export class SessionReconciler {
       }))
     });
 
+    const indexUpdates = new Map<string, SessionIndexEntry>();
     for (const session of reportedSessions) {
-      this.options.sessionIndex.set(`local:${session.provider_session_id}`, {
+      indexUpdates.set(`local:${session.provider_session_id}`, {
         provider_session_id: session.provider_session_id,
         cwd: session.cwd,
         provider: session.provider,
@@ -125,6 +132,7 @@ export class SessionReconciler {
         source: "local"
       });
     }
+    this.options.sessionIndex.setMany(indexUpdates);
 
     return {
       reported: reportedSessions.length,

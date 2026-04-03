@@ -107,6 +107,16 @@ export class SessionIndex {
     this.persist();
   }
 
+  setMany(entries: ReadonlyMap<string, SessionIndexEntry>): void {
+    for (const [relaySessionId, entry] of entries) {
+      this.entries.set(relaySessionId, { ...entry });
+    }
+
+    if (entries.size > 0) {
+      this.persist();
+    }
+  }
+
   remove(relaySessionId: string): void {
     if (!this.entries.delete(relaySessionId)) {
       return;

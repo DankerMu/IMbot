@@ -202,6 +202,43 @@ test("SessionReconciler filters indexed sessions and reports only the diff", asy
   });
 });
 
+test("SessionReconciler filters out sessions with unknown status", async (t) => {
+  const rootClaude = "/workspace/project-a";
+  const { sentMessages, sessionIndex, reconciler } = createHarness(t, {
+    roots: [createRoot("claude", rootClaude)],
+    discoverSessionsFn: async () => [
+      createSession("provider-completed", rootClaude, "2026-01-03T00:00:00.000Z", "completed"),
+      createSession("provider-unknown", rootClaude, "2026-01-04T00:00:00.000Z", "unknown")
+    ]
+  });
+
+  const result = await reconciler.reconcile();
+
+  assert.deepEqual(result, { reported: 1, skipped: 0 });
+  assert.deepEqual(sentMessages, [
+    {
+      type: "report_local_sessions",
+      host_id: "macbook-1",
+      sessions: [
+        {
+          provider_session_id: "provider-completed",
+          provider: "claude",
+          cwd: rootClaude,
+          created_at: "2026-01-03T00:00:00.000Z"
+        }
+      ]
+    }
+  ]);
+  assert.deepEqual(sessionIndex.get("local:provider-completed"), {
+    provider_session_id: "provider-completed",
+    cwd: rootClaude,
+    provider: "claude",
+    created_at: "2026-01-03T00:00:00.000Z",
+    source: "local"
+  });
+  assert.equal(sessionIndex.get("local:provider-unknown"), null);
+});
+
 test("SessionReconciler does not scan or send when workspace roots are empty", async (t) => {
   const { discoverCalls, sentMessages, reconciler } = createHarness(t);
 
