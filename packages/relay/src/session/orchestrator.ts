@@ -1,6 +1,7 @@
 import {
   ERROR_CODES,
   type CompanionEventMessage,
+  type CompanionReportLocalSessionsMessage,
   type EventType,
   type Session,
   type ErrorCode,
@@ -23,6 +24,8 @@ type LoggerLike = {
   readonly error: (...args: unknown[]) => void;
   readonly warn: (...args: unknown[]) => void;
 };
+
+const MAX_REPORT_LOCAL_SESSIONS_BATCH_SIZE = 200;
 
 export type CreateSessionInput = {
   provider?: string;
@@ -437,6 +440,109 @@ export class SessionOrchestrator {
 
     if (message.event_type === "session_error") {
       await this.transitionWithConflictTolerance(session.id, "failed", this.buildSessionErrorContext(payload));
+    }
+  }
+
+  async handleReportLocalSessions(
+    message: CompanionReportLocalSessionsMessage,
+    authenticatedHostId: string
+  ): Promise<void> {
+    const host = this.db.prepare("SELECT id FROM hosts WHERE id = ?").get(authenticatedHostId) as
+      | { id: string }
+      | undefined;
+    if (!host) {
+      this.logger.warn(`Dropping report_local_sessions for unknown host ${authenticatedHostId}`);
+      return;
+    }
+
+    if (message.host_id !== authenticatedHostId) {
+      this.logger.warn(
+        `report_local_sessions host_id mismatch: message=${message.host_id} authenticated=${authenticatedHostId}; using authenticated host`
+      );
+    }
+
+    if (!Array.isArray(message.sessions)) {
+      this.logger.warn("report_local_sessions: sessions is not an array");
+      return;
+    }
+
+    const sessions = message.sessions.slice(0, MAX_REPORT_LOCAL_SESSIONS_BATCH_SIZE);
+    if (message.sessions.length > MAX_REPORT_LOCAL_SESSIONS_BATCH_SIZE) {
+      this.logger.warn(
+        `report_local_sessions: truncated ${message.sessions.length} sessions to ${MAX_REPORT_LOCAL_SESSIONS_BATCH_SIZE}`
+      );
+    }
+
+    const now = new Date().toISOString();
+    const insertStmt = this.db.prepare(`
+      INSERT INTO sessions (
+        id,
+        provider,
+        provider_session_id,
+        host_id,
+        workspace_cwd,
+        status,
+        local_available,
+        permission_mode,
+        created_at,
+        updated_at,
+        last_active_at
+      )
+      SELECT ?, ?, ?, ?, ?, 'completed', 1, 'bypassPermissions', ?, ?, ?
+      WHERE NOT EXISTS (SELECT 1 FROM sessions WHERE provider_session_id = ?)
+    `);
+    const updateStmt = this.db.prepare(`
+      UPDATE sessions
+      SET local_available = 1
+      WHERE provider_session_id = ? AND local_available = 0
+    `);
+
+    const transaction = this.db.transaction((): { created: number; updated: number; skipped: number } => {
+      let created = 0;
+      let updated = 0;
+      let skipped = 0;
+
+      for (const session of sessions) {
+        if (!session.provider_session_id || session.provider_session_id.trim() === "") {
+          this.logger.warn("Skipping local session with empty provider_session_id");
+          skipped += 1;
+          continue;
+        }
+
+        const result = insertStmt.run(
+          randomUUID(),
+          session.provider,
+          session.provider_session_id,
+          authenticatedHostId,
+          session.cwd,
+          session.created_at || now,
+          now,
+          now,
+          session.provider_session_id
+        );
+
+        if (result.changes > 0) {
+          created += 1;
+          continue;
+        }
+
+        const updateResult = updateStmt.run(session.provider_session_id);
+        if (updateResult.changes > 0) {
+          updated += 1;
+        } else {
+          skipped += 1;
+        }
+      }
+
+      return { created, updated, skipped };
+    });
+
+    const stats = transaction();
+    if (stats.created > 0 || stats.updated > 0) {
+      this.auditLogger.write("session.local_sync", {
+        host_id: authenticatedHostId,
+        detail: stats
+      });
     }
   }
 
