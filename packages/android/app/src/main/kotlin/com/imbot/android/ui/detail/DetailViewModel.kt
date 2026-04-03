@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.imbot.android.data.RelaySettings
 import com.imbot.android.data.SettingsRepository
 import com.imbot.android.data.relayValidationError
+import com.imbot.android.data.repository.SessionRepository
 import com.imbot.android.network.ConnectionState
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelaySession
@@ -70,6 +71,7 @@ class DetailViewModel
     @Inject
     constructor(
         private val relayHttpClient: RelayHttpClient,
+        private val sessionRepository: SessionRepository,
         private val relayWsClient: RelayWsClient,
         private val settingsRepository: SettingsRepository,
         private val savedStateHandle: SavedStateHandle,
@@ -277,26 +279,16 @@ class DetailViewModel
             preserveWhitespace: Boolean = false,
         ) {
             val normalizedText = if (preserveWhitespace) text else text.trim()
+            val isInteractiveToolAnswer = interactiveToolCallId != null
             val state = _uiState.value
-            val canSendInput =
-                if (allowRunningInput) {
-                    canSendToSession(state.session?.status)
-                } else {
-                    state.canSend
-                }
+            val canSendInput = canSendInput(state, allowRunningInput)
 
             if (text.trim().isBlank() || state.isSending || !canSendInput) {
                 return
             }
 
-            val settings = requireValidSettings() ?: return
-            val optimisticMessage =
-                MessageItem.UserMessage(
-                    id = generateMessageItemId(),
-                    text = normalizedText,
-                    timestamp = Instant.now().toString(),
-                )
-            optimisticMessages += optimisticMessage
+            val settings = if (isInteractiveToolAnswer) null else requireValidSettings() ?: return
+            addOptimisticMessage(normalizedText, isInteractiveToolAnswer)
             interactiveToolCallId?.let { callId ->
                 interactiveAnswer?.let { answer ->
                     eventProcessor.recordInteractiveToolAnswer(callId, answer)
@@ -316,12 +308,8 @@ class DetailViewModel
             )
 
             viewModelScope.launch {
-                relayHttpClient.sendMessage(
-                    relayUrl = settings.relayUrl,
-                    token = settings.token,
-                    sessionId = sessionId,
-                    text = normalizedText,
-                ).onSuccess {
+                val result = submitSessionInputRequest(settings, interactiveToolCallId, normalizedText)
+                result.onSuccess {
                     _uiState.update { current ->
                         current.copy(
                             session =
@@ -336,7 +324,9 @@ class DetailViewModel
                     interactiveToolCallId?.let { id ->
                         eventProcessor.clearInteractiveToolAnswer(id, "发送失败，点击重试")
                     }
-                    removeOptimisticMessage(normalizedText)
+                    if (!isInteractiveToolAnswer) {
+                        removeOptimisticMessage(normalizedText)
+                    }
                     publishMessages(
                         newMessages = combinedMessages(),
                         allowAutoScroll = false,
@@ -843,6 +833,50 @@ class DetailViewModel
         }
 
         private fun combinedMessages(): List<MessageItem> = eventProcessor.snapshot() + optimisticMessages
+
+        private fun canSendInput(
+            state: DetailUiState,
+            allowRunningInput: Boolean,
+        ): Boolean =
+            if (allowRunningInput) {
+                canSendToSession(state.session?.status)
+            } else {
+                state.canSend
+            }
+
+        private fun addOptimisticMessage(
+            normalizedText: String,
+            isInteractiveToolAnswer: Boolean,
+        ) {
+            if (isInteractiveToolAnswer) {
+                return
+            }
+            optimisticMessages +=
+                MessageItem.UserMessage(
+                    id = generateMessageItemId(),
+                    text = normalizedText,
+                    timestamp = Instant.now().toString(),
+                )
+        }
+
+        private suspend fun submitSessionInputRequest(
+            settings: RelaySettings?,
+            interactiveToolCallId: String?,
+            normalizedText: String,
+        ): Result<Unit> =
+            interactiveToolCallId?.let { callId ->
+                sessionRepository.answerInteractiveTool(
+                    sessionId = sessionId,
+                    callId = callId,
+                    answer = normalizedText,
+                    questionIndex = 0,
+                )
+            } ?: relayHttpClient.sendMessage(
+                relayUrl = settings!!.relayUrl,
+                token = settings.token,
+                sessionId = sessionId,
+                text = normalizedText,
+            )
 
         private fun latestPendingInteractiveToolCallId(): String? {
             return findLatestPendingInteractiveToolCallId(_uiState.value.messages)

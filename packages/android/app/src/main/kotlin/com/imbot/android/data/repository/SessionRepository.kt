@@ -102,6 +102,26 @@ class SessionRepository
             sessionDao.deleteById(sessionId)
         }
 
+        suspend fun answerInteractiveTool(
+            sessionId: String,
+            callId: String,
+            answer: String,
+            questionIndex: Int = 0,
+        ): Result<Unit> {
+            val settings = settingsRepository.load()
+            val relayValidationError = settings.relayValidationError()
+            require(relayValidationError == null) { relayValidationError.orEmpty() }
+
+            return relayHttpClient.answerInteractiveTool(
+                relayUrl = settings.relayUrl,
+                token = settings.token,
+                sessionId = sessionId,
+                callId = callId,
+                answer = answer,
+                questionIndex = questionIndex,
+            )
+        }
+
         override suspend fun clearLocalCache() {
             database.withTransaction {
                 sessionDao.deleteAll()

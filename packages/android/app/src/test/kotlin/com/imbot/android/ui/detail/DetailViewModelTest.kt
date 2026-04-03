@@ -4,9 +4,17 @@ package com.imbot.android.ui.detail
 
 import android.content.SharedPreferences
 import androidx.lifecycle.SavedStateHandle
+import androidx.room.DatabaseConfiguration
+import androidx.room.InvalidationTracker
+import androidx.sqlite.db.SupportSQLiteDatabase
+import androidx.sqlite.db.SupportSQLiteOpenHelper
 import com.imbot.android.data.ErrorStateManager
 import com.imbot.android.data.RelaySettings
 import com.imbot.android.data.SettingsRepository
+import com.imbot.android.data.local.AppDatabase
+import com.imbot.android.data.local.SessionDao
+import com.imbot.android.data.local.SessionEntity
+import com.imbot.android.data.repository.SessionRepository
 import com.imbot.android.network.ConnectionState
 import com.imbot.android.network.RelayEventPage
 import com.imbot.android.network.RelayHttpClient
@@ -132,8 +140,11 @@ class DetailViewModelTest {
             viewModel.submitToolAnswer("A")
             advanceUntilIdle()
 
-            assertEquals(1, relay.sendMessageCalls)
-            assertEquals(listOf("A"), relay.sentMessages)
+            assertEquals(0, relay.sendMessageCalls)
+            assertEquals(1, relay.answerInteractiveToolCalls)
+            assertEquals(listOf(InteractiveToolAnswerRequest(TEST_SESSION.id, "tool-1", "A", 0)), relay.interactiveToolAnswers)
+            assertEquals(1, viewModel.uiState.value.messages.size)
+            assertTrue(viewModel.uiState.value.messages.single() is MessageItem.InteractiveToolCall)
         }
 
     @Test
@@ -173,13 +184,13 @@ class DetailViewModelTest {
             viewModel.submitToolAnswer("tool-1", "A")
             advanceUntilIdle()
 
-            assertEquals(0, relay.sendMessageCalls)
+            assertEquals(0, relay.answerInteractiveToolCalls)
 
             viewModel.submitToolAnswer("tool-2", "B")
             advanceUntilIdle()
 
-            assertEquals(1, relay.sendMessageCalls)
-            assertEquals(listOf("B"), relay.sentMessages)
+            assertEquals(1, relay.answerInteractiveToolCalls)
+            assertEquals(listOf(InteractiveToolAnswerRequest(TEST_SESSION.id, "tool-2", "B", 0)), relay.interactiveToolAnswers)
         }
 
     @Test
@@ -187,7 +198,7 @@ class DetailViewModelTest {
         runTest(mainDispatcherRule.dispatcher) {
             val relay =
                 FakeRelayHttpClient().apply {
-                    sendMessageHandler = { _, _, _, _ -> Result.failure(RuntimeException("网络超时")) }
+                    answerInteractiveToolHandler = { _, _, _, _, _, _ -> Result.failure(RuntimeException("网络超时")) }
                 }
             val ws = FakeRelayWsClient()
             val viewModel = createViewModel(relay = relay, ws = ws)
@@ -216,6 +227,8 @@ class DetailViewModelTest {
             assertNull(interactive.answer)
             assertEquals("发送失败，点击重试", interactive.errorMessage)
             assertFalse(viewModel.uiState.value.isSending)
+            assertEquals(1, messages.size)
+            assertEquals(1, relay.answerInteractiveToolCalls)
         }
 
     @Test
@@ -899,13 +912,24 @@ class DetailViewModelTest {
     private fun createViewModel(
         relay: FakeRelayHttpClient = FakeRelayHttpClient(),
         ws: FakeRelayWsClient = FakeRelayWsClient(),
-    ): DetailViewModel =
-        DetailViewModel(
+    ): DetailViewModel {
+        val settingsRepository = FakeSettingsRepository()
+        val sessionDao = FakeSessionDao()
+        val sessionRepository =
+            SessionRepository(
+                database = FakeAppDatabase(sessionDao),
+                sessionDao = sessionDao,
+                relayHttpClient = relay,
+                settingsRepository = settingsRepository,
+            )
+        return DetailViewModel(
             relayHttpClient = relay,
+            sessionRepository = sessionRepository,
             relayWsClient = ws,
-            settingsRepository = FakeSettingsRepository(),
+            settingsRepository = settingsRepository,
             savedStateHandle = SavedStateHandle(mapOf("sessionId" to TEST_SESSION.id)),
         )
+    }
 }
 
 private const val TIMESTAMP = "2026-03-31T12:00:00Z"
@@ -1003,10 +1027,18 @@ private data class SessionEventsRequest(
     val limit: Int,
 )
 
+private data class InteractiveToolAnswerRequest(
+    val sessionId: String,
+    val callId: String,
+    val answer: String,
+    val questionIndex: Int,
+)
+
 private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
     var getSessionResult: Result<RelaySession> = Result.success(TEST_SESSION)
     var getSessionEventsResult: Result<RelayEventPage> = Result.success(RelayEventPage(events = emptyList(), hasMore = false))
     var sendMessageResult: Result<Unit> = Result.success(Unit)
+    var answerInteractiveToolResult: Result<Unit> = Result.success(Unit)
     var resumeSessionResult: Result<RelaySession> = Result.success(TEST_SESSION.copy(status = "running"))
     var cancelSessionResult: Result<RelaySession> = Result.success(TEST_SESSION.copy(status = "cancelled"))
     var deleteSessionResult: Result<Unit> = Result.success(Unit)
@@ -1014,15 +1046,19 @@ private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
     var getSessionCalls = 0
     var getSessionEventsCalls = 0
     var sendMessageCalls = 0
+    var answerInteractiveToolCalls = 0
     var resumeSessionCalls = 0
     var cancelSessionCalls = 0
     var deleteSessionCalls = 0
     val sentMessages = mutableListOf<String>()
+    val interactiveToolAnswers = mutableListOf<InteractiveToolAnswerRequest>()
 
     var getSessionHandler: suspend (String, String, String) -> Result<RelaySession> = { _, _, _ -> getSessionResult }
     var getSessionEventsHandler: suspend (String, String, String, Int, Int) -> Result<RelayEventPage> =
         { _, _, _, _, _ -> getSessionEventsResult }
     var sendMessageHandler: suspend (String, String, String, String) -> Result<Unit> = { _, _, _, _ -> sendMessageResult }
+    var answerInteractiveToolHandler: suspend (String, String, String, String, String, Int) -> Result<Unit> =
+        { _, _, _, _, _, _ -> answerInteractiveToolResult }
     var resumeSessionHandler: suspend (String, String, String) -> Result<RelaySession> = { _, _, _ -> resumeSessionResult }
     var cancelSessionHandler: suspend (String, String, String) -> Result<RelaySession> = { _, _, _ -> cancelSessionResult }
     var deleteSessionHandler: suspend (String, String, String) -> Result<Unit> = { _, _, _ -> deleteSessionResult }
@@ -1066,6 +1102,25 @@ private class FakeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
         sendMessageCalls++
         sentMessages += text
         return sendMessageHandler(relayUrl, token, sessionId, text)
+    }
+
+    override suspend fun answerInteractiveTool(
+        relayUrl: String,
+        token: String,
+        sessionId: String,
+        callId: String,
+        answer: String,
+        questionIndex: Int,
+    ): Result<Unit> {
+        answerInteractiveToolCalls++
+        interactiveToolAnswers +=
+            InteractiveToolAnswerRequest(
+                sessionId = sessionId,
+                callId = callId,
+                answer = answer,
+                questionIndex = questionIndex,
+            )
+        return answerInteractiveToolHandler(relayUrl, token, sessionId, callId, answer, questionIndex)
     }
 
     override suspend fun resumeSession(
@@ -1136,6 +1191,57 @@ private class FakeSettingsRepository(
     init {
         save(initialSettings)
     }
+}
+
+private class FakeAppDatabase(
+    private val sessionDao: SessionDao,
+) : AppDatabase() {
+    override fun sessionDao(): SessionDao = sessionDao
+
+    override fun createOpenHelper(config: DatabaseConfiguration): SupportSQLiteOpenHelper =
+        object : SupportSQLiteOpenHelper {
+            override val databaseName: String = "fake-db"
+
+            override fun setWriteAheadLoggingEnabled(enabled: Boolean) = Unit
+
+            override val writableDatabase: SupportSQLiteDatabase
+                get() = error("Not used in unit tests")
+
+            override val readableDatabase: SupportSQLiteDatabase
+                get() = error("Not used in unit tests")
+
+            override fun close() = Unit
+        }
+
+    override fun createInvalidationTracker(): InvalidationTracker = InvalidationTracker(this)
+
+    override fun clearAllTables() = Unit
+}
+
+private class FakeSessionDao : SessionDao {
+    override suspend fun insertAll(sessions: List<SessionEntity>) = Unit
+
+    override fun getAll() = MutableStateFlow(emptyList<SessionEntity>())
+
+    override suspend fun getPage(
+        offset: Int,
+        limit: Int,
+    ): List<SessionEntity> = emptyList()
+
+    override fun getByPathPrefix(
+        prefix: String,
+        escapedPrefix: String,
+    ) = MutableStateFlow(emptyList<SessionEntity>())
+
+    override suspend fun getById(id: String): SessionEntity? = null
+
+    override suspend fun deleteById(id: String) = Unit
+
+    override suspend fun deleteNotIn(ids: List<String>) = Unit
+
+    override suspend fun deleteByIds(ids: List<String>) = Unit
+
+    override suspend fun deleteAll() = Unit
 }
 
 private class FakeSharedPreferences : SharedPreferences {
