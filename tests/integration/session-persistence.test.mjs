@@ -298,7 +298,25 @@ async function createConnectedRuntime(t, options = {}) {
   const projectsDir = path.join(tempDir, "projects");
   const sessionIndexPath = path.join(tempDir, "sessions.json");
   let runtime = null;
+  let restoreEnv = null;
+  let server = null;
   mkdirSync(projectsDir, { recursive: true });
+
+  t.after(async () => {
+    if (runtime) {
+      await runtime.close();
+    }
+
+    if (restoreEnv) {
+      restoreEnv();
+    }
+
+    if (server) {
+      await closeServer(server);
+    }
+
+    rmSync(tempDir, { recursive: true, force: true });
+  });
 
   if (typeof options.setup === "function") {
     await options.setup({
@@ -308,25 +326,19 @@ async function createConnectedRuntime(t, options = {}) {
     });
   }
 
-  const server = new WebSocketServer({
+  server = new WebSocketServer({
     port: 0,
     host: "127.0.0.1"
   });
-  const restoreEnv = setMockCliEnv({
-    MOCK_CLI_PROVIDER_SESSION_ID: options.providerSessionId ?? "provider-session-1",
+  const envOverrides = {
     MOCK_CLI_RESULT_DELAY_MS: String(options.resultDelayMs ?? 20),
     ...(options.writeJsonlOnStartup === false ? {} : { MOCK_CLI_PROJECTS_DIR: projectsDir })
-  });
+  };
+  if (options.providerSessionId) {
+    envOverrides.MOCK_CLI_PROVIDER_SESSION_ID = options.providerSessionId;
+  }
+  restoreEnv = setMockCliEnv(envOverrides);
   const binaryPath = createPersistentMockCliBinary(tempDir);
-  t.after(async () => {
-    if (runtime) {
-      await runtime.close();
-    }
-
-    restoreEnv();
-    await closeServer(server);
-    rmSync(tempDir, { recursive: true, force: true });
-  });
 
   await waitForListening(server);
   const port = server.address().port;
@@ -549,7 +561,6 @@ test(
     await t.test("resumed session JSONL file still exists after resume exits", async (subtest) => {
       const createdAt = "2026-01-02T00:00:00.000Z";
       const fixture = await createConnectedRuntime(subtest, {
-        providerSessionId: "provider-session-resume",
         writeJsonlOnStartup: false,
         setup: ({ tempDir, projectsDir, sessionIndexPath }) => {
           const sessionCwd = realpathSync(tempDir);
