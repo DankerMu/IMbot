@@ -721,3 +721,144 @@ test("unknown control_request subtype writes error control_response", async (t) 
   });
   assert.equal(events.length, 0);
 });
+
+test("answerInteractiveTool with non-zero questionIndex writes correct answers slot", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-qindex-"));
+  const cwd = path.join(tempDir, "project");
+  mkdirSync(cwd, { recursive: true });
+  const { adapter, children } = createAdapterHarness(tempDir);
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await createSession(adapter, cwd);
+  children[0].emitJson({
+    type: "control_request",
+    request_id: "req-ask-qi",
+    request: {
+      subtype: "can_use_tool",
+      tool_use_id: "toolu_ask_qi",
+      tool_name: "AskUserQuestion",
+      input: {
+        questions: [
+          { question: "First", options: [{ label: "A" }] },
+          { question: "Second", options: [{ label: "X" }, { label: "Y" }] }
+        ]
+      }
+    }
+  });
+  await flushRuntime();
+
+  adapter.answerInteractiveTool("relay-control-1", "toolu_ask_qi", "Y", 1);
+
+  assert.deepEqual(children[0].getWrittenMessages().at(-1), {
+    type: "control_response",
+    response: {
+      subtype: "success",
+      request_id: "req-ask-qi",
+      response: {
+        behavior: "allow",
+        updatedInput: {
+          questions: [
+            { question: "First", options: [{ label: "A" }] },
+            { question: "Second", options: [{ label: "X" }, { label: "Y" }] }
+          ],
+          answers: {
+            "1": "Y"
+          }
+        }
+      }
+    }
+  });
+});
+
+test("answer_interactive_tool dispatches call_id_mismatch ack through dispatcher", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-dispatch-mismatch-"));
+  const cwd = path.join(tempDir, "project");
+  mkdirSync(cwd, { recursive: true });
+  const { adapter, children } = createAdapterHarness(tempDir);
+  const acks = [];
+
+  const dispatcher = new companion.CommandDispatcher({
+    logger: silentLogger,
+    sendAck: (message) => {
+      acks.push(message);
+    }
+  });
+  dispatcher.register("answer_interactive_tool", async (command) => {
+    adapter.answerInteractiveTool(command.session_id, command.call_id, command.answer, command.question_index ?? 0);
+  });
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await createSession(adapter, cwd);
+  children[0].emitJson({
+    type: "control_request",
+    request_id: "req-ask-dispatch",
+    request: {
+      subtype: "can_use_tool",
+      tool_use_id: "toolu_ask_dispatch",
+      tool_name: "AskUserQuestion",
+      input: {
+        questions: [{ question: "Pick one" }]
+      }
+    }
+  });
+  await flushRuntime();
+
+  await dispatcher.dispatch({
+    cmd: "answer_interactive_tool",
+    req_id: "req-dispatch-mismatch",
+    session_id: "relay-control-1",
+    call_id: "wrong-id",
+    answer: "A"
+  });
+
+  assert.equal(acks.length, 1);
+  assert.equal(acks[0].status, "error");
+  assert.equal(acks[0].error_code, "call_id_mismatch");
+  assert.equal(acks[0].req_id, "req-dispatch-mismatch");
+});
+
+test("answer_interactive_tool dispatches no_pending_control_request ack through dispatcher", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-dispatch-no-pending-"));
+  const cwd = path.join(tempDir, "project");
+  mkdirSync(cwd, { recursive: true });
+  const { adapter } = createAdapterHarness(tempDir);
+  const acks = [];
+
+  const dispatcher = new companion.CommandDispatcher({
+    logger: silentLogger,
+    sendAck: (message) => {
+      acks.push(message);
+    }
+  });
+  dispatcher.register("answer_interactive_tool", async (command) => {
+    adapter.answerInteractiveTool(command.session_id, command.call_id, command.answer, command.question_index ?? 0);
+  });
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await createSession(adapter, cwd);
+
+  await dispatcher.dispatch({
+    cmd: "answer_interactive_tool",
+    req_id: "req-dispatch-no-pending",
+    session_id: "relay-control-1",
+    call_id: "any-id",
+    answer: "A"
+  });
+
+  assert.equal(acks.length, 1);
+  assert.equal(acks[0].status, "error");
+  assert.equal(acks[0].error_code, "no_pending_control_request");
+  assert.equal(acks[0].req_id, "req-dispatch-no-pending");
+});
