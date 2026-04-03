@@ -390,12 +390,13 @@ test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () =
     assert.equal(spawnCalls.length, 1);
     assert.equal(spawnCalls[0].binary, "claude");
     assert.deepEqual(spawnCalls[0].args, [
-      "-p",
       "--input-format",
       "stream-json",
       "--output-format",
       "stream-json",
       "--verbose",
+      "--permission-prompt-tool",
+      "stdio",
       "--permission-mode",
       "bypassPermissions"
     ]);
@@ -480,12 +481,13 @@ test("ClaudeRuntimeAdapter uses the current Claude resume flags and avoids remov
     assert.equal(spawnCalls.length, 1);
     assert.equal(spawnCalls[0].binary, "claude");
     assert.deepEqual(spawnCalls[0].args, [
-      "-p",
       "--input-format",
       "stream-json",
       "--output-format",
       "stream-json",
       "--verbose",
+      "--permission-prompt-tool",
+      "stdio",
       "-r",
       "provider-session-existing"
     ]);
