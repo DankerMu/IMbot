@@ -235,6 +235,60 @@ test("handleReportLocalSessions drops the message for an unknown host", async (t
   assert.deepEqual(count, { count: 0 });
 });
 
+test("handleReportLocalSessions logs warning on host_id mismatch but uses the authenticated host", async (t) => {
+  const { runtime } = await createRuntime(t, "imbot-relay-local-sync-host-mismatch-");
+  insertHost(runtime.db);
+
+  const warnings = [];
+  runtime.app.log.warn = (...args) => warnings.push(args.map(String).join(" "));
+
+  await runtime.orchestrator.handleReportLocalSessions(
+    buildMessage(
+      [
+        {
+          provider_session_id: "provider-session-host-mismatch",
+          provider: "claude",
+          cwd: "/tmp/project",
+          created_at: "2026-04-01T04:30:00.000Z"
+        }
+      ],
+      "spoofed-host"
+    ),
+    "macbook-1"
+  );
+
+  const row = runtime.db
+    .prepare("SELECT host_id, local_available FROM sessions WHERE provider_session_id = ?")
+    .get("provider-session-host-mismatch");
+
+  assert.deepEqual(row, {
+    host_id: "macbook-1",
+    local_available: 1
+  });
+  assert.equal(
+    warnings.some((warning) =>
+      /report_local_sessions host_id mismatch: message=spoofed-host authenticated=macbook-1; using authenticated host/.test(
+        warning
+      )
+    ),
+    true
+  );
+});
+
+test("handleReportLocalSessions drops malformed payloads when sessions is not an array", async (t) => {
+  const { runtime } = await createRuntime(t, "imbot-relay-local-sync-invalid-batch-");
+  insertHost(runtime.db);
+
+  const warnings = [];
+  runtime.app.log.warn = (...args) => warnings.push(args.map(String).join(" "));
+
+  await runtime.orchestrator.handleReportLocalSessions(buildMessage("not-an-array"), "macbook-1");
+
+  const count = runtime.db.prepare("SELECT COUNT(*) AS count FROM sessions").get();
+  assert.deepEqual(count, { count: 0 });
+  assert.equal(warnings.some((warning) => /report_local_sessions: sessions is not an array/.test(warning)), true);
+});
+
 test("handleReportLocalSessions handles a batch of 50 sessions", async (t) => {
   const { runtime } = await createRuntime(t, "imbot-relay-local-sync-batch-");
   insertHost(runtime.db);
@@ -250,6 +304,35 @@ test("handleReportLocalSessions handles a batch of 50 sessions", async (t) => {
 
   const count = runtime.db.prepare("SELECT COUNT(*) AS count FROM sessions").get();
   assert.deepEqual(count, { count: 50 });
+});
+
+test("handleReportLocalSessions truncates batch exceeding 200 sessions", async (t) => {
+  const { runtime } = await createRuntime(t, "imbot-relay-local-sync-truncated-batch-");
+  insertHost(runtime.db);
+
+  const warnings = [];
+  runtime.app.log.warn = (...args) => warnings.push(args.map(String).join(" "));
+
+  const sessions = Array.from({ length: 250 }, (_, index) => ({
+    provider_session_id: `provider-session-truncated-${index + 1}`,
+    provider: index % 2 === 0 ? "claude" : "book",
+    cwd: `/tmp/project-${index + 1}`,
+    created_at: `2026-04-01T07:${String(index % 60).padStart(2, "0")}:00.000Z`
+  }));
+
+  await runtime.orchestrator.handleReportLocalSessions(buildMessage(sessions), "macbook-1");
+
+  const count = runtime.db.prepare("SELECT COUNT(*) AS count FROM sessions").get();
+  const tailSession = runtime.db
+    .prepare("SELECT provider_session_id FROM sessions WHERE provider_session_id = ?")
+    .get("provider-session-truncated-250");
+
+  assert.deepEqual(count, { count: 200 });
+  assert.equal(tailSession, undefined);
+  assert.equal(
+    warnings.some((warning) => /report_local_sessions: truncated 250 sessions to 200/.test(warning)),
+    true
+  );
 });
 
 test("handleReportLocalSessions writes an audit log when sync changes sessions", async (t) => {

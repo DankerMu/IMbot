@@ -5,12 +5,18 @@ import Database from "better-sqlite3";
 
 export type RelayDatabase = Database.Database;
 
+const PROVIDER_SESSION_ID_INDEX_SQL = `
+CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_provider_session_id
+ON sessions(provider_session_id) WHERE provider_session_id IS NOT NULL;
+`;
+
 const SESSION_INDEXES_SQL = `
 CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider);
 CREATE INDEX IF NOT EXISTS idx_sessions_status ON sessions(status);
 CREATE INDEX IF NOT EXISTS idx_sessions_host ON sessions(host_id);
 CREATE INDEX IF NOT EXISTS idx_sessions_cwd ON sessions(workspace_cwd);
 CREATE INDEX IF NOT EXISTS idx_sessions_last_active ON sessions(last_active_at);
+${PROVIDER_SESSION_ID_INDEX_SQL}
 `;
 
 const SCHEMA_SQL = `
@@ -240,6 +246,45 @@ function migrateLocalAvailable(db: RelayDatabase): void {
   `);
 }
 
+function hasTable(db: RelayDatabase, tableName: string): boolean {
+  const row = db
+    .prepare(
+      `
+      SELECT name
+      FROM sqlite_master
+      WHERE type = 'table' AND name = ?
+      `
+    )
+    .get(tableName) as { name: string } | undefined;
+
+  return row?.name === tableName;
+}
+
+function deduplicateProviderSessionIds(db: RelayDatabase): void {
+  if (!hasTable(db, "sessions")) {
+    return;
+  }
+
+  db.exec(`
+    DELETE FROM sessions
+    WHERE rowid NOT IN (
+      SELECT MAX(rowid)
+      FROM sessions
+      WHERE provider_session_id IS NOT NULL
+      GROUP BY provider_session_id
+    ) AND provider_session_id IS NOT NULL;
+  `);
+}
+
+function migrateProviderSessionIdIndex(db: RelayDatabase): void {
+  try {
+    db.exec(PROVIDER_SESSION_ID_INDEX_SQL);
+  } catch {
+    deduplicateProviderSessionIds(db);
+    db.exec(PROVIDER_SESSION_ID_INDEX_SQL);
+  }
+}
+
 export function initializeDatabase(dbPath: string): RelayDatabase {
   const parentDir = path.dirname(dbPath);
   fs.mkdirSync(parentDir, { recursive: true });
@@ -247,9 +292,11 @@ export function initializeDatabase(dbPath: string): RelayDatabase {
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
+  deduplicateProviderSessionIds(db);
   db.exec(SCHEMA_SQL);
   migrateSchema(db);
   migrateLocalAvailable(db);
+  migrateProviderSessionIdIndex(db);
   db
     .prepare(
       `

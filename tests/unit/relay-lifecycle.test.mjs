@@ -47,9 +47,9 @@ function insertSession(db, sessionId, status = "running") {
       created_at,
       updated_at,
       last_active_at
-    ) VALUES (?, 'claude', 'provider-session-1', 'macbook-1', NULL, ?, ?, NULL, 'bypassPermissions', ?, NULL, NULL, ?, ?, ?)
+    ) VALUES (?, 'claude', ?, 'macbook-1', NULL, ?, ?, NULL, 'bypassPermissions', ?, NULL, NULL, ?, ?, ?)
     `
-  ).run(sessionId, "/tmp/project", "hello", status, now, now, now);
+  ).run(sessionId, `${sessionId}-provider-session`, "/tmp/project", "hello", status, now, now, now);
 }
 
 test("initializeDatabase migrates existing sessions tables so idle becomes a valid status", () => {
@@ -375,6 +375,143 @@ test("local_available migration does not rerun its backfill after the column alr
     });
   } finally {
     secondDb.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("initializeDatabase deduplicates provider_session_id rows before enforcing the unique index", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-provider-session-index-"));
+  const dbPath = path.join(tempDir, "imbot.db");
+  const legacyDb = new Database(dbPath);
+
+  legacyDb.pragma("foreign_keys = ON");
+  legacyDb.exec(`
+    CREATE TABLE hosts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('macbook', 'relay_local')),
+      status TEXT NOT NULL DEFAULT 'offline' CHECK (status IN ('online', 'offline')),
+      last_heartbeat_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL CHECK (provider IN ('claude', 'book', 'openclaw')),
+      provider_session_id TEXT,
+      host_id TEXT NOT NULL REFERENCES hosts(id),
+      workspace_root TEXT,
+      workspace_cwd TEXT NOT NULL,
+      initial_prompt TEXT,
+      model TEXT,
+      permission_mode TEXT NOT NULL DEFAULT 'bypassPermissions',
+      status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'idle', 'completed', 'failed', 'cancelled')),
+      error_message TEXT,
+      error_code TEXT,
+      local_available INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_active_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  const now = new Date().toISOString();
+  legacyDb
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+  legacyDb
+    .prepare(
+      `
+      INSERT INTO sessions (
+        id,
+        provider,
+        provider_session_id,
+        host_id,
+        workspace_cwd,
+        status,
+        local_available,
+        created_at,
+        updated_at,
+        last_active_at
+      ) VALUES (?, 'claude', ?, 'macbook-1', ?, 'completed', 1, ?, ?, ?)
+      `
+    )
+    .run("sess-duplicate-older", "provider-session-duplicate", "/tmp/project-older", now, now, now);
+  legacyDb
+    .prepare(
+      `
+      INSERT INTO sessions (
+        id,
+        provider,
+        provider_session_id,
+        host_id,
+        workspace_cwd,
+        status,
+        local_available,
+        created_at,
+        updated_at,
+        last_active_at
+      ) VALUES (?, 'claude', ?, 'macbook-1', ?, 'completed', 1, ?, ?, ?)
+      `
+    )
+    .run("sess-duplicate-newer", "provider-session-duplicate", "/tmp/project-newer", now, now, now);
+  legacyDb.close();
+
+  const migratedDb = initializeDatabase(dbPath);
+
+  try {
+    const deduplicatedRows = migratedDb
+      .prepare("SELECT id, workspace_cwd FROM sessions WHERE provider_session_id = ?")
+      .all("provider-session-duplicate");
+    const indexes = migratedDb.pragma("index_list(sessions)");
+    const providerSessionIndex = indexes.find((index) => index.name === "idx_sessions_provider_session_id");
+    const insertTimestamp = new Date().toISOString();
+
+    assert.deepEqual(deduplicatedRows, [
+      {
+        id: "sess-duplicate-newer",
+        workspace_cwd: "/tmp/project-newer"
+      }
+    ]);
+    assert.ok(providerSessionIndex);
+    assert.equal(providerSessionIndex.unique, 1);
+    assert.equal(providerSessionIndex.partial, 1);
+    assert.throws(() => {
+      migratedDb
+        .prepare(
+          `
+          INSERT INTO sessions (
+            id,
+            provider,
+            provider_session_id,
+            host_id,
+            workspace_cwd,
+            status,
+            local_available,
+            created_at,
+            updated_at,
+            last_active_at
+          ) VALUES (?, 'claude', ?, 'macbook-1', ?, 'completed', 1, ?, ?, ?)
+          `
+        )
+        .run(
+          "sess-duplicate-third",
+          "provider-session-duplicate",
+          "/tmp/project-third",
+          insertTimestamp,
+          insertTimestamp,
+          insertTimestamp
+        );
+    }, /UNIQUE constraint failed: sessions.provider_session_id/);
+  } finally {
+    migratedDb.close();
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
@@ -830,10 +967,10 @@ test("handleEvent defers terminal provider events during create and resume lifec
     ]
   );
 
-  await runtime.orchestrator.markSessionStarted("sess-create-result", "provider-session-1", "queued");
-  await runtime.orchestrator.markSessionStarted("sess-create-error", "provider-session-1", "queued");
-  await runtime.orchestrator.markSessionStarted("sess-resume-result", "provider-session-1", "completed");
-  await runtime.orchestrator.markSessionStarted("sess-resume-error", "provider-session-1", "failed");
+  await runtime.orchestrator.markSessionStarted("sess-create-result", "provider-session-create-result", "queued");
+  await runtime.orchestrator.markSessionStarted("sess-create-error", "provider-session-create-error", "queued");
+  await runtime.orchestrator.markSessionStarted("sess-resume-result", "provider-session-resume-result", "completed");
+  await runtime.orchestrator.markSessionStarted("sess-resume-error", "provider-session-resume-error", "failed");
 
   await runtime.orchestrator.applyPendingTerminalTransition("sess-create-result");
   await runtime.orchestrator.applyPendingTerminalTransition("sess-create-error");
@@ -938,8 +1075,8 @@ test("handleEvent defers session_idle during create and resume lifecycle windows
     ]
   );
 
-  await runtime.orchestrator.markSessionStarted("sess-create-idle", "provider-session-1", "queued");
-  await runtime.orchestrator.markSessionStarted("sess-resume-idle", "provider-session-1", "completed");
+  await runtime.orchestrator.markSessionStarted("sess-create-idle", "provider-session-create-idle", "queued");
+  await runtime.orchestrator.markSessionStarted("sess-resume-idle", "provider-session-resume-idle", "completed");
 
   await runtime.orchestrator.applyPendingTerminalTransition("sess-create-idle");
   await runtime.orchestrator.applyPendingTerminalTransition("sess-resume-idle");

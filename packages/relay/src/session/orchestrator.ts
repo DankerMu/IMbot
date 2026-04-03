@@ -25,6 +25,8 @@ type LoggerLike = {
   readonly warn: (...args: unknown[]) => void;
 };
 
+const MAX_REPORT_LOCAL_SESSIONS_BATCH_SIZE = 200;
+
 export type CreateSessionInput = {
   provider?: string;
   host_id?: string;
@@ -453,6 +455,24 @@ export class SessionOrchestrator {
       return;
     }
 
+    if (message.host_id !== authenticatedHostId) {
+      this.logger.warn(
+        `report_local_sessions host_id mismatch: message=${message.host_id} authenticated=${authenticatedHostId}; using authenticated host`
+      );
+    }
+
+    if (!Array.isArray(message.sessions)) {
+      this.logger.warn("report_local_sessions: sessions is not an array");
+      return;
+    }
+
+    const sessions = message.sessions.slice(0, MAX_REPORT_LOCAL_SESSIONS_BATCH_SIZE);
+    if (message.sessions.length > MAX_REPORT_LOCAL_SESSIONS_BATCH_SIZE) {
+      this.logger.warn(
+        `report_local_sessions: truncated ${message.sessions.length} sessions to ${MAX_REPORT_LOCAL_SESSIONS_BATCH_SIZE}`
+      );
+    }
+
     const now = new Date().toISOString();
     const insertStmt = this.db.prepare(`
       INSERT INTO sessions (
@@ -482,7 +502,7 @@ export class SessionOrchestrator {
       let updated = 0;
       let skipped = 0;
 
-      for (const session of message.sessions) {
+      for (const session of sessions) {
         if (!session.provider_session_id || session.provider_session_id.trim() === "") {
           this.logger.warn("Skipping local session with empty provider_session_id");
           skipped += 1;
