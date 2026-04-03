@@ -143,6 +143,7 @@ export async function createCompanionRuntime(options?: {
   });
   relayClient.on("disconnected", () => {
     heartbeat.stop();
+    adapter.rejectAllPendingControlResponses("Relay disconnected");
   });
 
   return {

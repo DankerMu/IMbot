@@ -1191,3 +1191,30 @@ test("CompanionRuntime does not kill running CLI processes when the relay WS dis
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
+
+test("CompanionRuntime rejects pending interactive tool responses when the relay WS disconnects", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-disconnect-pending-"));
+  const reasons = [];
+
+  let runtime;
+  try {
+    runtime = await companion.createCompanionRuntime({
+      config: createRuntimeConfig(tempDir),
+      logger: silentLogger
+    });
+    runtime.adapter.rejectAllPendingControlResponses = (reason) => {
+      reasons.push(reason);
+    };
+
+    runtime.relayClient.emit("disconnected", 1006, "abnormal");
+    await delay(20);
+
+    assert.deepEqual(reasons, ["Relay disconnected"]);
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
