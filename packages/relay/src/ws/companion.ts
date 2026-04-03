@@ -59,6 +59,14 @@ export function registerCompanionWebSocketRoute(
         void deps.orchestrator.handleEvent(message).catch((error) => {
           app.log.error(error);
         });
+        return;
+      }
+
+      if (message.type === "report_local_sessions") {
+        void deps.orchestrator.handleReportLocalSessions(message, hostId).catch((error) => {
+          app.log.error(error);
+        });
+        return;
       }
     });
 
