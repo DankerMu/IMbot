@@ -445,8 +445,12 @@ internal fun ApprovalCard(
             modifier
                 .fillMaxWidth()
                 .approvalCardInteractions(
-                    item, canLongPress, selectionModeActive,
-                    onExitSelectionMode, onLongPress, hapticFeedback,
+                    item = item,
+                    canLongPress = canLongPress,
+                    selectionModeActive = selectionModeActive,
+                    onExitSelectionMode = onExitSelectionMode,
+                    onLongPress = onLongPress,
+                    hapticFeedback = hapticFeedback,
                 ),
         shape = CardShape,
         colors = CardDefaults.cardColors(containerColor = Color.White),
