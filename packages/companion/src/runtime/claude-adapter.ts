@@ -20,6 +20,7 @@ interface RuntimeSession {
   readonly provider: InteractiveProvider;
   readonly cwd: string;
   readonly createdAt: string;
+  initialPrompt: string | null;
   readonly child: ChildProcessWithoutNullStreams;
   readonly stdout: ReadLineInterface;
   readonly providerSessionIdPromise: Promise<string>;
@@ -107,7 +108,8 @@ export class ClaudeRuntimeAdapter {
       provider: command.provider,
       cwd: command.cwd,
       binary: providerConfig.binary,
-      args
+      args,
+      initialPrompt: command.prompt.slice(0, 200)
     });
 
     const providerSessionId = await session.providerSessionIdPromise;
@@ -159,7 +161,9 @@ export class ClaudeRuntimeAdapter {
         provider_session_id: command.provider_session_id,
         cwd: command.cwd,
         provider: indexed.provider,
-        created_at: indexed.created_at
+        created_at: indexed.created_at,
+        source: indexed.source,
+        initial_prompt: indexed.initial_prompt
       }
     });
 
@@ -383,6 +387,7 @@ export class ClaudeRuntimeAdapter {
     readonly args: string[];
     readonly knownProviderSessionId?: string;
     readonly emitIdleOnReady?: boolean;
+    readonly initialPrompt?: string | null;
     readonly indexEntry?: SessionIndexEntry;
   }): RuntimeSession {
     const child = this.spawn(params.binary, params.args, {
@@ -412,6 +417,7 @@ export class ClaudeRuntimeAdapter {
       provider: params.provider,
       cwd: params.cwd,
       createdAt: params.indexEntry?.created_at ?? new Date().toISOString(),
+      initialPrompt: params.initialPrompt ?? null,
       child,
       stdout,
       providerSessionIdPromise,
@@ -735,7 +741,9 @@ export class ClaudeRuntimeAdapter {
         provider_session_id: providerSessionId,
         cwd: session.cwd,
         provider: session.provider,
-        created_at: session.createdAt
+        created_at: session.createdAt,
+        source: "remote",
+        initial_prompt: session.initialPrompt ?? null
       }
     );
 
