@@ -163,6 +163,7 @@ async function createRunningSession({ baseUrl, config }, companion, overrides = 
   const response = await responsePromise;
   const payload = await response.json();
   assert.equal(response.status, 201);
+  assert.equal(payload.session.local_available, true);
 
   return {
     sessionId: payload.session.id

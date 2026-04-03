@@ -51,6 +51,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     CHECK (status IN ('queued', 'running', 'idle', 'completed', 'failed', 'cancelled')),
   error_message TEXT,
   error_code TEXT,
+  local_available INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   last_active_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -157,6 +158,7 @@ function migrateSchema(db: RelayDatabase): void {
           CHECK (status IN ('queued', 'running', 'idle', 'completed', 'failed', 'cancelled')),
         error_message TEXT,
         error_code TEXT,
+        local_available INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
         last_active_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -175,6 +177,7 @@ function migrateSchema(db: RelayDatabase): void {
         status,
         error_message,
         error_code,
+        local_available,
         created_at,
         updated_at,
         last_active_at
@@ -192,6 +195,10 @@ function migrateSchema(db: RelayDatabase): void {
         status,
         error_message,
         error_code,
+        CASE
+          WHEN provider IN ('claude', 'book') AND provider_session_id IS NOT NULL THEN 1
+          ELSE 0
+        END,
         created_at,
         updated_at,
         last_active_at
@@ -217,6 +224,22 @@ function migrateSchema(db: RelayDatabase): void {
   }
 }
 
+function migrateLocalAvailable(db: RelayDatabase): void {
+  const columns = db.pragma("table_info(sessions)") as Array<{ name: string }>;
+  const hasLocalAvailable = columns.some((column) => column.name === "local_available");
+
+  if (hasLocalAvailable) {
+    return;
+  }
+
+  db.exec(`
+    ALTER TABLE sessions ADD COLUMN local_available INTEGER NOT NULL DEFAULT 0;
+    UPDATE sessions
+    SET local_available = 1
+    WHERE provider IN ('claude', 'book') AND provider_session_id IS NOT NULL;
+  `);
+}
+
 export function initializeDatabase(dbPath: string): RelayDatabase {
   const parentDir = path.dirname(dbPath);
   fs.mkdirSync(parentDir, { recursive: true });
@@ -226,6 +249,7 @@ export function initializeDatabase(dbPath: string): RelayDatabase {
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA_SQL);
   migrateSchema(db);
+  migrateLocalAvailable(db);
   db
     .prepare(
       `

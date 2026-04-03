@@ -45,6 +45,13 @@ type PendingTerminalTransition = {
   readonly context?: SessionErrorContext;
 };
 
+function toBooleanFields(session: Session): Session {
+  return {
+    ...session,
+    local_available: Boolean(session.local_available)
+  };
+}
+
 export class SessionOrchestrator {
   private readonly activeLifecycleMutations = new Map<string, LifecycleMutation>();
   private readonly pendingTerminalTransitions = new Map<string, PendingTerminalTransition>();
@@ -99,6 +106,7 @@ export class SessionOrchestrator {
       status: "queued",
       error_message: null,
       error_code: null,
+      local_available: false,
       created_at: now,
       updated_at: now,
       last_active_at: now
@@ -120,10 +128,11 @@ export class SessionOrchestrator {
           status,
           error_message,
           error_code,
+          local_available,
           created_at,
           updated_at,
           last_active_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       )
       .run(
@@ -139,6 +148,7 @@ export class SessionOrchestrator {
         session.status,
         session.error_message,
         session.error_code,
+        session.local_available ? 1 : 0,
         session.created_at,
         session.updated_at,
         session.last_active_at
@@ -442,7 +452,7 @@ export class SessionOrchestrator {
       )
       .all(hostId) as Session[];
 
-    for (const session of sessions) {
+    for (const session of sessions.map(toBooleanFields)) {
       const context = {
         error_code: "host_disconnected",
         error_message: "Host companion disconnected unexpectedly"
@@ -516,9 +526,10 @@ export class SessionOrchestrator {
   }
 
   private getSession(sessionId: string): Session | null {
-    return (
-      (this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as Session | undefined) ?? null
-    );
+    const session =
+      (this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as Session | undefined) ?? null;
+
+    return session ? toBooleanFields(session) : null;
   }
 
   private requireSession(sessionId: string): Session {
@@ -757,7 +768,13 @@ export class SessionOrchestrator {
       .prepare(
         `
         UPDATE sessions
-        SET provider_session_id = ?, status = 'running', error_code = NULL, error_message = NULL, updated_at = ?, last_active_at = ?
+        SET provider_session_id = ?,
+            status = 'running',
+            error_code = NULL,
+            error_message = NULL,
+            local_available = CASE WHEN provider IN ('claude', 'book') THEN 1 ELSE 0 END,
+            updated_at = ?,
+            last_active_at = ?
         WHERE id = ? AND status = ?
         `
       )

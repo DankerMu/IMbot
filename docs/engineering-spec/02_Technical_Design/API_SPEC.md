@@ -160,6 +160,7 @@
       "initial_prompt": "帮我看一下这个项目的架构",
       "model": "opus",
       "status": "running",
+      "local_available": true,
       "created_at": "2026-03-28T13:00:00Z",
       "updated_at": "2026-03-28T13:05:00Z",
       "last_active_at": "2026-03-28T13:05:00Z"
@@ -173,7 +174,7 @@
 
 ### GET /v1/sessions/:id
 
-会话详情。
+会话详情。返回对象包含 `local_available: boolean`，表示当前 session 是否在 companion 主机上有本地 CLI 持久化数据。
 
 **Response 200**: 单个 session 对象（同上 + `provider_session_id`, `permission_mode`, `error_message`, `error_code`）。
 
@@ -206,6 +207,7 @@
     "initial_prompt": "帮我看一下这个项目的架构",
     "model": "opus",
     "status": "running",
+    "local_available": true,
     "created_at": "2026-03-28T13:10:00Z"
   }
 }

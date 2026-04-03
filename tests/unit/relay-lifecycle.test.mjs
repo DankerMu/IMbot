@@ -126,10 +126,13 @@ test("initializeDatabase migrates existing sessions tables so idle becomes a val
   const migratedDb = initializeDatabase(dbPath);
 
   try {
-    const preservedSession = migratedDb.prepare("SELECT id, status FROM sessions WHERE id = ?").get("sess-legacy");
+    const preservedSession = migratedDb
+      .prepare("SELECT id, status, local_available FROM sessions WHERE id = ?")
+      .get("sess-legacy");
     assert.deepEqual(preservedSession, {
       id: "sess-legacy",
-      status: "completed"
+      status: "completed",
+      local_available: 1
     });
 
     migratedDb
@@ -176,6 +179,204 @@ test("relay lifecycle transitions match the expected state machine table", () =>
   assert.equal(isValidTransition("cancelled", "running"), true);
   assert.equal(isValidTransition("idle", "failed"), true);
   assert.equal(isValidTransition("queued", "cancelled"), false);
+});
+
+test("fresh database includes local_available in the sessions table schema", (t) => {
+  const { db, cleanup } = createTestDatabase("imbot-relay-local-available-schema-");
+  t.after(cleanup);
+
+  const columns = db.pragma("table_info(sessions)");
+  const localAvailableColumn = columns.find((column) => column.name === "local_available");
+
+  assert.ok(localAvailableColumn);
+  assert.equal(localAvailableColumn.type, "INTEGER");
+  assert.equal(localAvailableColumn.notnull, 1);
+  assert.equal(localAvailableColumn.dflt_value, "0");
+});
+
+test("local_available defaults to 0 for manual session inserts that omit the column", (t) => {
+  const { db, cleanup } = createTestDatabase("imbot-relay-local-available-default-");
+  t.after(cleanup);
+
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+    INSERT INTO sessions (
+      id,
+      provider,
+      provider_session_id,
+      host_id,
+      workspace_root,
+      workspace_cwd,
+      initial_prompt,
+      model,
+      permission_mode,
+      status,
+      error_message,
+      error_code,
+      created_at,
+      updated_at,
+      last_active_at
+    ) VALUES (?, 'openclaw', 'openclaw-session-1', 'relay-local', NULL, ?, ?, NULL, 'bypassPermissions', 'running', NULL, NULL, ?, ?, ?)
+    `
+  ).run("sess-default-local-available", "/srv/project", "hello", now, now, now);
+
+  const storedSession = db
+    .prepare("SELECT local_available FROM sessions WHERE id = ?")
+    .get("sess-default-local-available");
+
+  assert.deepEqual(storedSession, {
+    local_available: 0
+  });
+});
+
+test("initializeDatabase migrates an existing idle-capable sessions table to add local_available", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-local-available-migration-"));
+  const dbPath = path.join(tempDir, "imbot.db");
+  const legacyDb = new Database(dbPath);
+
+  legacyDb.pragma("foreign_keys = ON");
+  legacyDb.exec(`
+    CREATE TABLE hosts (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL CHECK (type IN ('macbook', 'relay_local')),
+      status TEXT NOT NULL DEFAULT 'offline' CHECK (status IN ('online', 'offline')),
+      last_heartbeat_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE sessions (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL CHECK (provider IN ('claude', 'book', 'openclaw')),
+      provider_session_id TEXT,
+      host_id TEXT NOT NULL REFERENCES hosts(id),
+      workspace_root TEXT,
+      workspace_cwd TEXT NOT NULL,
+      initial_prompt TEXT,
+      model TEXT,
+      permission_mode TEXT NOT NULL DEFAULT 'bypassPermissions',
+      status TEXT NOT NULL DEFAULT 'queued'
+        CHECK (status IN ('queued', 'running', 'idle', 'completed', 'failed', 'cancelled')),
+      error_message TEXT,
+      error_code TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_active_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  const now = new Date().toISOString();
+  legacyDb
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+  legacyDb
+    .prepare(
+      `
+      INSERT INTO sessions (
+        id,
+        provider,
+        provider_session_id,
+        host_id,
+        workspace_root,
+        workspace_cwd,
+        initial_prompt,
+        model,
+        permission_mode,
+        status,
+        error_message,
+        error_code,
+        created_at,
+        updated_at,
+        last_active_at
+      ) VALUES (?, 'claude', 'provider-session-legacy', 'macbook-1', NULL, ?, ?, NULL, 'bypassPermissions', 'completed', NULL, NULL, ?, ?, ?)
+      `
+    )
+    .run("sess-local-migration", "/tmp/project", "hello", now, now, now);
+  legacyDb.close();
+
+  const migratedDb = initializeDatabase(dbPath);
+
+  try {
+    const migratedSession = migratedDb
+      .prepare("SELECT provider, provider_session_id, local_available FROM sessions WHERE id = ?")
+      .get("sess-local-migration");
+
+    assert.deepEqual(migratedSession, {
+      provider: "claude",
+      provider_session_id: "provider-session-legacy",
+      local_available: 1
+    });
+  } finally {
+    migratedDb.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("local_available migration does not rerun its backfill after the column already exists", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-local-available-idempotent-"));
+  const dbPath = path.join(tempDir, "imbot.db");
+
+  const firstDb = initializeDatabase(dbPath);
+  const now = new Date().toISOString();
+
+  firstDb
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+  firstDb
+    .prepare(
+      `
+      INSERT INTO sessions (
+        id,
+        provider,
+        provider_session_id,
+        host_id,
+        workspace_root,
+        workspace_cwd,
+        initial_prompt,
+        model,
+        permission_mode,
+        status,
+        error_message,
+        error_code,
+        local_available,
+        created_at,
+        updated_at,
+        last_active_at
+      ) VALUES (?, 'claude', 'provider-session-existing', 'macbook-1', NULL, ?, ?, NULL, 'bypassPermissions', 'completed', NULL, NULL, 0, ?, ?, ?)
+      `
+    )
+    .run("sess-existing-local-available", "/tmp/project", "hello", now, now, now);
+  firstDb.close();
+
+  const secondDb = initializeDatabase(dbPath);
+
+  try {
+    const columns = secondDb.pragma("table_info(sessions)");
+    const localAvailableColumns = columns.filter((column) => column.name === "local_available");
+    const preservedSession = secondDb
+      .prepare("SELECT local_available FROM sessions WHERE id = ?")
+      .get("sess-existing-local-available");
+
+    assert.equal(localAvailableColumns.length, 1);
+    assert.deepEqual(preservedSession, {
+      local_available: 0
+    });
+  } finally {
+    secondDb.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
 });
 
 test("allocateSeq starts at 1 and increments monotonically", (t) => {
