@@ -12,7 +12,7 @@ import { RelayClient, type RelayClientBackoffOptions } from "./relay-client";
 import { ClaudeRuntimeAdapter } from "./runtime/claude-adapter";
 import { discoverSessions } from "./runtime/session-discovery";
 import { SessionIndex } from "./runtime/session-index";
-import type { LoggerLike } from "./types";
+import { CompanionError, type LoggerLike } from "./types";
 import { browseDirectory } from "./workspace/browser";
 import { ConfigManager } from "./workspace/config-manager";
 
@@ -109,9 +109,16 @@ export async function createCompanionRuntime(options?: {
   });
   dispatcher.register("list_sessions", async (command) => {
     const providerConfig = config.providers[command.provider];
+    if (!providerConfig) {
+      throw new CompanionError(
+        "invalid_request",
+        `Provider ${command.provider} is not configured on this companion`
+      );
+    }
+
     return await discoverSessions(command.cwd, command.provider, {
       logger,
-      claudeProjectsDir: providerConfig?.projectsDir
+      claudeProjectsDir: providerConfig.projectsDir
     });
   });
   dispatcher.register("browse_directory", async (command) => {

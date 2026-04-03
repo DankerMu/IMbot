@@ -156,6 +156,34 @@ test("discoverSessions uses custom claudeProjectsDir for book provider", async (
   }
 });
 
+test("discoverSessions with separate book projects dir does not mix with claude projects", async () => {
+  const claudeProjectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-claude-"));
+  const bookProjectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-book-"));
+  const cwd = "/Users/danker/Desktop/AI-vault";
+
+  try {
+    createSessionFile(claudeProjectsDir, cwd, "claude-session-1", "2026-03-30T07:00:00.000Z");
+    createSessionFile(bookProjectsDir, cwd, "book-session-1", "2026-03-30T08:00:00.000Z");
+
+    const results = await companion.discoverSessions(cwd, "book", {
+      claudeProjectsDir: bookProjectsDir,
+      logger: silentLogger
+    });
+
+    assert.deepEqual(results, [
+      {
+        provider_session_id: "book-session-1",
+        cwd,
+        created_at: "2026-03-30T08:00:00.000Z",
+        status: "completed"
+      }
+    ]);
+  } finally {
+    rmSync(claudeProjectsDir, { recursive: true, force: true });
+    rmSync(bookProjectsDir, { recursive: true, force: true });
+  }
+});
+
 test("discoverSessions matches only the requested cwd prefix", async () => {
   const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-match-"));
   const matchingCwd = "/Users/danker/Desktop/AI-vault";

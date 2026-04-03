@@ -173,7 +173,11 @@ function resolveProviderConfigDir(
     return expandUserPath(configuredConfigDir, env);
   }
 
-  return detectConfigDir(resolvedBinaryPath, env);
+  if (path.isAbsolute(resolvedBinaryPath)) {
+    return detectConfigDir(resolvedBinaryPath, env);
+  }
+
+  return getDefaultProviderConfigDir(env);
 }
 
 function resolveProviderBinary(binary: string, env: NodeJS.ProcessEnv): string {
@@ -193,21 +197,37 @@ function resolveProviderBinary(binary: string, env: NodeJS.ProcessEnv): string {
 }
 
 function detectConfigDir(resolvedBinaryPath: string, env: NodeJS.ProcessEnv): string {
-  const defaultDir = path.join(env.HOME?.trim() || os.homedir(), ".claude");
+  const defaultDir = getDefaultProviderConfigDir(env);
 
   try {
-    const content = fs.readFileSync(resolvedBinaryPath, "utf8");
-    const lines = content.split("\n").slice(0, 10);
-    for (const line of lines) {
-      const match = line.match(/CLAUDE_CONFIG_DIR=["']?([^"'\s]+)["']?/);
-      if (match) {
-        const raw = match[1].replace(/\$HOME/g, "~");
-        return expandUserPath(raw, env);
+    const stat = fs.statSync(resolvedBinaryPath);
+    if (!stat.isFile()) {
+      return defaultDir;
+    }
+
+    const fileDescriptor = fs.openSync(resolvedBinaryPath, "r");
+    try {
+      const buffer = Buffer.alloc(1024);
+      const bytesRead = fs.readSync(fileDescriptor, buffer, 0, buffer.length, 0);
+      const content = buffer.toString("utf8", 0, bytesRead);
+      const lines = content.split(/\r?\n/).slice(0, 10);
+      for (const line of lines) {
+        const match = line.match(/CLAUDE_CONFIG_DIR=["']?([^"'\s]+)["']?/);
+        if (match) {
+          const raw = match[1].replace(/\$HOME/g, "~");
+          return expandUserPath(raw, env);
+        }
       }
+    } finally {
+      fs.closeSync(fileDescriptor);
     }
   } catch {}
 
   return defaultDir;
+}
+
+function getDefaultProviderConfigDir(env: NodeJS.ProcessEnv): string {
+  return path.join(env.HOME?.trim() || os.homedir(), ".claude");
 }
 
 function collectBinarySearchPaths(env: NodeJS.ProcessEnv): string[] {

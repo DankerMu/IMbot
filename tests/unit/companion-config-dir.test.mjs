@@ -118,6 +118,63 @@ test("loadCompanionConfig auto-detects CLAUDE_CONFIG_DIR from book binary wrappe
   }
 });
 
+test("loadCompanionConfig skips auto-detection for unresolved bare binary name", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-config-dir-unresolved-"));
+  const homeDir = path.join(tempDir, "home");
+  const configPath = path.join(tempDir, "companion.json");
+  const binaryName = "nonexistent-book-binary";
+  const originalCwd = process.cwd();
+
+  mkdirSync(homeDir, { recursive: true });
+  writeExecutable(
+    path.join(tempDir, binaryName),
+    "#!/bin/bash\nexport CLAUDE_CONFIG_DIR=\"$HOME/.evil\"\nexec claude \"$@\"\n"
+  );
+  writeCompanionConfig(configPath, {
+    book: {
+      binary: binaryName
+    }
+  });
+
+  try {
+    process.chdir(tempDir);
+    const config = companion.loadCompanionConfig(createEnv(configPath, homeDir));
+
+    assert.equal(config.providers.book.configDir, path.join(homeDir, ".claude"));
+    assert.equal(config.providers.book.projectsDir, path.join(homeDir, ".claude", "projects"));
+  } finally {
+    process.chdir(originalCwd);
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loadCompanionConfig only scans the first 1024 bytes when auto-detecting config dir", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-config-dir-bounded-"));
+  const homeDir = path.join(tempDir, "home");
+  const configPath = path.join(tempDir, "companion.json");
+  const bookBinary = path.join(tempDir, "book");
+
+  mkdirSync(homeDir, { recursive: true });
+  writeExecutable(
+    bookBinary,
+    `#!/bin/bash\n${"x".repeat(1100)}\nexport CLAUDE_CONFIG_DIR="$HOME/.claudebook"\nexec claude "$@"\n`
+  );
+  writeCompanionConfig(configPath, {
+    book: {
+      binary: bookBinary
+    }
+  });
+
+  try {
+    const config = companion.loadCompanionConfig(createEnv(configPath, homeDir));
+
+    assert.equal(config.providers.book.configDir, path.join(homeDir, ".claude"));
+    assert.equal(config.providers.book.projectsDir, path.join(homeDir, ".claude", "projects"));
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("loadCompanionConfig falls back to ~/.claude when binary is not a shell script", () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-config-dir-binary-"));
   const homeDir = path.join(tempDir, "home");
