@@ -709,7 +709,7 @@ open class RelayHttpClient
 
                     okHttpClient.newCall(request).await().use { response ->
                         val bodyText = response.body?.string().orEmpty()
-                        if (!response.isSuccessful) {
+                        if (!response.isSuccessful && response.code != 404) {
                             throw relayFailure(response, bodyText, "Delete session")
                         }
                     }

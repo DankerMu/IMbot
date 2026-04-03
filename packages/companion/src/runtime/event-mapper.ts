@@ -12,12 +12,28 @@ export type RuntimeMappedMessage =
       readonly payload: unknown;
     };
 
+const INTERACTIVE_TOOLS = new Set(["askuserquestion"]);
+const SUPPRESSED_USER_MSG_TOOLS = new Set(["skill"]);
+
+function isLower(name: string | null, set: Set<string>): boolean {
+  return name != null && set.has(name.toLowerCase());
+}
+
 /**
- * Stateful mapper that tracks pending tool call IDs so that
- * `tool_result` events can be correlated with their `tool_use` origin.
+ * Stateful mapper for Claude Code stream-json output.
+ *
+ * State:
+ *  - `emittedToolIds`: deduplicates tool_call_started (verbose mode sends
+ *    partial + final messages with the same tool_use block).
+ *  - `suppressUserMessageCount`: after a Skill tool_use, Claude Code injects
+ *    the expanded skill prompt as a plain user message — suppress it.
  */
 export class RuntimeEventMapper {
-  private pendingCallId: string | null = null;
+  /** Maps tool call id → lowercase tool name for dedup + interactive lookup. */
+  private readonly emittedTools = new Map<string, string>();
+  private suppressUserMessageCount = 0;
+  /** When true, suppress assistant text + tool_result until session idles or user speaks. */
+  private interactiveToolActive = false;
 
   map(raw: unknown): RuntimeMappedMessage | null {
     if (raw == null || typeof raw !== "object" || Array.isArray(raw)) {
@@ -31,6 +47,7 @@ export class RuntimeEventMapper {
       return null;
     }
 
+    // ── provider session id ──────────────────────────────────────────
     if (type === "system" && typeof record.session_id === "string") {
       return {
         kind: "provider_session_id",
@@ -38,7 +55,22 @@ export class RuntimeEventMapper {
       };
     }
 
+    // ── assistant (stream-json content blocks) ───────────────────────
     if (type === "assistant") {
+      const toolUse = extractContentToolUse(record);
+      if (toolUse) {
+        return this.emitToolCallStarted(
+          getString(toolUse.id),
+          getString(toolUse.name),
+          toolUse.input
+        );
+      }
+
+      // Suppress model text generated after interactive tool auto-failure
+      if (this.interactiveToolActive) {
+        return null;
+      }
+
       const text = extractEventText(record);
       if (!text) {
         return null;
@@ -48,67 +80,46 @@ export class RuntimeEventMapper {
       return {
         kind: "event",
         eventType: subtype === "message" || subtype === "complete" ? "assistant_message" : "assistant_delta",
-        payload: {
-          text
-        }
+        payload: { text }
       };
     }
 
     if (type === "assistant_message") {
+      if (this.interactiveToolActive) {
+        return null;
+      }
       const text = extractEventText(record);
       if (!text) {
         return null;
       }
-
-      return {
-        kind: "event",
-        eventType: "assistant_message",
-        payload: {
-          text
-        }
-      };
+      return { kind: "event", eventType: "assistant_message", payload: { text } };
     }
 
+    // ── top-level tool_use (non-stream-json compat) ──────────────────
     if (type === "tool_use") {
-      const callId = getString(record.id) ?? getString(record.tool_use_id) ?? randomUUID();
-      this.pendingCallId = callId;
-      return {
-        kind: "event",
-        eventType: "tool_call_started",
-        payload: {
-          call_id: callId,
-          tool: getString(record.tool) ?? getString(record.name),
-          input: record.input ?? null
-        }
-      };
+      return this.emitToolCallStarted(
+        getString(record.id) ?? getString(record.tool_use_id),
+        getString(record.tool) ?? getString(record.name),
+        record.input
+      );
     }
 
+    // ── top-level tool_result (non-stream-json compat) ───────────────
     if (type === "tool_result") {
-      const pending = this.pendingCallId;
-      this.pendingCallId = null;
-      const callId =
-        getString(record.id) ??
-        getString(record.tool_use_id) ??
-        pending ??
-        randomUUID();
-      return {
-        kind: "event",
-        eventType: "tool_call_completed",
-        payload: {
-          call_id: callId,
-          tool: getString(record.tool) ?? getString(record.name),
-          result: record.result ?? record.output ?? null
-        }
-      };
+      return this.emitToolCallCompleted(
+        getString(record.id) ?? getString(record.tool_use_id),
+        getString(record.tool) ?? getString(record.name),
+        record.result ?? record.output ?? null
+      );
     }
 
+    // ── result / error ───────────────────────────────────────────────
     if (type === "result") {
+      this.interactiveToolActive = false;
       return {
         kind: "event",
         eventType: "session_result",
-        payload: {
-          result: record.result ?? record.output ?? null
-        }
+        payload: { result: record.result ?? record.output ?? null }
       };
     }
 
@@ -123,31 +134,98 @@ export class RuntimeEventMapper {
       };
     }
 
+    // ── user / user_message ──────────────────────────────────────────
     if (type === "user" || type === "user_message") {
+      const toolResult = extractContentToolResult(record);
+      if (toolResult) {
+        return this.emitToolCallCompleted(
+          getString(toolResult.tool_use_id),
+          getString(toolResult.tool_name),
+          toolResult.content ?? null
+        );
+      }
+
+      if (this.suppressUserMessageCount > 0) {
+        this.suppressUserMessageCount--;
+        return null;
+      }
+
       const text = extractEventText(record);
       if (!text) {
         return null;
       }
-
-      return {
-        kind: "event",
-        eventType: "user_message",
-        payload: {
-          text
-        }
-      };
+      return { kind: "event", eventType: "user_message", payload: { text } };
     }
 
+    // ── approval (passthrough) ───────────────────────────────────────
     if (type === "approval_required" || type === "approval_resolved") {
       const { type: _ignoredType, ...payload } = record;
-      return {
-        kind: "event",
-        eventType: type,
-        payload
-      };
+      return { kind: "event", eventType: type, payload };
     }
 
     return null;
+  }
+
+  // ── private helpers ──────────────────────────────────────────────────
+
+  private emitToolCallStarted(
+    rawId: string | null,
+    toolName: string | null,
+    input: unknown
+  ): RuntimeMappedMessage | null {
+    const callId = rawId ?? randomUUID();
+    const lowerName = toolName?.toLowerCase() ?? "";
+
+    // Deduplicate: verbose mode sends partial + final messages
+    if (this.emittedTools.has(callId)) {
+      return null;
+    }
+    this.emittedTools.set(callId, lowerName);
+
+    // Skill tool → suppress the injected skill-prompt user message that follows
+    if (isLower(toolName, SUPPRESSED_USER_MSG_TOOLS)) {
+      this.suppressUserMessageCount++;
+    }
+
+    // Interactive tool → suppress subsequent model text until turn ends
+    if (INTERACTIVE_TOOLS.has(lowerName)) {
+      this.interactiveToolActive = true;
+    }
+
+    return {
+      kind: "event",
+      eventType: "tool_call_started",
+      payload: {
+        call_id: callId,
+        tool: toolName,
+        input: input ?? null
+      }
+    };
+  }
+
+  private emitToolCallCompleted(
+    rawId: string | null,
+    toolName: string | null,
+    result: unknown
+  ): RuntimeMappedMessage | null {
+    // Interactive tools: suppress auto-error from Claude Code -p mode
+    const storedName = rawId ? this.emittedTools.get(rawId) : null;
+    const resolvedLower = toolName?.toLowerCase() ?? storedName ?? "";
+
+    if (INTERACTIVE_TOOLS.has(resolvedLower)) {
+      return null;
+    }
+
+    const callId = rawId ?? randomUUID();
+    return {
+      kind: "event",
+      eventType: "tool_call_completed",
+      payload: {
+        call_id: callId,
+        tool: toolName,
+        result
+      }
+    };
   }
 }
 
@@ -155,6 +233,8 @@ export class RuntimeEventMapper {
 export function mapRuntimeEvent(raw: unknown): RuntimeMappedMessage | null {
   return new RuntimeEventMapper().map(raw);
 }
+
+// ── pure helpers ────────────────────────────────────────────────────────
 
 function getString(value: unknown): string | null {
   return typeof value === "string" && value !== "" ? value : null;
@@ -170,13 +250,67 @@ function extractEventText(record: Record<string, unknown>): string | null {
   );
 }
 
-function extractStructuredMessageText(value: unknown): string | null {
-  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+interface ContentToolUse {
+  readonly id: unknown;
+  readonly name: unknown;
+  readonly input: unknown;
+}
+
+function extractContentToolUse(record: Record<string, unknown>): ContentToolUse | null {
+  const content = getContentArray(record);
+  if (!content) {
     return null;
   }
 
-  const record = value as Record<string, unknown>;
-  return extractStructuredContentText(record.content);
+  for (const item of content) {
+    if (isPlainObject(item) && (item as Record<string, unknown>).type === "tool_use") {
+      const block = item as Record<string, unknown>;
+      return { id: block.id, name: block.name, input: block.input };
+    }
+  }
+  return null;
+}
+
+interface ContentToolResult {
+  readonly tool_use_id: unknown;
+  readonly tool_name: unknown;
+  readonly content: unknown;
+}
+
+function extractContentToolResult(record: Record<string, unknown>): ContentToolResult | null {
+  const content = getContentArray(record);
+  if (!content) {
+    return null;
+  }
+
+  for (const item of content) {
+    if (isPlainObject(item) && (item as Record<string, unknown>).type === "tool_result") {
+      const block = item as Record<string, unknown>;
+      return { tool_use_id: block.tool_use_id, tool_name: block.tool_name, content: block.content };
+    }
+  }
+  return null;
+}
+
+function getContentArray(record: Record<string, unknown>): unknown[] | null {
+  const message = record.message;
+  const content = Array.isArray(message)
+    ? message
+    : isPlainObject(message)
+      ? (message as Record<string, unknown>).content
+      : record.content;
+  return Array.isArray(content) ? content : null;
+}
+
+function isPlainObject(value: unknown): boolean {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
+
+function extractStructuredMessageText(value: unknown): string | null {
+  if (!isPlainObject(value)) {
+    return null;
+  }
+  return extractStructuredContentText((value as Record<string, unknown>).content);
 }
 
 function extractStructuredContentText(value: unknown): string | null {
@@ -186,15 +320,13 @@ function extractStructuredContentText(value: unknown): string | null {
 
   const text = value
     .flatMap((item) => {
-      if (item == null || typeof item !== "object" || Array.isArray(item)) {
+      if (!isPlainObject(item)) {
         return [];
       }
-
       const record = item as Record<string, unknown>;
       if (record.type !== "text") {
         return [];
       }
-
       const chunk = getString(record.text);
       return chunk ? [chunk] : [];
     })

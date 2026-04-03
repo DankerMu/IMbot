@@ -149,6 +149,7 @@ fun SessionDetailScreen(
         renderedKeys.addAll(timelineMessages.map(::timelineKey))
         if (!initialLoadHandled) {
             initialLoadHandled = true
+            listState.scrollToItem(timelineMessages.lastIndex)
         }
     }
 
