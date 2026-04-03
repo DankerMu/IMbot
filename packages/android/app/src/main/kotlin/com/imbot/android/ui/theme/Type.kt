@@ -2,18 +2,30 @@ package com.imbot.android.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import com.imbot.android.R
 
-// The repo does not bundle JetBrains Mono or Fira Code yet, so Compose falls back to the
-// platform monospace face while keeping the code typography contract stable.
-val CodeFontFamily = FontFamily.Monospace
+val InterFontFamily =
+    FontFamily(
+        Font(R.font.inter_regular, FontWeight.Normal),
+        Font(R.font.inter_medium, FontWeight.Medium),
+        Font(R.font.inter_semibold, FontWeight.SemiBold),
+    )
+
+val JetBrainsMonoFamily =
+    FontFamily(
+        Font(R.font.jetbrains_mono_regular, FontWeight.Normal),
+    )
+
+val CodeFontFamily = JetBrainsMonoFamily
 
 val CodeTextStyle =
     TextStyle(
         fontFamily = CodeFontFamily,
-        fontSize = 14.sp,
+        fontSize = 13.sp,
         lineHeight = 20.sp,
         fontWeight = FontWeight.Normal,
     )
@@ -22,106 +34,100 @@ val IMbotTypography =
     Typography(
         displayLarge =
             TextStyle(
-                fontFamily = FontFamily.Default,
+                fontFamily = InterFontFamily,
                 fontSize = 34.sp,
                 lineHeight = 41.sp,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.4).sp,
+                letterSpacing = (-0.5).sp,
             ),
         headlineLarge =
             TextStyle(
-                fontFamily = FontFamily.Default,
+                fontFamily = InterFontFamily,
                 fontSize = 28.sp,
                 lineHeight = 34.sp,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.26).sp,
+                letterSpacing = (-0.5).sp,
             ),
         headlineMedium =
             TextStyle(
-                fontFamily = FontFamily.Default,
+                fontFamily = InterFontFamily,
                 fontSize = 22.sp,
                 lineHeight = 28.sp,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.26).sp,
+                letterSpacing = (-0.5).sp,
             ),
         headlineSmall =
             TextStyle(
-                fontFamily = FontFamily.Default,
+                fontFamily = InterFontFamily,
                 fontSize = 20.sp,
-                lineHeight = 25.sp,
+                lineHeight = 28.sp,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.45).sp,
+                letterSpacing = (-0.5).sp,
             ),
         titleLarge =
             TextStyle(
-                fontFamily = FontFamily.Default,
-                fontSize = 17.sp,
-                lineHeight = 22.sp,
+                fontFamily = InterFontFamily,
+                fontSize = 20.sp,
+                lineHeight = 28.sp,
                 fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.41).sp,
+                letterSpacing = (-0.5).sp,
             ),
         titleMedium =
             TextStyle(
-                fontFamily = FontFamily.Default,
-                fontSize = 17.sp,
-                lineHeight = 22.sp,
-                fontWeight = FontWeight.SemiBold,
-                letterSpacing = (-0.32).sp,
+                fontFamily = InterFontFamily,
+                fontSize = 16.sp,
+                lineHeight = 24.sp,
+                fontWeight = FontWeight.Medium,
             ),
         titleSmall =
             TextStyle(
-                fontFamily = FontFamily.Default,
-                fontSize = 15.sp,
+                fontFamily = InterFontFamily,
+                fontSize = 14.sp,
                 lineHeight = 20.sp,
-                fontWeight = FontWeight.Normal,
-                letterSpacing = (-0.24).sp,
+                fontWeight = FontWeight.Medium,
             ),
         bodyLarge =
             TextStyle(
-                fontFamily = FontFamily.Default,
-                fontSize = 17.sp,
-                lineHeight = 24.sp,
+                fontFamily = InterFontFamily,
+                fontSize = 16.sp,
+                lineHeight = 26.sp,
                 fontWeight = FontWeight.Normal,
-                letterSpacing = (-0.41).sp,
             ),
         bodyMedium =
             TextStyle(
-                fontFamily = FontFamily.Default,
-                fontSize = 15.sp,
-                lineHeight = 22.sp,
+                fontFamily = InterFontFamily,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
                 fontWeight = FontWeight.Normal,
-                letterSpacing = (-0.24).sp,
             ),
         bodySmall =
             TextStyle(
-                fontFamily = FontFamily.Default,
-                fontSize = 13.sp,
+                fontFamily = InterFontFamily,
+                fontSize = 12.sp,
                 lineHeight = 18.sp,
                 fontWeight = FontWeight.Normal,
-                letterSpacing = (-0.08).sp,
             ),
         labelLarge =
             TextStyle(
-                fontFamily = FontFamily.Default,
-                fontSize = 12.sp,
-                lineHeight = 16.sp,
+                fontFamily = InterFontFamily,
+                fontSize = 14.sp,
+                lineHeight = 20.sp,
                 fontWeight = FontWeight.Medium,
-                letterSpacing = 0.sp,
             ),
         labelMedium =
             TextStyle(
-                fontFamily = FontFamily.Default,
-                fontSize = 11.sp,
+                fontFamily = InterFontFamily,
+                fontSize = 12.sp,
                 lineHeight = 16.sp,
                 fontWeight = FontWeight.Medium,
-                letterSpacing = 0.07.sp,
+                letterSpacing = 0.5.sp,
             ),
         labelSmall =
             TextStyle(
-                fontFamily = FontFamily.Default,
-                fontSize = 11.sp,
+                fontFamily = InterFontFamily,
+                fontSize = 12.sp,
                 lineHeight = 16.sp,
-                fontWeight = FontWeight.Normal,
-                letterSpacing = 0.07.sp,
+                fontWeight = FontWeight.Medium,
+                letterSpacing = 0.5.sp,
             ),
     )

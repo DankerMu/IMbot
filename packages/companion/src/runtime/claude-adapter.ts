@@ -10,7 +10,7 @@ import type {
 
 import type { CompanionProviderConfig } from "../config";
 import { CompanionError, type LoggerLike } from "../types";
-import { mapRuntimeEvent } from "./event-mapper";
+import { RuntimeEventMapper } from "./event-mapper";
 import { SessionIndex, type SessionIndexEntry } from "./session-index";
 
 type SpawnFunction = typeof spawnChildProcess;
@@ -37,6 +37,7 @@ interface RuntimeSession {
   emitIdleOnReady: boolean;
   exitPromise: Promise<void>;
   resolveExit: () => void;
+  readonly eventMapper: RuntimeEventMapper;
 }
 
 export interface ClaudeRuntimeAdapterOptions {
@@ -381,7 +382,8 @@ export class ClaudeRuntimeAdapter {
       isIdle: false,
       emitIdleOnReady: params.emitIdleOnReady ?? false,
       exitPromise,
-      resolveExit
+      resolveExit,
+      eventMapper: new RuntimeEventMapper()
     };
 
     if (params.knownProviderSessionId) {
@@ -423,7 +425,7 @@ export class ClaudeRuntimeAdapter {
       return;
     }
 
-    const mapped = mapRuntimeEvent(parsed);
+    const mapped = session.eventMapper.map(parsed);
     if (!mapped) {
       return;
     }
