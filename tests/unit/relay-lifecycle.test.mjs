@@ -319,11 +319,45 @@ test("initializeDatabase migrates an existing idle-capable sessions table to add
   }
 });
 
-test("local_available migration is idempotent across repeated initialization", () => {
+test("local_available migration does not rerun its backfill after the column already exists", () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-local-available-idempotent-"));
   const dbPath = path.join(tempDir, "imbot.db");
 
   const firstDb = initializeDatabase(dbPath);
+  const now = new Date().toISOString();
+
+  firstDb
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+  firstDb
+    .prepare(
+      `
+      INSERT INTO sessions (
+        id,
+        provider,
+        provider_session_id,
+        host_id,
+        workspace_root,
+        workspace_cwd,
+        initial_prompt,
+        model,
+        permission_mode,
+        status,
+        error_message,
+        error_code,
+        local_available,
+        created_at,
+        updated_at,
+        last_active_at
+      ) VALUES (?, 'claude', 'provider-session-existing', 'macbook-1', NULL, ?, ?, NULL, 'bypassPermissions', 'completed', NULL, NULL, 0, ?, ?, ?)
+      `
+    )
+    .run("sess-existing-local-available", "/tmp/project", "hello", now, now, now);
   firstDb.close();
 
   const secondDb = initializeDatabase(dbPath);
@@ -331,8 +365,14 @@ test("local_available migration is idempotent across repeated initialization", (
   try {
     const columns = secondDb.pragma("table_info(sessions)");
     const localAvailableColumns = columns.filter((column) => column.name === "local_available");
+    const preservedSession = secondDb
+      .prepare("SELECT local_available FROM sessions WHERE id = ?")
+      .get("sess-existing-local-available");
 
     assert.equal(localAvailableColumns.length, 1);
+    assert.deepEqual(preservedSession, {
+      local_available: 0
+    });
   } finally {
     secondDb.close();
     rmSync(tempDir, { recursive: true, force: true });

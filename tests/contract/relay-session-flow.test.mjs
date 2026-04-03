@@ -371,6 +371,14 @@ test("relay persists and broadcasts session_idle events before updating the sess
     "create_session command"
   );
 
+  const queuedSession = runtime.db
+    .prepare("SELECT status, local_available FROM sessions WHERE id = ?")
+    .get(createCommand.session_id);
+  assert.deepEqual(queuedSession, {
+    status: "queued",
+    local_available: 0
+  });
+
   companion.send(
     JSON.stringify({
       type: "ack",
@@ -544,13 +552,14 @@ test("relay persists companion ack errors onto the failed session", async (t) =>
 
   const failedSession = runtime.db
     .prepare(
-      "SELECT id, status, error_code, error_message FROM sessions ORDER BY created_at DESC LIMIT 1"
+      "SELECT id, status, error_code, error_message, local_available FROM sessions ORDER BY created_at DESC LIMIT 1"
     )
     .get();
 
   assert.equal(failedSession.status, "failed");
   assert.equal(failedSession.error_code, "directory_not_found");
   assert.equal(failedSession.error_message, "Directory missing");
+  assert.equal(failedSession.local_available, 0);
 
   const sessionErrorEvent = runtime.db
     .prepare(
@@ -739,12 +748,13 @@ test("relay clears pending ack state when sending a companion command fails", as
   });
 
   const failedSession = runtime.db
-    .prepare("SELECT id, status, error_code, error_message FROM sessions ORDER BY created_at DESC LIMIT 1")
+    .prepare("SELECT id, status, error_code, error_message, local_available FROM sessions ORDER BY created_at DESC LIMIT 1")
     .get();
 
   assert.equal(failedSession.status, "failed");
   assert.equal(failedSession.error_code, "provider_unreachable");
   assert.match(failedSession.error_message, /socket write failed/);
+  assert.equal(failedSession.local_available, 0);
 
   const pendingForHost = runtime.companionManager.pendingByHost.get("macbook-1");
   assert.equal(pendingForHost?.size ?? 0, 0);

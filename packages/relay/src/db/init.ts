@@ -195,7 +195,10 @@ function migrateSchema(db: RelayDatabase): void {
         status,
         error_message,
         error_code,
-        0,
+        CASE
+          WHEN provider IN ('claude', 'book') AND provider_session_id IS NOT NULL THEN 1
+          ELSE 0
+        END,
         created_at,
         updated_at,
         last_active_at
@@ -225,16 +228,15 @@ function migrateLocalAvailable(db: RelayDatabase): void {
   const columns = db.pragma("table_info(sessions)") as Array<{ name: string }>;
   const hasLocalAvailable = columns.some((column) => column.name === "local_available");
 
-  if (!hasLocalAvailable) {
-    db.exec("ALTER TABLE sessions ADD COLUMN local_available INTEGER NOT NULL DEFAULT 0;");
+  if (hasLocalAvailable) {
+    return;
   }
 
   db.exec(`
+    ALTER TABLE sessions ADD COLUMN local_available INTEGER NOT NULL DEFAULT 0;
     UPDATE sessions
     SET local_available = 1
-    WHERE local_available = 0
-      AND provider IN ('claude', 'book')
-      AND provider_session_id IS NOT NULL;
+    WHERE provider IN ('claude', 'book') AND provider_session_id IS NOT NULL;
   `);
 }
 

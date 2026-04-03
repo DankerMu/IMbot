@@ -106,7 +106,7 @@ export class SessionOrchestrator {
       status: "queued",
       error_message: null,
       error_code: null,
-      local_available: provider !== "openclaw",
+      local_available: false,
       created_at: now,
       updated_at: now,
       last_active_at: now
@@ -768,7 +768,13 @@ export class SessionOrchestrator {
       .prepare(
         `
         UPDATE sessions
-        SET provider_session_id = ?, status = 'running', error_code = NULL, error_message = NULL, updated_at = ?, last_active_at = ?
+        SET provider_session_id = ?,
+            status = 'running',
+            error_code = NULL,
+            error_message = NULL,
+            local_available = CASE WHEN provider IN ('claude', 'book') THEN 1 ELSE 0 END,
+            updated_at = ?,
+            last_active_at = ?
         WHERE id = ? AND status = ?
         `
       )
