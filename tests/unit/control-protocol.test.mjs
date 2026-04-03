@@ -685,3 +685,39 @@ test("writeControlMessage handles destroyed stdin gracefully", async (t) => {
 
   assert.equal(getSession(adapter, "relay-control-1").relaySessionId, "relay-control-1");
 });
+
+test("unknown control_request subtype writes error control_response", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-unknown-subtype-"));
+  const cwd = path.join(tempDir, "project");
+  mkdirSync(cwd, { recursive: true });
+  const { adapter, children, events } = createAdapterHarness(tempDir);
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await createSession(adapter, cwd);
+  children[0].emitJson({
+    type: "control_request",
+    request_id: "req-unknown-subtype",
+    request: {
+      subtype: "not_can_use_tool",
+      tool_name: "AskUserQuestion",
+      input: {
+        questions: [{ question: "Pick one" }]
+      }
+    }
+  });
+  await flushRuntime();
+
+  assert.deepEqual(children[0].getWrittenMessages().at(-1), {
+    type: "control_response",
+    response: {
+      subtype: "error",
+      request_id: "req-unknown-subtype",
+      error: "Unsupported control request subtype: not_can_use_tool"
+    }
+  });
+  assert.equal(events.length, 0);
+});
