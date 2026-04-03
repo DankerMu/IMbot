@@ -395,10 +395,31 @@ test("RuntimeEventMapper uses id from raw event when present", () => {
   assert.equal(mapped.payload.call_id, "tool-use-123");
 });
 
-test("RuntimeEventMapper correlates tool_result call_id with preceding tool_use", () => {
+test("RuntimeEventMapper assigns call_id to both tool_use and tool_result", () => {
   const mapper = new RuntimeEventMapper();
 
   const started = mapper.map({
+    type: "tool_use",
+    id: "toolu_read_1",
+    tool: "Read",
+    input: { file_path: "/tmp/test" }
+  });
+
+  const completed = mapper.map({
+    type: "tool_result",
+    id: "toolu_read_1",
+    tool: "Read",
+    result: "file contents"
+  });
+
+  assert.equal(started.payload.call_id, "toolu_read_1");
+  assert.equal(completed.payload.call_id, "toolu_read_1");
+});
+
+test("RuntimeEventMapper suppresses tool_result for top-level AskUserQuestion tool_use", () => {
+  const mapper = new RuntimeEventMapper();
+
+  mapper.map({
     type: "tool_use",
     tool: "AskUserQuestion",
     input: { question: "which?" }
@@ -410,7 +431,7 @@ test("RuntimeEventMapper correlates tool_result call_id with preceding tool_use"
     result: "option A"
   });
 
-  assert.equal(completed.payload.call_id, started.payload.call_id);
+  assert.equal(completed, null, "AskUserQuestion tool_result should be suppressed");
 });
 
 test("RuntimeEventMapper generates independent call_id when tool_result has its own id", () => {
@@ -430,4 +451,275 @@ test("RuntimeEventMapper generates independent call_id when tool_result has its 
   });
 
   assert.equal(completed.payload.call_id, "explicit-result-id");
+});
+
+test("RuntimeEventMapper extracts tool_use from assistant message content array (stream-json format)", () => {
+  const mapper = new RuntimeEventMapper();
+  const mapped = mapper.map({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_01VcgrJ8TUY6656wYRDGoCqi",
+          name: "AskUserQuestion",
+          input: {
+            questions: [
+              {
+                question: "What do you want?",
+                options: [
+                  { label: "Alpha", description: "Choose Alpha" },
+                  { label: "Beta", description: "Choose Beta" },
+                  { label: "Gamma", description: "Choose Gamma" }
+                ],
+                multiSelect: false
+              }
+            ]
+          }
+        }
+      ]
+    },
+    session_id: "provider-session-1"
+  });
+
+  assert.equal(mapped.kind, "event");
+  assert.equal(mapped.eventType, "tool_call_started");
+  assert.equal(mapped.payload.call_id, "toolu_01VcgrJ8TUY6656wYRDGoCqi");
+  assert.equal(mapped.payload.tool, "AskUserQuestion");
+  assert.deepEqual(mapped.payload.input.questions[0].question, "What do you want?");
+  assert.equal(mapped.payload.input.questions[0].options.length, 3);
+});
+
+test("RuntimeEventMapper suppresses auto-error tool_result for AskUserQuestion (stream-json format)", () => {
+  const mapper = new RuntimeEventMapper();
+
+  // AskUserQuestion tool_use sets pendingInteractiveTool
+  mapper.map({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_01VcgrJ8TUY6656wYRDGoCqi",
+          name: "AskUserQuestion",
+          input: { questions: [{ question: "Pick one" }] }
+        }
+      ]
+    }
+  });
+
+  // Auto-error tool_result should be suppressed
+  const completed = mapper.map({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_01VcgrJ8TUY6656wYRDGoCqi",
+          content: "Answer questions?",
+          is_error: true
+        }
+      ]
+    }
+  });
+
+  assert.equal(completed, null, "AskUserQuestion tool_result should be suppressed");
+});
+
+test("RuntimeEventMapper passes through tool_result for non-interactive tools (stream-json format)", () => {
+  const mapper = new RuntimeEventMapper();
+
+  mapper.map({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_bash_123",
+          name: "Bash",
+          input: { command: "ls" }
+        }
+      ]
+    }
+  });
+
+  const completed = mapper.map({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_bash_123",
+          content: "file1.txt\nfile2.txt"
+        }
+      ]
+    }
+  });
+
+  assert.equal(completed.kind, "event");
+  assert.equal(completed.eventType, "tool_call_completed");
+  assert.equal(completed.payload.call_id, "toolu_bash_123");
+  assert.equal(completed.payload.result, "file1.txt\nfile2.txt");
+});
+
+test("RuntimeEventMapper deduplicates tool_call_started with same id (verbose mode)", () => {
+  const mapper = new RuntimeEventMapper();
+
+  // First (partial) message
+  const first = mapper.map({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_dup_1",
+          name: "AskUserQuestion",
+          input: { questions: [] }
+        }
+      ]
+    }
+  });
+
+  // Second (final) message with same tool_use id
+  const second = mapper.map({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_dup_1",
+          name: "AskUserQuestion",
+          input: { questions: [{ question: "Pick one", options: [{ label: "A" }] }] }
+        }
+      ]
+    }
+  });
+
+  assert.equal(first.kind, "event");
+  assert.equal(first.eventType, "tool_call_started");
+  assert.equal(second, null, "Duplicate tool_use id should be suppressed");
+});
+
+test("RuntimeEventMapper suppresses skill prompt user message after Skill tool_use", () => {
+  const mapper = new RuntimeEventMapper();
+
+  // Skill tool_use
+  mapper.map({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_skill_123",
+          name: "Skill",
+          input: { skill: "novel:dashboard" }
+        }
+      ]
+    }
+  });
+
+  // Skill tool_result
+  const completed = mapper.map({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_skill_123",
+          content: "Launching skill: novel:dashboard"
+        }
+      ]
+    }
+  });
+
+  assert.equal(completed.kind, "event");
+  assert.equal(completed.eventType, "tool_call_completed");
+
+  // Next user message (expanded skill prompt) should be suppressed
+  const skillPrompt = mapper.map({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        { type: "text", text: "Base directory for this skill: ...\n\n# Dashboard\n\nYou are the dashboard agent..." }
+      ]
+    }
+  });
+
+  assert.equal(skillPrompt, null, "Skill prompt user message should be suppressed");
+});
+
+test("RuntimeEventMapper does not suppress user messages after non-Skill tools", () => {
+  const mapper = new RuntimeEventMapper();
+
+  mapper.map({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_read_123",
+          name: "Read",
+          input: { file_path: "/tmp/test" }
+        }
+      ]
+    }
+  });
+
+  mapper.map({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        {
+          type: "tool_result",
+          tool_use_id: "toolu_read_123",
+          content: "file contents"
+        }
+      ]
+    }
+  });
+
+  // Regular user message should NOT be suppressed
+  const userMsg = mapper.map({
+    type: "user",
+    message: {
+      role: "user",
+      content: [
+        { type: "text", text: "hello" }
+      ]
+    }
+  });
+
+  assert.equal(userMsg.kind, "event");
+  assert.equal(userMsg.eventType, "user_message");
+  assert.equal(userMsg.payload.text, "hello");
+});
+
+test("RuntimeEventMapper still extracts text from assistant messages with only text content", () => {
+  const mapper = new RuntimeEventMapper();
+  const mapped = mapper.map({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        { type: "thinking", thinking: "internal" },
+        { type: "text", text: "Here is my response" }
+      ]
+    }
+  });
+
+  assert.equal(mapped.kind, "event");
+  assert.equal(mapped.eventType, "assistant_delta");
+  assert.equal(mapped.payload.text, "Here is my response");
 });

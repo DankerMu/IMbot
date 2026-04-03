@@ -297,8 +297,15 @@ export class SessionOrchestrator {
   async delete(sessionId: string): Promise<void> {
     await this.runWithLifecycleLock(sessionId, "delete", async () => {
       const session = this.requireSession(sessionId);
-      if (session.status === "queued" || session.status === "running" || session.status === "idle") {
-        throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
+      const previousStatus = session.status;
+
+      if (session.status === "running" || session.status === "idle") {
+        try {
+          await this.dispatchCancel(session);
+        } catch {
+          // companion may be offline; proceed with forced cleanup
+        }
+        await this.transitionWithConflictTolerance(session.id, "cancelled");
       }
 
       const result = this.db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
@@ -311,7 +318,7 @@ export class SessionOrchestrator {
         host_id: session.host_id,
         detail: {
           provider: session.provider,
-          status: session.status
+          status: previousStatus
         }
       });
     });
