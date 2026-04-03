@@ -100,7 +100,7 @@ private data class RelayErrorResponse(
     val message: String,
 )
 
-@Suppress("TooManyFunctions")
+@Suppress("TooManyFunctions", "LargeClass")
 @Singleton
 open class RelayHttpClient
     @Inject
@@ -578,6 +578,47 @@ open class RelayHttpClient
                         val bodyText = response.body?.string().orEmpty()
                         if (!response.isSuccessful) {
                             throw relayFailure(response, bodyText, "Send message")
+                        }
+                    }
+                }
+            }
+
+        open suspend fun answerInteractiveTool(
+            relayUrl: String,
+            token: String,
+            sessionId: String,
+            callId: String,
+            answer: String,
+            questionIndex: Int = 0,
+        ): Result<Unit> =
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val requestBody =
+                        JSONObject()
+                            .put("call_id", callId)
+                            .put("answer", answer)
+                            .put("question_index", questionIndex)
+                            .toString()
+                            .toRequestBody(JSON_MEDIA_TYPE)
+
+                    val request =
+                        Request.Builder()
+                            .url(
+                                requireRelayBaseUrl(relayUrl)
+                                    .newBuilder()
+                                    .addPathSegments("v1/sessions")
+                                    .addPathSegment(sessionId)
+                                    .addPathSegment("answer")
+                                    .build(),
+                            )
+                            .header("Authorization", "Bearer $token")
+                            .post(requestBody)
+                            .build()
+
+                    okHttpClient.newCall(request).await().use { response ->
+                        val bodyText = response.body?.string().orEmpty()
+                        if (!response.isSuccessful) {
+                            throw relayFailure(response, bodyText, "Answer interactive tool")
                         }
                     }
                 }
