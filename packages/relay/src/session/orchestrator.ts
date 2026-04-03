@@ -228,6 +228,32 @@ export class SessionOrchestrator {
     await this.dispatchSendMessage(session, text);
   }
 
+  async answerInteractiveTool(
+    sessionId: string,
+    callId: string,
+    answer: string,
+    questionIndex: number = 0
+  ): Promise<void> {
+    const session = this.requireSession(sessionId);
+    if (session.status !== "running") {
+      throw new RelayError(
+        "state_conflict",
+        `Session ${sessionId} is not running (current: ${session.status})`
+      );
+    }
+    this.assertProviderAvailable(session);
+
+    const ack = await this.companionManager.sendCommand(session.host_id, {
+      cmd: "answer_interactive_tool",
+      req_id: this.companionManager.createRequestId(),
+      session_id: sessionId,
+      call_id: callId,
+      answer,
+      question_index: questionIndex
+    });
+    this.assertAckOk(ack);
+  }
+
   async cancel(sessionId: string): Promise<Session> {
     return await this.runWithLifecycleLock(sessionId, "cancel", async () => {
       const session = this.requireSession(sessionId);
