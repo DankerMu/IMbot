@@ -48,6 +48,17 @@ const messageBodySchema = {
   }
 } as const;
 
+const answerBodySchema = {
+  type: "object",
+  required: ["call_id", "answer"],
+  additionalProperties: false,
+  properties: {
+    call_id: { type: "string", minLength: 1 },
+    answer: { type: "string" },
+    question_index: { type: "integer", minimum: 0 }
+  }
+} as const;
+
 function parseLimit(value: string | number | undefined, fallback: number, max: number): number {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -194,6 +205,27 @@ export function registerSessionRoutes(
     const { id } = request.params as { id: string };
     return deps.orchestrator.complete(id);
   });
+
+  app.post(
+    "/sessions/:id/answer",
+    {
+      schema: {
+        params: sessionIdParamsSchema,
+        body: answerBodySchema
+      }
+    },
+    async (request) => {
+      const { id } = request.params as { id: string };
+      const body = (request.body ?? {}) as Record<string, unknown>;
+      await deps.orchestrator.answerInteractiveTool(
+        id,
+        typeof body.call_id === "string" ? body.call_id : "",
+        typeof body.answer === "string" ? body.answer : "",
+        typeof body.question_index === "number" ? body.question_index : 0
+      );
+      return { ok: true };
+    }
+  );
 
   app.delete("/sessions/:id", { schema: { params: sessionIdParamsSchema } }, async (request, reply) => {
     const { id } = request.params as { id: string };

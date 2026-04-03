@@ -48,6 +48,14 @@ test("unknown session lifecycle endpoints return not_found", async (t) => {
     },
     {
       method: "POST",
+      url: `/v1/sessions/${unknownId}/answer`,
+      payload: {
+        call_id: "req-1",
+        answer: "Alpha"
+      }
+    },
+    {
+      method: "POST",
       url: `/v1/sessions/${unknownId}/cancel`
     },
     {
