@@ -7,6 +7,7 @@ import {
   realpathSync,
   rmSync,
   symlinkSync,
+  utimesSync,
   writeFileSync
 } from "node:fs";
 import { createRequire } from "node:module";
@@ -230,6 +231,26 @@ function setMockCliEnv(overrides) {
   };
 }
 
+function encodeProjectPath(projectPath) {
+  return projectPath.replace(/^\/+/, "").replace(/\//g, "-");
+}
+
+function createDiscoveredSessionFile(projectsDir, cwd, sessionId, createdAt, contents = '{"ok":true}\n') {
+  const projectDir = path.join(projectsDir, encodeProjectPath(cwd));
+  mkdirSync(projectDir, { recursive: true });
+
+  const sessionFile = path.join(projectDir, `${sessionId}.jsonl`);
+  writeFileSync(sessionFile, contents, "utf8");
+
+  const timestamp = new Date(createdAt);
+  utimesSync(sessionFile, timestamp, timestamp);
+
+  return {
+    projectDir,
+    sessionFile
+  };
+}
+
 test("companion runs a persistent multi-turn stream-json session and completes it explicitly", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-"));
   const server = new WebSocketServer({
@@ -428,7 +449,129 @@ test("companion runs a persistent multi-turn stream-json session and completes i
     provider_session_id: "provider-session-1",
     cwd: tempDir,
     provider: "claude",
-    created_at: sessionIndex["relay-session-1"].created_at
+    created_at: sessionIndex["relay-session-1"].created_at,
+    source: "remote",
+    initial_prompt: "hello"
+  });
+});
+
+test("companion triggers session reconciliation on connect and reconnect", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-reconcile-runtime-"));
+  const server = new WebSocketServer({
+    port: 0,
+    host: "127.0.0.1"
+  });
+  const binaryPath = createMockCliBinary(tempDir);
+  const workspaceRoot = path.join(tempDir, "workspace");
+  const projectsDir = path.join(tempDir, "projects");
+  const configPath = path.join(tempDir, "companion.json");
+  mkdirSync(workspaceRoot, { recursive: true });
+  mkdirSync(projectsDir, { recursive: true });
+  writeFileSync(
+    configPath,
+    `${JSON.stringify(
+      {
+        workspace_roots: [
+          {
+            provider: "claude",
+            path: workspaceRoot,
+            added_at: "2026-01-01T00:00:00.000Z"
+          }
+        ]
+      },
+      null,
+      2
+    )}\n`,
+    "utf8"
+  );
+  createDiscoveredSessionFile(projectsDir, workspaceRoot, "provider-local-1", "2026-01-02T00:00:00.000Z");
+
+  t.after(async () => {
+    server.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await waitForListening(server);
+  const port = server.address().port;
+  const runtime = await companion.createCompanionRuntime({
+    config: {
+      configPath,
+      relayUrl: `ws://127.0.0.1:${port}`,
+      token: "static-token",
+      hostId: "macbook-1",
+      providers: {
+        claude: {
+          binary: binaryPath,
+          projectsDir
+        }
+      },
+      sessionIndexPath: path.join(tempDir, "sessions.json"),
+      idleTimeoutMs: 1800000
+    },
+    logger: silentLogger,
+    heartbeatIntervalMs: 25,
+    reconnectDelaysMs: [20, 20],
+    killGraceMs: 50
+  });
+
+  t.after(async () => {
+    await runtime.close();
+  });
+
+  const firstConnectionPromise = waitForConnection(server);
+  runtime.connect();
+  const { socket: firstSocket } = await firstConnectionPromise;
+  await waitForJsonMessage(firstSocket, (message) => message.type === "heartbeat", "first reconciliation heartbeat");
+  const firstReport = await waitForJsonMessage(
+    firstSocket,
+    (message) => message.type === "report_local_sessions",
+    "first local session report"
+  );
+
+  assert.deepEqual(firstReport, {
+    type: "report_local_sessions",
+    host_id: "macbook-1",
+    sessions: [
+      {
+        provider_session_id: "provider-local-1",
+        provider: "claude",
+        cwd: workspaceRoot,
+        created_at: "2026-01-02T00:00:00.000Z"
+      }
+    ]
+  });
+  assert.deepEqual(runtime.sessionIndex.get("local:provider-local-1"), {
+    provider_session_id: "provider-local-1",
+    cwd: workspaceRoot,
+    provider: "claude",
+    created_at: "2026-01-02T00:00:00.000Z",
+    source: "local"
+  });
+
+  createDiscoveredSessionFile(projectsDir, workspaceRoot, "provider-local-2", "2026-01-03T00:00:00.000Z");
+  const secondConnectionPromise = waitForConnection(server);
+  firstSocket.close(1012, "relay restart");
+  const { socket: secondSocket } = await secondConnectionPromise;
+  await waitForJsonMessage(secondSocket, (message) => message.type === "heartbeat", "second reconciliation heartbeat");
+  const secondReport = await waitForJsonMessage(
+    secondSocket,
+    (message) =>
+      message.type === "report_local_sessions" &&
+      message.sessions?.some((session) => session.provider_session_id === "provider-local-2"),
+    "second local session report"
+  );
+
+  assert.deepEqual(secondReport, {
+    type: "report_local_sessions",
+    host_id: "macbook-1",
+    sessions: [
+      {
+        provider_session_id: "provider-local-2",
+        provider: "claude",
+        cwd: workspaceRoot,
+        created_at: "2026-01-03T00:00:00.000Z"
+      }
+    ]
   });
 });
 

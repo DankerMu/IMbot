@@ -11,6 +11,8 @@ export interface SessionIndexEntry {
   readonly cwd: string;
   readonly provider: InteractiveProvider;
   readonly created_at: string;
+  readonly source?: "remote" | "local";
+  readonly initial_prompt?: string | null;
 }
 
 export interface SessionIndexRecord extends SessionIndexEntry {
@@ -83,6 +85,16 @@ export class SessionIndex {
     return null;
   }
 
+  hasProviderSessionId(providerSessionId: string): boolean {
+    for (const entry of this.entries.values()) {
+      if (entry.provider_session_id === providerSessionId) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   list(): SessionIndexRecord[] {
     return Array.from(this.entries.entries()).map(([relaySessionId, entry]) => ({
       relay_session_id: relaySessionId,
@@ -93,6 +105,16 @@ export class SessionIndex {
   set(relaySessionId: string, entry: SessionIndexEntry): void {
     this.entries.set(relaySessionId, { ...entry });
     this.persist();
+  }
+
+  setMany(entries: ReadonlyMap<string, SessionIndexEntry>): void {
+    for (const [relaySessionId, entry] of entries) {
+      this.entries.set(relaySessionId, { ...entry });
+    }
+
+    if (entries.size > 0) {
+      this.persist();
+    }
   }
 
   remove(relaySessionId: string): void {
@@ -125,6 +147,8 @@ function normalizeEntry(value: unknown): SessionIndexEntry | null {
   const cwd = typeof record.cwd === "string" ? record.cwd : null;
   const provider = record.provider;
   const createdAt = typeof record.created_at === "string" ? record.created_at : null;
+  const source = record.source === "local" ? "local" : "remote";
+  const initialPrompt = typeof record.initial_prompt === "string" ? record.initial_prompt : null;
 
   if (
     !providerSessionId ||
@@ -139,6 +163,8 @@ function normalizeEntry(value: unknown): SessionIndexEntry | null {
     provider_session_id: providerSessionId,
     cwd,
     provider,
-    created_at: createdAt
+    created_at: createdAt,
+    source,
+    initial_prompt: initialPrompt
   };
 }

@@ -12,6 +12,7 @@ import { RelayClient, type RelayClientBackoffOptions } from "./relay-client";
 import { ClaudeRuntimeAdapter } from "./runtime/claude-adapter";
 import { discoverSessions } from "./runtime/session-discovery";
 import { SessionIndex } from "./runtime/session-index";
+import { SessionReconciler } from "./runtime/session-reconciler";
 import { CompanionError, type LoggerLike } from "./types";
 import { browseDirectory } from "./workspace/browser";
 import { ConfigManager } from "./workspace/config-manager";
@@ -86,6 +87,16 @@ export async function createCompanionRuntime(options?: {
       relayClient.send(message);
     }
   });
+  const reconciler = new SessionReconciler({
+    sessionIndex,
+    configManager,
+    providers: config.providers,
+    hostId: config.hostId,
+    logger,
+    sendMessage: (message) => {
+      relayClient.send(message);
+    }
+  });
   const dispatcher = new CommandDispatcher({
     logger,
     sendAck: (message) => {
@@ -149,6 +160,10 @@ export async function createCompanionRuntime(options?: {
         }
       });
     }
+
+    void reconciler.reconcile().catch((error) => {
+      logger.error?.("Session reconciliation failed", error);
+    });
   });
   relayClient.on("disconnected", () => {
     heartbeat.stop();
@@ -218,6 +233,7 @@ export {
   CommandDispatcher,
   ClaudeRuntimeAdapter,
   SessionIndex,
+  SessionReconciler,
   browseDirectory,
   ConfigManager,
   discoverSessions

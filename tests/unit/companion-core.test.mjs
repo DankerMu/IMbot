@@ -367,9 +367,10 @@ test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () =
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-claude-open-"));
   const claudeProject = path.join(tempDir, "AI-vault");
   mkdirSync(claudeProject, { recursive: true });
+  const longPrompt = "x".repeat(240);
 
   try {
-    const { adapter, spawnCalls, children } = createAdapterHarness(
+    const { adapter, sessionIndex, spawnCalls, children } = createAdapterHarness(
       tempDir,
       (provider, cwd) => provider !== "book" || cwd.startsWith(path.join(tempDir, "novel"))
     );
@@ -380,7 +381,7 @@ test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () =
       session_id: "relay-claude-1",
       provider: "claude",
       cwd: claudeProject,
-      prompt: "hello",
+      prompt: longPrompt,
       permission_mode: "bypassPermissions"
     });
 
@@ -405,10 +406,18 @@ test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () =
         type: "user",
         message: {
           role: "user",
-          content: "hello"
+          content: longPrompt
         }
       }
     ]);
+    assert.deepEqual(sessionIndex.get("relay-claude-1"), {
+      provider_session_id: "provider-session-test",
+      cwd: claudeProject,
+      provider: "claude",
+      created_at: sessionIndex.get("relay-claude-1").created_at,
+      source: "remote",
+      initial_prompt: longPrompt.slice(0, 200)
+    });
 
     await adapter.shutdown();
   } finally {
@@ -904,7 +913,9 @@ test("SessionIndex persists mappings and tolerates corrupt files", () => {
       provider_session_id: "provider-1",
       cwd: "/tmp/project",
       provider: "claude",
-      created_at: "2026-03-29T00:00:00.000Z"
+      created_at: "2026-03-29T00:00:00.000Z",
+      source: "remote",
+      initial_prompt: null
     });
 
     writeFileSync(filePath, "{not-json");
@@ -915,6 +926,230 @@ test("SessionIndex persists mappings and tolerates corrupt files", () => {
     assert.equal(corrupted.get("relay-1"), null);
     assert.equal(readFileSync(filePath, "utf8"), "{not-json");
   } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("SessionIndex supports source and initial_prompt fields", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-index-meta-"));
+  const filePath = path.join(tempDir, "sessions.json");
+  const truncatedPrompt = "p".repeat(200);
+
+  try {
+    const index = new companion.SessionIndex({
+      filePath,
+      logger: silentLogger
+    });
+
+    index.set("relay-remote", {
+      provider_session_id: "provider-remote",
+      cwd: "/tmp/project-remote",
+      provider: "claude",
+      created_at: "2026-03-29T00:00:00.000Z",
+      source: "remote",
+      initial_prompt: truncatedPrompt
+    });
+    index.set("relay-null", {
+      provider_session_id: "provider-null",
+      cwd: "/tmp/project-null",
+      provider: "book",
+      created_at: "2026-03-29T01:00:00.000Z",
+      source: "remote",
+      initial_prompt: null
+    });
+    index.set("local:provider-local", {
+      provider_session_id: "provider-local",
+      cwd: "/tmp/project-local",
+      provider: "book",
+      created_at: "2026-03-29T02:00:00.000Z",
+      source: "local"
+    });
+
+    const persisted = JSON.parse(readFileSync(filePath, "utf8"));
+    assert.equal(persisted["relay-null"].initial_prompt, null);
+    assert.equal(persisted["local:provider-local"].source, "local");
+    assert.equal(persisted["relay-remote"].initial_prompt, truncatedPrompt);
+
+    writeFileSync(
+      filePath,
+      `${JSON.stringify(
+        {
+          "relay-legacy": {
+            provider_session_id: "provider-legacy",
+            cwd: "/tmp/project-legacy",
+            provider: "claude",
+            created_at: "2026-03-28T00:00:00.000Z"
+          },
+          "relay-remote": persisted["relay-remote"],
+          "relay-null": persisted["relay-null"],
+          "local:provider-local": persisted["local:provider-local"]
+        },
+        null,
+        2
+      )}\n`
+    );
+
+    const reloaded = new companion.SessionIndex({
+      filePath,
+      logger: silentLogger
+    });
+
+    assert.deepEqual(reloaded.get("relay-remote"), {
+      provider_session_id: "provider-remote",
+      cwd: "/tmp/project-remote",
+      provider: "claude",
+      created_at: "2026-03-29T00:00:00.000Z",
+      source: "remote",
+      initial_prompt: truncatedPrompt
+    });
+    assert.deepEqual(reloaded.get("relay-null"), {
+      provider_session_id: "provider-null",
+      cwd: "/tmp/project-null",
+      provider: "book",
+      created_at: "2026-03-29T01:00:00.000Z",
+      source: "remote",
+      initial_prompt: null
+    });
+    assert.deepEqual(reloaded.get("local:provider-local"), {
+      provider_session_id: "provider-local",
+      cwd: "/tmp/project-local",
+      provider: "book",
+      created_at: "2026-03-29T02:00:00.000Z",
+      source: "local",
+      initial_prompt: null
+    });
+    assert.deepEqual(reloaded.get("relay-legacy"), {
+      provider_session_id: "provider-legacy",
+      cwd: "/tmp/project-legacy",
+      provider: "claude",
+      created_at: "2026-03-28T00:00:00.000Z",
+      source: "remote",
+      initial_prompt: null
+    });
+    assert.equal(reloaded.hasProviderSessionId("provider-remote"), true);
+    assert.equal(reloaded.hasProviderSessionId("provider-local"), true);
+    assert.equal(reloaded.hasProviderSessionId("missing-provider"), false);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("SessionIndex setMany persists multiple entries in a single write", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-index-batch-"));
+  const filePath = path.join(tempDir, "sessions.json");
+  const nodeFs = require("node:fs");
+  const originalWriteFileSync = nodeFs.writeFileSync;
+  const originalRenameSync = nodeFs.renameSync;
+  let writeCount = 0;
+  let renameCount = 0;
+
+  try {
+    const index = new companion.SessionIndex({
+      filePath,
+      logger: silentLogger
+    });
+
+    nodeFs.writeFileSync = (...args) => {
+      writeCount += 1;
+      return originalWriteFileSync.apply(nodeFs, args);
+    };
+    nodeFs.renameSync = (...args) => {
+      renameCount += 1;
+      return originalRenameSync.apply(nodeFs, args);
+    };
+
+    index.setMany(
+      new Map([
+        [
+          "relay-1",
+          {
+            provider_session_id: "provider-1",
+            cwd: "/tmp/project-1",
+            provider: "claude",
+            created_at: "2026-03-29T00:00:00.000Z",
+            source: "remote",
+            initial_prompt: "prompt-1"
+          }
+        ],
+        [
+          "relay-2",
+          {
+            provider_session_id: "provider-2",
+            cwd: "/tmp/project-2",
+            provider: "book",
+            created_at: "2026-03-29T01:00:00.000Z",
+            source: "local",
+            initial_prompt: null
+          }
+        ],
+        [
+          "relay-3",
+          {
+            provider_session_id: "provider-3",
+            cwd: "/tmp/project-3",
+            provider: "claude",
+            created_at: "2026-03-29T02:00:00.000Z"
+          }
+        ]
+      ])
+    );
+
+    assert.equal(writeCount, 1);
+    assert.equal(renameCount, 1);
+    assert.deepEqual(index.get("relay-1"), {
+      provider_session_id: "provider-1",
+      cwd: "/tmp/project-1",
+      provider: "claude",
+      created_at: "2026-03-29T00:00:00.000Z",
+      source: "remote",
+      initial_prompt: "prompt-1"
+    });
+    assert.deepEqual(index.get("relay-2"), {
+      provider_session_id: "provider-2",
+      cwd: "/tmp/project-2",
+      provider: "book",
+      created_at: "2026-03-29T01:00:00.000Z",
+      source: "local",
+      initial_prompt: null
+    });
+    assert.deepEqual(index.get("relay-3"), {
+      provider_session_id: "provider-3",
+      cwd: "/tmp/project-3",
+      provider: "claude",
+      created_at: "2026-03-29T02:00:00.000Z"
+    });
+
+    const reloaded = new companion.SessionIndex({
+      filePath,
+      logger: silentLogger
+    });
+    assert.deepEqual(reloaded.get("relay-1"), {
+      provider_session_id: "provider-1",
+      cwd: "/tmp/project-1",
+      provider: "claude",
+      created_at: "2026-03-29T00:00:00.000Z",
+      source: "remote",
+      initial_prompt: "prompt-1"
+    });
+    assert.deepEqual(reloaded.get("relay-2"), {
+      provider_session_id: "provider-2",
+      cwd: "/tmp/project-2",
+      provider: "book",
+      created_at: "2026-03-29T01:00:00.000Z",
+      source: "local",
+      initial_prompt: null
+    });
+    assert.deepEqual(reloaded.get("relay-3"), {
+      provider_session_id: "provider-3",
+      cwd: "/tmp/project-3",
+      provider: "claude",
+      created_at: "2026-03-29T02:00:00.000Z",
+      source: "remote",
+      initial_prompt: null
+    });
+  } finally {
+    nodeFs.writeFileSync = originalWriteFileSync;
+    nodeFs.renameSync = originalRenameSync;
     rmSync(tempDir, { recursive: true, force: true });
   }
 });
