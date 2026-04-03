@@ -596,6 +596,7 @@ export class ClaudeRuntimeAdapter {
       }
     };
     this.startPendingControlTimer(session);
+    session.eventMapper.markToolEmitted(callId, "AskUserQuestion");
 
     await Promise.resolve(
       this.options.sendEvent({

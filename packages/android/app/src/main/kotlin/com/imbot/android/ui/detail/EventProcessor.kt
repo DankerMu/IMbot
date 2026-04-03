@@ -213,9 +213,7 @@ class EventProcessor(
     private fun appendToolCallStarted(event: ServerMessage.Event) {
         val payload = event.payload ?: return
         val callId = payload.stringValue("call_id").orEmpty()
-        if (callId.isBlank()) {
-            return
-        }
+        if (callId.isBlank() || hasToolCall(callId)) return
         val toolName = payload.toolName().orEmpty()
         val input = truncatePayload(payload.compactValue("args") ?: payload.compactValue("input"))
 
@@ -433,6 +431,8 @@ class EventProcessor(
                 else -> false
             }
         }
+
+    private fun hasToolCall(callId: String): Boolean = findToolCallIndex(callId) >= 0
 
     private fun findApprovalStatusIndex(callId: String?): Int {
         if (callId.isNullOrBlank()) {
