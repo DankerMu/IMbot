@@ -71,8 +71,8 @@ export class SessionOrchestrator {
   ) {}
 
   async create(input: CreateSessionInput): Promise<Session> {
-    if (!input.provider || !input.host_id || !input.cwd || !input.prompt) {
-      throw new RelayError("invalid_request", "provider, host_id, cwd, and prompt are required");
+    if (!input.provider || !input.host_id || !input.cwd) {
+      throw new RelayError("invalid_request", "provider, host_id, cwd are required");
     }
 
     if (input.provider !== "claude" && input.provider !== "book" && input.provider !== "openclaw") {
@@ -92,6 +92,7 @@ export class SessionOrchestrator {
     }
 
     const provider = input.provider as "claude" | "book" | "openclaw";
+    const hasPrompt = !!input.prompt?.trim();
     const now = new Date().toISOString();
     const sessionId = randomUUID();
     const session: Session = {
@@ -101,7 +102,7 @@ export class SessionOrchestrator {
       host_id: input.host_id,
       workspace_root: null,
       workspace_cwd: input.cwd,
-      initial_prompt: input.prompt,
+      initial_prompt: hasPrompt ? input.prompt ?? null : null,
       model: input.model ?? null,
       // FR-10 stays default-off: sessions still default to bypassPermissions, but callers may
       // opt into a non-default mode and that value must survive intact for the reserved path.
@@ -165,9 +166,17 @@ export class SessionOrchestrator {
 
     this.activeLifecycleMutations.set(session.id, "create");
     try {
-      const providerSessionId = await this.dispatchCreate(session);
-      await this.markSessionStarted(session.id, providerSessionId, "queued");
-      await this.applyPendingTerminalTransition(session.id);
+      if (hasPrompt) {
+        const providerSessionId = await this.dispatchCreate(session);
+        await this.markSessionStarted(session.id, providerSessionId, "queued");
+        await this.applyPendingTerminalTransition(session.id);
+      } else {
+        await this.transitionWithConflictTolerance(session.id, "idle");
+        this.insertAndBroadcastEvent(session.id, "session_idle", {
+          reason: "awaiting_first_message"
+        });
+      }
+
       return this.getSession(session.id) ?? session;
     } catch (error) {
       const relayError =
@@ -222,6 +231,27 @@ export class SessionOrchestrator {
       throw new RelayError("state_conflict", `Session ${sessionId} is not running or idle`);
     }
 
+    if (session.status === "idle" && !session.provider_session_id) {
+      return await this.runWithLifecycleLock(sessionId, "create", async () => {
+        const currentSession = this.requireSession(sessionId);
+        if (currentSession.status !== "idle" || currentSession.provider_session_id) {
+          throw new RelayError("state_conflict", `Session ${sessionId} is no longer awaiting its first message`);
+        }
+
+        this.assertProviderAvailable(currentSession);
+        const sessionWithPrompt = {
+          ...currentSession,
+          initial_prompt: text
+        };
+        const providerSessionId = await this.dispatchCreate(sessionWithPrompt);
+        this.db
+          .prepare("UPDATE sessions SET initial_prompt = ?, updated_at = datetime('now') WHERE id = ?")
+          .run(text, currentSession.id);
+        await this.markSessionStarted(currentSession.id, providerSessionId, "idle");
+        await this.applyPendingTerminalTransition(currentSession.id);
+      });
+    }
+
     if (this.activeLifecycleMutations.has(sessionId)) {
       throw new RelayError("state_conflict", `Session ${sessionId} already has a lifecycle mutation in flight`);
     }
@@ -274,12 +304,15 @@ export class SessionOrchestrator {
         throw new RelayError("state_conflict", `Session ${sessionId} cannot be cancelled from ${session.status}`);
       }
 
-      if (session.provider !== "openclaw") {
+      const shouldDispatchCancel = Boolean(session.provider_session_id);
+      if (shouldDispatchCancel && session.provider !== "openclaw") {
         this.assertProviderAvailable(session);
       }
 
       const previousStatus = session.status;
-      await this.dispatchCancel(session);
+      if (shouldDispatchCancel) {
+        await this.dispatchCancel(session);
+      }
 
       const terminalStateWon = await this.applyPendingTerminalTransition(session.id);
       if (!terminalStateWon) {
@@ -308,10 +341,15 @@ export class SessionOrchestrator {
         throw new RelayError("state_conflict", `Session ${sessionId} cannot be completed for provider openclaw`);
       }
 
-      this.assertProviderAvailable(session);
+      const shouldDispatchComplete = Boolean(session.provider_session_id);
+      if (shouldDispatchComplete) {
+        this.assertProviderAvailable(session);
+      }
 
       const previousStatus = session.status;
-      await this.dispatchComplete(session);
+      if (shouldDispatchComplete) {
+        await this.dispatchComplete(session);
+      }
 
       const terminalStateWon = await this.applyPendingTerminalTransition(session.id);
       if (!terminalStateWon) {
@@ -338,7 +376,7 @@ export class SessionOrchestrator {
       const session = this.requireSession(sessionId);
       const previousStatus = session.status;
 
-      if (session.status === "running" || session.status === "idle") {
+      if ((session.status === "running" || session.status === "idle") && Boolean(session.provider_session_id)) {
         try {
           await this.dispatchCancel(session);
         } catch {
@@ -966,7 +1004,7 @@ export class SessionOrchestrator {
 
   private async runWithLifecycleLock<T>(
     sessionId: string,
-    mutation: "resume" | "cancel" | "complete" | "delete",
+    mutation: LifecycleMutation,
     action: () => Promise<T>
   ): Promise<T> {
     if (this.activeLifecycleMutations.has(sessionId)) {

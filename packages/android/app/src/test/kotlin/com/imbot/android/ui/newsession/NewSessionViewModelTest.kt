@@ -276,6 +276,44 @@ class NewSessionViewModelTest {
         }
 
     @Test
+    fun `createSession sends null prompt when the optional message is blank`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    hostsResult = Result.success(onlineHosts())
+                    createSessionResult = Result.success(SessionResponse(sessionId = "session-empty", rawJson = "{}"))
+                }
+
+            val viewModel = NewSessionViewModel(relay, FakeSettingsRepository())
+            advanceUntilIdle()
+            viewModel.selectProvider("claude", "macbook-1")
+            viewModel.selectDirectory("/Users/danker/projects")
+            viewModel.updatePrompt("   ")
+
+            val eventDeferred = backgroundScope.async { viewModel.events.first() }
+
+            viewModel.createSession()
+            advanceUntilIdle()
+
+            assertEquals(NewSessionEvent.SessionCreated("session-empty"), eventDeferred.await())
+            assertEquals(
+                CreateSessionRequest(
+                    relayUrl = "https://relay.example.com",
+                    token = "test-token",
+                    provider = "claude",
+                    hostId = "macbook-1",
+                    cwd = "/Users/danker/projects",
+                    prompt = null,
+                    permissionMode = "bypassPermissions",
+                    model = "sonnet",
+                ),
+                relay.lastCreateSessionRequest,
+            )
+            assertFalse(viewModel.uiState.value.isCreating)
+            assertNull(viewModel.uiState.value.error)
+        }
+
+    @Test
     fun `createSession keeps bypassPermissions as the default permission mode`() =
         runTest(mainDispatcherRule.dispatcher) {
             val relay =
@@ -791,7 +829,7 @@ class NewSessionViewModelTest {
         var getBrowseDirectoryHandler: suspend (String, String, String, String) -> Result<BrowseResult> =
             { _, _, _, _ -> browseResult }
         var createSessionHandler:
-            suspend (String, String, String, String, String, String, String, String?) -> Result<SessionResponse> =
+            suspend (String, String, String, String, String, String?, String, String?) -> Result<SessionResponse> =
             { _, _, _, _, _, _, _, _ -> createSessionResult }
 
         val rootRequests = mutableListOf<RootRequest>()
@@ -833,7 +871,7 @@ class NewSessionViewModelTest {
             provider: String,
             hostId: String,
             cwd: String,
-            prompt: String,
+            prompt: String?,
             permissionMode: String,
             model: String?,
         ): Result<SessionResponse> {
@@ -1071,7 +1109,7 @@ private data class CreateSessionRequest(
     val provider: String,
     val hostId: String,
     val cwd: String,
-    val prompt: String,
+    val prompt: String?,
     val permissionMode: String,
     val model: String?,
 )

@@ -117,15 +117,26 @@ async function createRelayRuntime(prefix) {
   };
 }
 
-async function createRunningSession({ baseUrl, config }, companion, overrides = {}) {
+function sendHeartbeat(companion, providers = ["claude"]) {
   companion.send(
     JSON.stringify({
       type: "heartbeat",
       host_id: "macbook-1",
-      providers: ["claude"],
+      providers,
       uptime: 1
     })
   );
+}
+
+async function waitForCompanionOnline(runtime, hostId = "macbook-1") {
+  await waitForCondition(
+    () => runtime.companionManager.isOnline(hostId),
+    `companion ${hostId} online`
+  );
+}
+
+async function createRunningSession({ baseUrl, config }, companion, overrides = {}) {
+  sendHeartbeat(companion);
 
   const responsePromise = fetch(`${baseUrl}/v1/sessions`, {
     method: "POST",
@@ -171,12 +182,232 @@ async function createRunningSession({ baseUrl, config }, companion, overrides = 
   };
 }
 
+async function createIdleSessionWithoutPrompt({ baseUrl, config, runtime }, companion, overrides = {}) {
+  sendHeartbeat(companion);
+  await waitForCompanionOnline(runtime);
+
+  const response = await fetch(`${baseUrl}/v1/sessions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      provider: "claude",
+      host_id: "macbook-1",
+      cwd: "/tmp/project",
+      permission_mode: "bypassPermissions",
+      ...overrides
+    })
+  });
+
+  const payload = await response.json();
+  assert.equal(response.status, 201);
+
+  return {
+    sessionId: payload.session.id,
+    session: payload.session
+  };
+}
+
 async function waitForSessionStatus(runtime, sessionId, status, label = `session ${status}`) {
   await waitForCondition(() => {
     const session = runtime.db.prepare("SELECT status FROM sessions WHERE id = ?").get(sessionId);
     return session?.status === status;
   }, label);
 }
+
+test("relay creates an idle session when no prompt is provided", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-empty-session-create-contract-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  const broadcastCalls = [];
+  const originalBroadcastToSession = runtime.hub.broadcastToSession.bind(runtime.hub);
+  runtime.hub.broadcastToSession = (sessionId, message) => {
+    broadcastCalls.push({ sessionId, message });
+    return originalBroadcastToSession(sessionId, message);
+  };
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId, session } = await createIdleSessionWithoutPrompt({ baseUrl, config, runtime }, companion);
+
+  assert.equal(session.status, "idle");
+  assert.equal(session.initial_prompt, null);
+  assert.equal(session.provider_session_id, null);
+
+  const storedSession = runtime.db
+    .prepare("SELECT status, initial_prompt, provider_session_id, local_available FROM sessions WHERE id = ?")
+    .get(sessionId);
+  assert.deepEqual(storedSession, {
+    status: "idle",
+    initial_prompt: null,
+    provider_session_id: null,
+    local_available: 0
+  });
+
+  assert.equal(
+    broadcastCalls.some(
+      (entry) =>
+        entry.sessionId === sessionId &&
+        entry.message.type === "event" &&
+        entry.message.event_type === "session_idle" &&
+        entry.message.payload.reason === "awaiting_first_message"
+    ),
+    true
+  );
+
+  const sessionResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}`, {
+    headers: {
+      authorization: `Bearer ${config.staticToken}`
+    }
+  });
+  const sessionPayload = await sessionResponse.json();
+  assert.equal(sessionResponse.status, 200);
+  assert.equal(sessionPayload.status, "idle");
+  assert.equal(sessionPayload.initial_prompt, null);
+});
+
+test("relay starts an empty idle session on first message", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-empty-session-first-message-contract-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  const broadcastCalls = [];
+  const originalBroadcastToSession = runtime.hub.broadcastToSession.bind(runtime.hub);
+  runtime.hub.broadcastToSession = (sessionId, message) => {
+    broadcastCalls.push({ sessionId, message });
+    return originalBroadcastToSession(sessionId, message);
+  };
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createIdleSessionWithoutPrompt({ baseUrl, config, runtime }, companion);
+
+  const messageResponsePromise = fetch(`${baseUrl}/v1/sessions/${sessionId}/message`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      text: "start from the first message"
+    })
+  });
+
+  const createCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "create_session" && message.session_id === sessionId,
+    "create_session command for empty idle session"
+  );
+  assert.equal(createCommand.prompt, "start from the first message");
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: createCommand.req_id,
+      status: "ok",
+      data: {
+        provider_session_id: "provider-session-empty-start"
+      }
+    })
+  );
+
+  const messageResponse = await messageResponsePromise;
+  assert.equal(messageResponse.status, 200);
+  assert.deepEqual(await messageResponse.json(), { ok: true });
+
+  await waitForSessionStatus(runtime, sessionId, "running", "empty session first message running");
+
+  const storedSession = runtime.db
+    .prepare("SELECT status, initial_prompt, provider_session_id, local_available FROM sessions WHERE id = ?")
+    .get(sessionId);
+  assert.deepEqual(storedSession, {
+    status: "running",
+    initial_prompt: "start from the first message",
+    provider_session_id: "provider-session-empty-start",
+    local_available: 1
+  });
+
+  assert.equal(
+    broadcastCalls.some(
+      (entry) =>
+        entry.sessionId === sessionId &&
+        entry.message.type === "event" &&
+        entry.message.event_type === "session_started"
+    ),
+    true
+  );
+});
+
+test("relay creates a running session when prompt is provided", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-session-create-with-prompt-contract-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+  sendHeartbeat(companion);
+  await waitForCompanionOnline(runtime);
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const responsePromise = fetch(`${baseUrl}/v1/sessions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${config.staticToken}`,
+      "content-type": "application/json"
+    },
+    body: JSON.stringify({
+      provider: "claude",
+      host_id: "macbook-1",
+      cwd: "/tmp/project",
+      prompt: "running path still works",
+      permission_mode: "bypassPermissions"
+    })
+  });
+
+  const createCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "create_session",
+    "create_session command with prompt"
+  );
+  assert.equal(createCommand.prompt, "running path still works");
+
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: createCommand.req_id,
+      status: "ok",
+      data: {
+        provider_session_id: "provider-session-with-prompt"
+      }
+    })
+  );
+
+  const response = await responsePromise;
+  const payload = await response.json();
+  assert.equal(response.status, 201);
+  assert.equal(payload.session.status, "running");
+  assert.equal(payload.session.initial_prompt, "running path still works");
+  assert.equal(payload.session.provider_session_id, "provider-session-with-prompt");
+});
 
 test("relay supports the idle multi-turn lifecycle and completes idle sessions through the companion", async (t) => {
   const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-idle-lifecycle-");
@@ -1163,4 +1394,65 @@ test("relay returns host_offline when resuming a completed session after the com
   assert.deepEqual(sessionAfterResume, {
     status: "completed"
   });
+});
+
+test("relay deletes an empty idle session without sending companion commands", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-empty-delete-contract-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  const companionMessages = [];
+  companion.addEventListener("message", (event) => {
+    companionMessages.push(JSON.parse(event.data));
+  });
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createIdleSessionWithoutPrompt({ baseUrl, config, runtime }, companion);
+
+  const deleteResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${config.staticToken}` }
+  });
+  assert.equal(deleteResponse.status, 204);
+
+  const deletedSession = runtime.db
+    .prepare("SELECT id FROM sessions WHERE id = ?")
+    .get(sessionId);
+  assert.equal(deletedSession, undefined);
+
+  const cancelCommands = companionMessages.filter(
+    (msg) => msg.cmd === "cancel_session" && msg.session_id === sessionId
+  );
+  assert.equal(cancelCommands.length, 0, "no cancel_session sent to companion for empty session");
+});
+
+test("relay rejects resume on an idle session with state_conflict", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-idle-resume-reject-contract-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createIdleSessionWithoutPrompt({ baseUrl, config, runtime }, companion);
+
+  const resumeResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${config.staticToken}` }
+  });
+  assert.equal(resumeResponse.status, 409);
+
+  assert.deepEqual(await resumeResponse.json(), { error: "state_conflict" });
 });

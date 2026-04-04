@@ -1,7 +1,7 @@
 import type { SessionStatus } from "@imbot/wire";
 
 export const TRANSITIONS: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
-  queued: ["running", "failed"],
+  queued: ["running", "idle", "failed"],
   running: ["idle", "completed", "failed", "cancelled"],
   idle: ["running", "completed", "failed", "cancelled"],
   completed: ["running"],
