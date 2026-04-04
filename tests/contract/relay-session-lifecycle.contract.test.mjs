@@ -1433,8 +1433,8 @@ test("relay deletes an empty idle session without sending companion commands", a
   assert.equal(cancelCommands.length, 0, "no cancel_session sent to companion for empty session");
 });
 
-test("relay rejects deleting an idle session that already has a provider session id", async (t) => {
-  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-idle-delete-conflict-contract-");
+test("relay deletes an idle session that already has a provider session id", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-idle-delete-contract-");
   const companion = new WebSocket(
     `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
   );
@@ -1470,17 +1470,12 @@ test("relay rejects deleting an idle session that already has a provider session
     method: "DELETE",
     headers: { authorization: `Bearer ${config.staticToken}` }
   });
-  assert.equal(deleteResponse.status, 409);
-  assert.deepEqual(await deleteResponse.json(), { error: "state_conflict" });
+  assert.equal(deleteResponse.status, 204);
 
-  const retainedSession = runtime.db
-    .prepare("SELECT id, status, provider_session_id FROM sessions WHERE id = ?")
+  const deletedSession = runtime.db
+    .prepare("SELECT id FROM sessions WHERE id = ?")
     .get(sessionId);
-  assert.deepEqual(retainedSession, {
-    id: sessionId,
-    status: "idle",
-    provider_session_id: "provider-session-1"
-  });
+  assert.equal(deletedSession, undefined);
 });
 
 test("relay rejects resume on an idle session with state_conflict", async (t) => {

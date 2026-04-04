@@ -27,6 +27,7 @@ import androidx.compose.material.pullrefresh.PullRefreshIndicator
 import androidx.compose.material.pullrefresh.pullRefresh
 import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material3.Card
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
@@ -38,10 +39,14 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -68,6 +73,7 @@ fun HomeScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    var showBulkDeleteDialog by rememberSaveable { mutableStateOf(false) }
     val isDarkTheme = LocalUseDarkTheme.current
     val shadowTokens = MaterialTheme.appleShadow
     val pullRefreshState =
@@ -82,31 +88,82 @@ fun HomeScreen(
         viewModel.clearError()
     }
 
+    LaunchedEffect(uiState.isSelectionMode) {
+        if (!uiState.isSelectionMode) {
+            showBulkDeleteDialog = false
+        }
+    }
+
+    if (showBulkDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showBulkDeleteDialog = false
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showBulkDeleteDialog = false
+                        viewModel.deleteSelectedSessions()
+                    },
+                    enabled = !uiState.isDeletingSelection,
+                ) {
+                    Text(if (uiState.isDeletingSelection) "删除中..." else "删除")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        showBulkDeleteDialog = false
+                    },
+                ) {
+                    Text("取消")
+                }
+            },
+            title = {
+                Text("删除 ${uiState.selectedSessionIds.size} 个会话？")
+            },
+            text = {
+                Text("该操作会逐个调用现有删除接口。删除成功的会话将从列表中移除。")
+            },
+        )
+    }
+
     Scaffold(
         modifier = modifier,
         topBar = {
             HomeTopAppBar(
                 filter = uiState.filter,
+                selectionCount = uiState.selectedSessionIds.size,
+                allVisibleSelected = uiState.allVisibleSelected,
+                isSelectionMode = uiState.isSelectionMode,
+                isDeletingSelection = uiState.isDeletingSelection,
                 onFilterSelected = viewModel::applyFilter,
+                onToggleSelectAll = viewModel::toggleSelectAllVisibleSessions,
+                onDeleteSelected = {
+                    showBulkDeleteDialog = true
+                },
+                onClearSelection = viewModel::clearSelection,
             )
         },
         floatingActionButton = {
-            FloatingActionButton(
-                onClick = onCreateSession,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier =
-                    Modifier.appleChrome(
-                        shape = CircleShape,
-                        isDarkTheme = isDarkTheme,
-                        outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f),
-                        shadowTokens = shadowTokens,
-                    ),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.Add,
-                    contentDescription = "新建会话",
-                )
+            if (!uiState.isSelectionMode) {
+                FloatingActionButton(
+                    onClick = onCreateSession,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    modifier =
+                        Modifier.appleChrome(
+                            shape = CircleShape,
+                            isDarkTheme = isDarkTheme,
+                            outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f),
+                            shadowTokens = shadowTokens,
+                        ),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = "新建会话",
+                    )
+                }
             }
         },
         snackbarHost = {
@@ -148,6 +205,8 @@ fun HomeScreen(
                             state = uiState,
                             onDeleteSession = viewModel::deleteSession,
                             onOpenSession = onOpenSession,
+                            onEnterSelectionMode = viewModel::enterSelectionMode,
+                            onToggleSelection = viewModel::toggleSessionSelection,
                         )
                     }
                 }
@@ -167,6 +226,8 @@ private fun SessionListContent(
     state: HomeUiState,
     onDeleteSession: (String) -> Unit,
     onOpenSession: (String) -> Unit,
+    onEnterSelectionMode: (String) -> Unit,
+    onToggleSelection: (String) -> Unit,
 ) {
     val runningSessions = state.sessions.filter { session -> isRunningStatus(session.status) }
     val otherSessions = state.sessions.filterNot { session -> isRunningStatus(session.status) }
@@ -183,11 +244,25 @@ private fun SessionListContent(
             SessionCard(
                 session = session,
                 onClick = {
-                    onOpenSession(session.id)
+                    if (state.isSelectionMode) {
+                        onToggleSelection(session.id)
+                    } else {
+                        onOpenSession(session.id)
+                    }
+                },
+                onLongPress = {
+                    if (state.isSelectionMode) {
+                        onToggleSelection(session.id)
+                    } else {
+                        onEnterSelectionMode(session.id)
+                    }
                 },
                 onDelete = {
                     onDeleteSession(session.id)
                 },
+                selected = session.id in state.selectedSessionIds,
+                selectionMode = state.isSelectionMode,
+                allowDelete = !state.isSelectionMode,
             )
         }
 
@@ -207,11 +282,25 @@ private fun SessionListContent(
             SessionCard(
                 session = session,
                 onClick = {
-                    onOpenSession(session.id)
+                    if (state.isSelectionMode) {
+                        onToggleSelection(session.id)
+                    } else {
+                        onOpenSession(session.id)
+                    }
+                },
+                onLongPress = {
+                    if (state.isSelectionMode) {
+                        onToggleSelection(session.id)
+                    } else {
+                        onEnterSelectionMode(session.id)
+                    }
                 },
                 onDelete = {
                     onDeleteSession(session.id)
                 },
+                selected = session.id in state.selectedSessionIds,
+                selectionMode = state.isSelectionMode,
+                allowDelete = !state.isSelectionMode,
             )
         }
     }
@@ -221,7 +310,14 @@ private fun SessionListContent(
 @Composable
 private fun HomeTopAppBar(
     filter: String?,
+    selectionCount: Int,
+    allVisibleSelected: Boolean,
+    isSelectionMode: Boolean,
+    isDeletingSelection: Boolean,
     onFilterSelected: (String?) -> Unit,
+    onToggleSelectAll: () -> Unit,
+    onDeleteSelected: () -> Unit,
+    onClearSelection: () -> Unit,
 ) {
     val componentShapes = LocalIMbotComponentShapes.current
     val spacing = MaterialTheme.spacing
@@ -234,7 +330,7 @@ private fun HomeTopAppBar(
         verticalArrangement = Arrangement.spacedBy(spacing.sm),
     ) {
         Text(
-            text = "会话",
+            text = if (isSelectionMode) "已选 $selectionCount 项" else "会话",
             style = MaterialTheme.typography.headlineLarge,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = spacing.md),
         )
@@ -246,37 +342,91 @@ private fun HomeTopAppBar(
                     .padding(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            providerFilterOptions().forEach { option ->
-                val selected = filter == option.value
-                Surface(
-                    shape = componentShapes.button,
-                    color =
-                        if (selected) {
-                            MaterialTheme.colorScheme.primary
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        },
-                    border = null,
-                    modifier =
-                        Modifier.clickable {
-                            onFilterSelected(option.value)
-                        },
-                ) {
-                    Text(
-                        text = option.label,
-                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                        style = MaterialTheme.typography.labelLarge,
+            if (isSelectionMode) {
+                SelectionActionChip(
+                    text = if (allVisibleSelected) "取消全选" else "全选",
+                    onClick = onToggleSelectAll,
+                    enabled = !isDeletingSelection,
+                )
+                SelectionActionChip(
+                    text = if (isDeletingSelection) "删除中..." else "删除",
+                    onClick = onDeleteSelected,
+                    enabled = !isDeletingSelection,
+                    destructive = true,
+                )
+                SelectionActionChip(
+                    text = "完成",
+                    onClick = onClearSelection,
+                    enabled = !isDeletingSelection,
+                )
+            } else {
+                providerFilterOptions().forEach { option ->
+                    val selected = filter == option.value
+                    Surface(
+                        shape = componentShapes.button,
                         color =
                             if (selected) {
-                                MaterialTheme.colorScheme.onPrimary
+                                MaterialTheme.colorScheme.primary
                             } else {
-                                MaterialTheme.colorScheme.onSurfaceVariant
+                                MaterialTheme.colorScheme.surfaceVariant
                             },
-                    )
+                        border = null,
+                        modifier =
+                            Modifier.clickable {
+                                onFilterSelected(option.value)
+                            },
+                    ) {
+                        Text(
+                            text = option.label,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                            color =
+                                if (selected) {
+                                    MaterialTheme.colorScheme.onPrimary
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                        )
+                    }
                 }
             }
         }
         Spacer(modifier = Modifier.height(spacing.xs))
+    }
+}
+
+@Composable
+private fun SelectionActionChip(
+    text: String,
+    onClick: () -> Unit,
+    enabled: Boolean,
+    destructive: Boolean = false,
+) {
+    val componentShapes = LocalIMbotComponentShapes.current
+    Surface(
+        shape = componentShapes.button,
+        color =
+            when {
+                destructive && enabled -> MaterialTheme.colorScheme.errorContainer
+                enabled -> MaterialTheme.colorScheme.surfaceVariant
+                else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+            },
+        modifier =
+            Modifier.clickable(enabled = enabled) {
+                onClick()
+            },
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color =
+                when {
+                    destructive && enabled -> MaterialTheme.colorScheme.onErrorContainer
+                    enabled -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                },
+        )
     }
 }
 

@@ -77,6 +77,8 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 
 ### `p3` Hardening / Future
 
+- `p3-idle-session-delete` — idle interactive session delete: allow deleting `idle` Claude/Book sessions without `state_conflict` by reusing the existing cancel-then-delete path
+- `p3-session-list-multi-select` — Android 会话列表长按进入多选模式，支持批量删除多个会话
 - `p3-context-usage-display` — session 上下文用量实时展示：在 Android detail 顶部状态栏显示 token 计数和上下文窗口使用进度
 - `p3-theme-and-animations` — theme system, transitions, motion, code theme
 - `p3-error-ux-and-cleanup` — three-layer error UX, purge job, connection stability

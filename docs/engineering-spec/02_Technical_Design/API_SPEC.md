@@ -284,10 +284,10 @@
 
 归档/删除会话及其所有 events。
 
-**Response 204**: 无 body。
+**Response 204**: 无 body。若 session 处于 `running` 或 `idle` 且已有关联的 `provider_session_id`，relay 会先尝试向 provider/companion 发送取消，再删除 session 记录。
 **Errors**:
 - `404`。
-- `409 state_conflict`: session 仍处于 `queued`、`running` 或 `idle`，必须先进入终态后再删除。
+- `409 state_conflict`: session 处于 `queued`，或当前存在并发 lifecycle mutation（例如正在 resume/create/delete）。
 
 ### GET /v1/sessions/:id/events
 

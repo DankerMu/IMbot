@@ -166,6 +166,7 @@ fun RootDetailScreen(
                             onClick = {
                                 onOpenSession(session.id)
                             },
+                            onLongPress = {},
                             onDelete = {},
                             allowDelete = false,
                             modifier = Modifier.padding(horizontal = 16.dp),

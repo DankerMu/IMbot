@@ -385,15 +385,12 @@ export class SessionOrchestrator {
         throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
       }
 
-      if (session.status === "idle" && Boolean(session.provider_session_id)) {
-        throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
-      }
-
-      if (session.status === "running" && Boolean(session.provider_session_id)) {
+      if ((session.status === "running" || session.status === "idle") && Boolean(session.provider_session_id)) {
         try {
           await this.dispatchCancel(session);
         } catch {
-          // companion may be offline; proceed with forced cleanup
+          // Companion may be offline or may no longer have an active process for an idle session.
+          // Deletion still proceeds so the relay-side record can be removed.
         }
         await this.transitionWithConflictTolerance(session.id, "cancelled");
       }

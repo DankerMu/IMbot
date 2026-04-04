@@ -418,6 +418,35 @@ test("orchestrator.complete skips provider commands for empty idle sessions", as
   assert.equal(sendCommandCalls, 0);
 });
 
+test("orchestrator.delete auto-cancels idle interactive sessions before deleting them", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-idle-session-delete-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  insertSession(runtime.db, "sess-idle-delete", "idle");
+
+  const sentCommands = [];
+  runtime.companionManager.sendCommand = async (_hostId, command) => {
+    sentCommands.push(command);
+    return {
+      type: "ack",
+      status: "ok",
+      req_id: command.req_id
+    };
+  };
+
+  await runtime.orchestrator.delete("sess-idle-delete");
+
+  const deletedSession = runtime.db.prepare("SELECT id FROM sessions WHERE id = ?").get("sess-idle-delete");
+  assert.equal(deletedSession, undefined);
+  assert.deepEqual(sentCommands.map((command) => command.cmd), ["cancel_session"]);
+  assert.equal(sentCommands[0].session_id, "sess-idle-delete");
+});
+
 test("fresh database includes local_available in the sessions table schema", (t) => {
   const { db, cleanup } = createTestDatabase("imbot-relay-local-available-schema-");
   t.after(cleanup);

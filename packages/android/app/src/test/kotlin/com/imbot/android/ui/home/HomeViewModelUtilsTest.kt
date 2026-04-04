@@ -2,6 +2,8 @@ package com.imbot.android.ui.home
 
 import com.imbot.android.data.local.SessionEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeViewModelUtilsTest {
@@ -96,6 +98,71 @@ class HomeViewModelUtilsTest {
             listOf("idle-newest", "running-older", "completed-middle"),
             result,
         )
+    }
+
+    @Test
+    fun `toggle selected session ids adds and removes ids`() {
+        val afterSelect = toggleSelectedSessionIds(setOf("a"), "b")
+        val afterDeselect = toggleSelectedSessionIds(afterSelect, "a")
+
+        assertEquals(linkedSetOf("a", "b"), afterSelect)
+        assertEquals(linkedSetOf("b"), afterDeselect)
+    }
+
+    @Test
+    fun `reconcile selection drops ids not in visible list`() {
+        val sessions =
+            listOf(
+                session(
+                    id = "visible-a",
+                    provider = "claude",
+                    status = "running",
+                    lastActiveAt = "2026-03-30T11:00:00Z",
+                ),
+                session(
+                    id = "visible-b",
+                    provider = "book",
+                    status = "completed",
+                    lastActiveAt = "2026-03-30T10:00:00Z",
+                ),
+            )
+
+        val result = reconcileSelection(sessions, linkedSetOf("visible-b", "missing"))
+
+        assertEquals(linkedSetOf("visible-b"), result)
+    }
+
+    @Test
+    fun `all visible selected only becomes true when every visible session is selected`() {
+        val sessions =
+            listOf(
+                session(
+                    id = "1",
+                    provider = "claude",
+                    status = "running",
+                    lastActiveAt = "2026-03-30T11:00:00Z",
+                ),
+                session(
+                    id = "2",
+                    provider = "book",
+                    status = "completed",
+                    lastActiveAt = "2026-03-30T10:00:00Z",
+                ),
+            )
+
+        val partial =
+            HomeUiState(
+                sessions = sessions,
+                selectedSessionIds = setOf("1"),
+            )
+        val complete =
+            HomeUiState(
+                sessions = sessions,
+                selectedSessionIds = setOf("1", "2"),
+            )
+
+        assertFalse(partial.allVisibleSelected)
+        assertTrue(complete.allVisibleSelected)
     }
 
     private fun session(

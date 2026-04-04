@@ -21,7 +21,10 @@
 |------|------|-------------|
 | `session` | `SessionSummary` | 会话摘要数据 |
 | `onClick` | `() -> Unit` | 点击跳转详情 |
-| `onSwipeDismiss` | `() -> Unit` | 左滑归档 |
+| `onLongPress` | `() -> Unit` | 长按进入选择模式 |
+| `selected` | `Boolean` | 当前是否被选中 |
+| `selectionMode` | `Boolean` | 当前列表是否处于多选模式 |
+| `onSwipeDismiss` | `() -> Unit` | 左滑删除 |
 
 ### 数据契约
 
@@ -50,8 +53,15 @@ data class SessionSummary(
 ### 交互
 
 - Tap → `onClick`
-- Long press → 弹出 context menu（Archive / Delete）
+- Long press → 进入选择模式并选中当前卡片
+- Selection mode 中 Tap → 切换勾选
 - Swipe left → reveal delete action → `onSwipeDismiss`
+
+### 选择模式视觉
+
+- 选中卡片：显示强调色描边/底色
+- 选中卡片：显示勾选指示器
+- 选择模式中禁用 swipe-to-delete，避免与多选手势冲突
 
 ---
 
