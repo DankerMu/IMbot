@@ -21,22 +21,22 @@ data class IMbotSpacing(
 )
 
 data class IMbotShadowTokens(
-    val elevation: Dp = 2.dp,
-    val ambientAlpha: Float = 0.08f,
-    val spotAlpha: Float = 0.04f,
+    val elevation: Dp = 8.dp,
+    val ambientAlpha: Float = 0.1f,
+    val spotAlpha: Float = 0.05f,
     val darkBorderWidth: Dp = 1.dp,
 )
 
 data class IMbotComponentShapes(
-    val card: Shape = RoundedCornerShape(16.dp),
-    val chip: Shape = RoundedCornerShape(8.dp),
-    val button: Shape = RoundedCornerShape(999.dp),
+    val card: Shape = RoundedCornerShape(22.dp),
+    val chip: Shape = RoundedCornerShape(14.dp),
+    val button: Shape = RoundedCornerShape(16.dp),
     val pill: Shape = RoundedCornerShape(999.dp),
-    val bottomSheet: Shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-    val dialog: Shape = RoundedCornerShape(20.dp),
-    val input: Shape = RoundedCornerShape(12.dp),
-    val codeBlock: Shape = RoundedCornerShape(12.dp),
-    val codeBlockHeader: Shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
+    val bottomSheet: Shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+    val dialog: Shape = RoundedCornerShape(24.dp),
+    val input: Shape = RoundedCornerShape(18.dp),
+    val codeBlock: Shape = RoundedCornerShape(14.dp),
+    val codeBlockHeader: Shape = RoundedCornerShape(topStart = 14.dp, topEnd = 14.dp),
     val userMessageBubble: Shape =
         RoundedCornerShape(
             topStart = 16.dp,
@@ -56,10 +56,10 @@ data class IMbotComponentShapes(
 val IMbotMaterialShapes =
     Shapes(
         extraSmall = RoundedCornerShape(8.dp),
-        small = RoundedCornerShape(8.dp),
-        medium = RoundedCornerShape(12.dp),
-        large = RoundedCornerShape(16.dp),
-        extraLarge = RoundedCornerShape(20.dp),
+        small = RoundedCornerShape(10.dp),
+        medium = RoundedCornerShape(14.dp),
+        large = RoundedCornerShape(20.dp),
+        extraLarge = RoundedCornerShape(24.dp),
     )
 
 val LocalIMbotComponentShapes = staticCompositionLocalOf { IMbotComponentShapes() }

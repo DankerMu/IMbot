@@ -954,6 +954,8 @@ class DetailViewModel
                 return
             }
 
+            val messageIdentityChanged = renderedMessages.map(::messageIdentityKey) != previousState.messages.map(::messageIdentityKey)
+
             val mutation =
                 if (allowAutoScroll) {
                     onTimelineChanged(
@@ -970,12 +972,7 @@ class DetailViewModel
                     messages = renderedMessages,
                     effectiveStatus = effectiveStatus,
                     canSend = canInputToSession(effectiveStatus) && !current.isSending,
-                    selectionModeMessageId =
-                        if (renderedMessages.size != current.messages.size) {
-                            null
-                        } else {
-                            current.selectionModeMessageId
-                        },
+                    selectionModeMessageId = if (messageIdentityChanged) null else current.selectionModeMessageId,
                     scrollState = mutation.state,
                 )
             }
@@ -985,7 +982,43 @@ class DetailViewModel
             }
         }
 
-        private fun combinedMessages(): List<MessageItem> = eventProcessor.snapshot() + optimisticMessages
+        private fun combinedMessages(session: RelaySession? = _uiState.value.session): List<MessageItem> {
+            val eventMessages = eventProcessor.snapshot()
+            val legacyInitialPrompt = legacyInitialPromptMessage(session, eventMessages)
+            return buildList {
+                legacyInitialPrompt?.let(::add)
+                addAll(eventMessages)
+                addAll(optimisticMessages)
+            }
+        }
+
+        private fun legacyInitialPromptMessage(
+            session: RelaySession?,
+            eventMessages: List<MessageItem>,
+        ): MessageItem.UserMessage? {
+            val currentSession = session ?: return null
+            val initialPrompt = currentSession.initialPrompt?.trim().orEmpty().ifBlank { return null }
+            if (currentSession.provider != "claude" && currentSession.provider != "book") {
+                return null
+            }
+            if (eventMessages.any { it is MessageItem.UserMessage }) {
+                return null
+            }
+            return MessageItem.UserMessage(
+                id = "legacy-initial-prompt-${currentSession.id}",
+                text = initialPrompt,
+                timestamp = currentSession.createdAt,
+            )
+        }
+
+        private fun messageIdentityKey(item: MessageItem): String =
+            when (item) {
+                is MessageItem.UserMessage -> "user:${item.id}"
+                is MessageItem.AgentMessage -> "agent:${item.id}"
+                is MessageItem.InteractiveToolCall -> "interactive:${item.id}"
+                is MessageItem.ToolCall -> "tool:${item.callId}"
+                is MessageItem.StatusChange -> "status:${item.id}"
+            }
 
         private fun interactiveAnswerFallbacks(): Map<String, String> =
             buildMap {

@@ -1,84 +1,97 @@
 # Foundation — 设计基座
 
+## Visual Direction
+
+参考 `Claude / Linear / Vercel / Warp / VoltAgent` 的共同优点，形成“暖中性色 + 精确层级 + 开发者工具密度”的移动端设计语言。
+
+- Light：暖纸感背景、象牙色 surface、深墨色文本
+- Dark：温润炭黑背景、暖灰边界、克制高对比
+- Accent：单一结构化主色，只用于 CTA、选中态、焦点、链接
+- Meta：路径、provider、状态、usage 以 pill / badge / monospace 元信息表达
+
 ## Color System
 
-采用 Material 3 Dynamic Color + 自定义 seed color。
+采用固定设计 token，保证不同设备上的视觉一致性。
 
-### Seed Colors
+### Theme Tokens
 
 | Role | Light | Dark | Usage |
 |------|-------|------|-------|
-| Primary | `#1A73E8` (blue) | `#8AB4F8` | 主操作按钮、FAB、选中态 |
-| Secondary | `#34A853` (green) | `#81C995` | running 状态、成功态 |
-| Error | `#EA4335` (red) | `#F28B82` | failed 状态、错误提示 |
-| Surface | `#FAFAFA` | `#1E1E1E` | 卡片、底部栏 |
-| Background | `#FFFFFF` | `#121212` | 页面背景 |
+| Primary | `#5C66D6` | `#5C66D6` | 主操作按钮、选中态、主链接 |
+| Primary Container | `#E8EBFF` | `#2D3159` | 选中容器、激活状态背景 |
+| Secondary | `#1D8C66` | `#30B789` | running / success |
+| Error | `#BF4A3F` | `#E17B72` | failed / destructive |
+| Surface | `#FCFAF5` | `#181614` | 卡片、顶部/底部壳层 |
+| Surface Variant | `#F1ECE2` | `#1F1C19` | 输入区、未选中 pills |
+| Background | `#F3EFE7` | `#100F0D` | 页面背景 |
+| Outline | `#D8D0C4` | `#3E392F` | 容器边界、分隔线 |
 
 ### Provider Colors
 
 | Provider | Color | Icon |
 |----------|-------|------|
-| Claude Code | `#D97706` (amber) | 自定义 Claude logo |
-| book | `#7C3AED` (violet) | 书本图标 |
-| OpenClaw | `#DC2626` (red) | 龙虾图标 🦞 |
+| Claude Code | `#C58C68` | 自定义 Claude logo / monogram |
+| book | `#8E7AD9` | 书本图标 / monogram |
+| OpenClaw | `#DA7268` | OpenClaw 图标 / monogram |
 
 ### Status Colors
 
 | Status | Light | Dark | Animation |
 |--------|-------|------|-----------|
-| `queued` | `#9CA3AF` (gray) | `#6B7280` | 无 |
-| `running` | `#10B981` (green) | `#34D399` | 脉冲 (pulse) |
-| `completed` | `#059669` (teal) | `#6EE7B7` | 无 |
-| `failed` | `#EF4444` (red) | `#FCA5A5` | 无 |
-| `cancelled` | `#6B7280` (gray) | `#9CA3AF` | 无 |
+| `queued` | `#9B9488` | `#7C756A` | 无 |
+| `running` | `#1D8C66` | `#30B789` | 脉冲 (pulse) |
+| `completed` | `#147353` | `#65D1AA` | 无 |
+| `failed` | `#BF4A3F` | `#E17B72` | 无 |
+| `cancelled` | `#7A7369` | `#A59C90` | 无 |
 
 ## Typography
 
-Material 3 默认 type scale，额外约束：
+使用 Inter + JetBrains Mono，但标题收紧字距，元信息层级更明确。
 
 | Use Case | Style | Size | Weight |
 |----------|-------|------|--------|
-| Session card title | `titleMedium` | 16sp | 500 |
-| Session card subtitle | `bodySmall` | 12sp | 400 |
-| Message text | `bodyLarge` | 16sp | 400 |
-| Code block | `JetBrains Mono` / `Fira Code` | 14sp | 400 |
-| Timestamp | `labelSmall` | 11sp | 400 |
-| Section header | `titleSmall` | 14sp | 500 |
+| Hero / screen title | `headlineLarge` | 32sp | 600 |
+| Section title | `headlineMedium` / `titleLarge` | 18-24sp | 600 |
+| Session card title | `titleLarge` | 18sp | 600 |
+| Message text | `bodyLarge` | 15sp | 400 |
+| Path / code / cwd | `JetBrains Mono` | 12-13sp | 400 |
+| Timestamp / status meta | `labelMedium` / `labelSmall` | 10-11sp | 500 |
+| Eyebrow / overline | `labelSmall` | 10sp | 500 |
 
 ## Spacing
 
-Material 3 4dp grid：
+以 8dp 为主节奏，允许 4dp 微调，不再使用随意的 9/14dp 非系统值。
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `spacing.xs` | 4dp | 图标内间距 |
-| `spacing.sm` | 8dp | 卡片内 padding |
-| `spacing.md` | 16dp | 页面水平 padding、卡片间距 |
-| `spacing.lg` | 24dp | section 间距 |
-| `spacing.xl` | 32dp | 页面顶部 padding |
+| `spacing.xs` | 4dp | 微调、图标内间距 |
+| `spacing.sm` | 8dp | pill / chip 内部间距 |
+| `spacing.md` | 12dp | 组件内部垂直节奏 |
+| `spacing.lg` | 16dp | 卡片内 padding、行间距 |
+| `spacing.xl` | 20dp | 页面水平 padding |
+| `spacing.xxl` | 24dp | section 间距 |
+| `spacing.xxxl` | 32dp | 页面顶部与大 section 留白 |
 
 ## Corner Radius
 
 | Element | Radius |
 |---------|--------|
-| Card | 12dp |
-| Chip / Badge | 8dp |
-| Button | 20dp (rounded) |
+| Card | 20dp |
+| Chip / Badge | 14dp |
+| Button | 16dp |
 | Bottom Sheet | 28dp (top) |
-| Dialog | 28dp |
-| Input field | 12dp |
-| Code block | 8dp |
+| Dialog | 24dp |
+| Input field | 18dp |
+| Code block | 14dp |
 
 ## Elevation
 
 | Element | Elevation |
 |---------|-----------|
-| FAB | 6dp |
-| Card (resting) | 1dp |
-| Card (pressed) | 2dp |
-| Bottom nav | 3dp |
-| Top app bar (scrolled) | 2dp |
-| Dialog / Bottom sheet | 6dp |
+| Flat | 无阴影，仅边界 | 深色模式容器 / 普通分组 |
+| Soft card | 轻阴影 + 细描边 | 浅色模式主要卡片 |
+| Elevated shell | 更明显阴影 + 细描边 | FAB / 底部导航 / 顶部阶段容器 |
+| Dialog / Bottom sheet | 高于普通容器 | 浮层与确认弹窗 |
 
 ## Animation Tokens
 

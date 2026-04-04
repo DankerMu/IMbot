@@ -2,6 +2,7 @@ package com.imbot.android.network
 
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RelaySessionParsingTest {
@@ -58,6 +59,34 @@ class RelaySessionParsingTest {
 
         assertEquals("sess-3", session.id)
         assertEquals("idle", session.status)
+    }
+
+    @Test
+    fun `parses json null optional session fields as null`() {
+        val session =
+            JSONObject(
+                """
+                {
+                  "id": "sess-4",
+                  "provider": "book",
+                  "host_id": "macbook-1",
+                  "workspace_cwd": "/tmp/demo",
+                  "initial_prompt": null,
+                  "model": null,
+                  "error_message": null,
+                  "status": "idle",
+                  "created_at": "2026-04-04T10:00:00Z",
+                  "updated_at": null,
+                  "last_active_at": null
+                }
+                """.trimIndent(),
+            ).toRelaySession()
+
+        assertNull(session.initialPrompt)
+        assertNull(session.model)
+        assertNull(session.errorMessage)
+        assertEquals("2026-04-04T10:00:00Z", session.updatedAt)
+        assertEquals("2026-04-04T10:00:00Z", session.lastActiveAt)
     }
 
     @Test(expected = IllegalStateException::class)

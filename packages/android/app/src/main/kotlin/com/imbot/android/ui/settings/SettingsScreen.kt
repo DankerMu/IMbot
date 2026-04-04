@@ -2,11 +2,14 @@
 
 package com.imbot.android.ui.settings
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,16 +27,16 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.imbot.android.BuildConfig
@@ -112,15 +115,12 @@ fun SettingsScreen(
 
     Scaffold(
         modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                    ),
-                title = {
-                    Text("设置")
-                },
+            SettingsTopBar(
+                connected = uiState.connectionState is ConnectionState.Connected,
+                themeMode = uiState.themeMode,
+                versionName = BuildConfig.VERSION_NAME,
             )
         },
         snackbarHost = {
@@ -129,7 +129,7 @@ fun SettingsScreen(
     ) { innerPadding ->
         LazyColumn(
             modifier = Modifier.padding(innerPadding),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 20.dp),
+            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             item(key = "connection") {
@@ -154,6 +154,7 @@ fun SettingsScreen(
                                 online = uiState.connectionState is ConnectionState.Connected,
                             )
                         },
+                        showDivider = true,
                     )
                     SettingsRow(
                         title = "MacBook",
@@ -163,6 +164,7 @@ fun SettingsScreen(
                                 online = uiState.macbookStatus == "online",
                             )
                         },
+                        showDivider = true,
                     )
                     SettingsRow(
                         title = "OpenClaw",
@@ -172,6 +174,7 @@ fun SettingsScreen(
                                 online = uiState.openClawStatus == "online",
                             )
                         },
+                        showDivider = false,
                     )
                 }
             }
@@ -193,10 +196,12 @@ fun SettingsScreen(
                         onClick = {
                             showClearDialog = true
                         },
+                        showDivider = true,
                     )
                     SettingsRow(
                         title = "会话保留天数",
                         value = "30 天",
+                        showDivider = false,
                     )
                 }
             }
@@ -223,7 +228,7 @@ private fun SettingsSection(
     val shadowTokens = MaterialTheme.appleShadow
 
     Column(
-        modifier = Modifier.padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(
@@ -255,6 +260,7 @@ private fun SettingsRow(
     value: String? = null,
     onClick: (() -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    showDivider: Boolean = true,
 ) {
     Row(
         modifier =
@@ -285,10 +291,95 @@ private fun SettingsRow(
         }
         trailing?.invoke()
     }
-    HorizontalDivider(
-        modifier = Modifier.padding(start = 16.dp),
-        color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
-    )
+    if (showDivider) {
+        HorizontalDivider(
+            modifier = Modifier.padding(start = 16.dp),
+            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f),
+        )
+    }
+}
+
+@Composable
+private fun SettingsTopBar(
+    connected: Boolean,
+    themeMode: String,
+    versionName: String,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "SYSTEM PREFERENCES",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "Settings",
+                style = MaterialTheme.typography.headlineLarge,
+            )
+        }
+
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SettingsSummaryPill(
+                label = if (connected) "Relay online" else "Relay offline",
+                emphasized = connected,
+            )
+            SettingsSummaryPill(label = themeModeLabel(themeMode))
+            SettingsSummaryPill(label = "v$versionName")
+        }
+    }
+}
+
+@Composable
+private fun SettingsSummaryPill(
+    label: String,
+    emphasized: Boolean = false,
+) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color =
+            if (emphasized) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color =
+                    if (emphasized) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                    } else {
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)
+                    },
+            ),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color =
+                if (emphasized) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+        )
+    }
 }
 
 @Composable
@@ -296,30 +387,50 @@ private fun StatusPill(
     text: String,
     online: Boolean,
 ) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color =
+            if (online) {
+                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)),
     ) {
-        Box(
-            modifier =
-                Modifier
-                    .size(10.dp)
-                    .background(
-                        color =
-                            if (online) {
-                                MaterialTheme.colorScheme.secondary
-                            } else {
-                                MaterialTheme.colorScheme.outline
-                            },
-                        shape = CircleShape,
-                    ),
-        )
-        Text(
-            text = text,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(10.dp)
+                        .background(
+                            color =
+                                if (online) {
+                                    MaterialTheme.colorScheme.secondary
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                },
+                            shape = CircleShape,
+                        ),
+            )
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Medium),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
+
+private fun themeModeLabel(themeMode: String): String =
+    when (themeMode) {
+        SettingsRepository.THEME_MODE_LIGHT -> "Light mode"
+        SettingsRepository.THEME_MODE_DARK -> "Dark mode"
+        else -> "System theme"
+    }
 
 @Composable
 private fun ThemeOptions(

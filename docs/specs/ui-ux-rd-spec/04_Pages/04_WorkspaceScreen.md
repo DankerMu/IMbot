@@ -9,25 +9,30 @@
 | PRD ref | FR-02, FR-04 |
 
 管理 workspace 根目录 + 浏览目录下的历史 session。
+视觉上与首页保持一致：使用 editorial header、summary pills 与按 host 分组的紧凑卡片。
 
 ## 布局
 
 ```
 ┌──────────────────────────────────────┐
-│  目录管理                    [+ 添加] │  ← TopAppBar
+│  WORKSPACE INDEX                    │  ← Eyebrow
+│  Roots      [2 online] [2 hosts]    │  ← 标题 + 摘要 pill
+│             [2 roots]               │
 ├──────────────────────────────────────┤
 │                                      │
-│  MacBook Pro (online ●)              │  ← Host section
+│  MacBook Pro   [在线]                │  ← Host section
+│  2 roots                              │
 │  ┌──────────────────────────────┐    │
-│  │ 🟠 AI-vault                   │ ✕ │  ← Claude root
+│  │ 🟠 AI-vault      [Claude Code]│ ✕ │  ← Claude root
 │  │    /Users/danker/Desktop/...  │    │
 │  └──────────────────────────────┘    │
 │  ┌──────────────────────────────┐    │
-│  │ 🟣 novel                     │ ✕ │  ← book root
+│  │ 🟣 novel            [book]   │ ✕ │  ← book root
 │  │    /Users/danker/Desktop/...  │    │
 │  └──────────────────────────────┘    │
 │                                      │
-│  Relay VPS (online ●)                │  ← Host section
+│  Relay VPS     [在线]                │  ← Host section
+│  0 roots                              │
 │  ┌──────────────────────────────┐    │
 │  │ 🔴 projects                   │ ✕ │  ← OpenClaw root
 │  │    /opt/projects              │    │
@@ -104,6 +109,7 @@ data class RootDetailUiState(
 ## 验收标准
 
 - [ ] 根目录列表按 host 分组显示。
+- [ ] 顶部以 editorial header + summary pills 概览 host/root 状态。
 - [ ] 点击 ✕ 可删除根目录（确认弹窗）。
 - [ ] 点击根目录进入目录浏览 + session 列表。
 - [ ] 添加根目录流程完整可用。

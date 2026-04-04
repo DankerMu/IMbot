@@ -2,10 +2,12 @@
 
 package com.imbot.android.ui.newsession
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -28,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.imbot.android.ui.theme.CodeFontFamily
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalUseDarkTheme
 import com.imbot.android.ui.theme.appleChrome
@@ -54,13 +57,18 @@ fun PromptInputStep(
             modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .padding(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
-            text = "输入 Prompt",
+            text = "给会话一个起点",
             style = MaterialTheme.typography.headlineSmall,
             fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = "首条消息是可选项。你也可以直接创建空会话，稍后在详情页继续发消息。",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
 
         Surface(
@@ -70,7 +78,7 @@ fun PromptInputStep(
                     .appleChrome(
                         shape = componentShapes.card,
                         isDarkTheme = isDarkTheme,
-                        outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                        outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f),
                         shadowTokens = shadowTokens,
                     ),
             shape = componentShapes.card,
@@ -80,18 +88,30 @@ fun PromptInputStep(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
+                        .padding(18.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                SummaryRow(
-                    label = "Provider",
-                    value = providerDisplayName(provider),
+                Text(
+                    text = "Session Context",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                SummaryRow(
-                    label = "目录",
-                    value = cwd.orEmpty(),
-                    secondary = cwd?.takeLastSegments(2),
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    SummaryBlock(
+                        label = "Provider",
+                        value = providerDisplayName(provider),
+                        modifier = Modifier.weight(0.34f),
+                    )
+                    SummaryBlock(
+                        label = "目录",
+                        value = cwd.orEmpty(),
+                        secondary = cwd?.takeLastSegments(3),
+                        modifier = Modifier.weight(0.66f),
+                    )
+                }
             }
         }
 
@@ -100,12 +120,12 @@ fun PromptInputStep(
             onValueChange = onPromptChanged,
             modifier = Modifier.fillMaxWidth(),
             label = {
-                Text("Prompt")
+                Text("首条消息（可选）")
             },
             placeholder = {
-                Text("说点什么开始...")
+                Text("例如：先总结当前项目结构，再给出下一步建议。")
             },
-            minLines = 6,
+            minLines = 7,
             maxLines = 10,
             shape = componentShapes.input,
             colors = imbotFilledTextFieldColors(),
@@ -115,7 +135,8 @@ fun PromptInputStep(
         Box {
             Surface(
                 shape = componentShapes.button,
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)),
                 modifier =
                     Modifier
                         .fillMaxWidth()
@@ -123,14 +144,26 @@ fun PromptInputStep(
                             modelMenuExpanded = true
                         },
             ) {
-                Box(
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Text("Model: $model")
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        Text(
+                            text = "Model",
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            text = model,
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                    }
                     androidx.compose.material3.Icon(
                         imageVector = Icons.Filled.ArrowDropDown,
                         contentDescription = null,
-                        modifier = Modifier.align(androidx.compose.ui.Alignment.CenterEnd),
                     )
                 }
             }
@@ -158,35 +191,49 @@ fun PromptInputStep(
 }
 
 @Composable
-private fun SummaryRow(
+private fun SummaryBlock(
     label: String,
     value: String,
+    modifier: Modifier = Modifier,
     secondary: String? = null,
 ) {
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.24f)),
     ) {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            text = secondary ?: value,
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (secondary != null && secondary != value) {
+        Column(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             Text(
-                text = value,
-                style = MaterialTheme.typography.bodySmall,
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 2,
+            )
+            Text(
+                text = secondary ?: value,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            if (secondary != null && secondary != value) {
+                Text(
+                    text = value,
+                    style =
+                        MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = CodeFontFamily,
+                        ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
         }
     }
 }

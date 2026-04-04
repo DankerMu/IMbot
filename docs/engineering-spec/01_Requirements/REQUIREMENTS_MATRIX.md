@@ -14,7 +14,7 @@
 | FR-06 | 流式输出+实时渲染 (Markdown+语法高亮) | BIZ §Event Pipeline, API §WS Protocol, ARCH §Android/DetailScreen | `p0-android-prototype`, `p2-android-session-detail`, `p3-theme-and-animations`, `p3-session-detail-hardening` | UT-06, E2E-07, PERF-04 | Phase 1-2 |
 | FR-07 | 断线恢复 (since_seq 补拉) | BIZ §Reconnect & Catch-up, API §GET /events?since_seq, DATA §session_events.seq | `p1-reconnect-and-catchup`, `p3-error-ux-and-cleanup` | UT-07, IT-07, E2E-03, PERF-02 | Phase 1-3 |
 | FR-08 | FCM 推送 (完成/失败通知) | BIZ §FCM Push Logic, API §POST /push/register, ARCH §Push Adapter | `p1-fcm-push` | UT-08, IT-08 | Phase 1 |
-| FR-09 | 主题 (System/Light/Dark) | ARCH §Android/Theme | `p2-android-workspace-settings`, `p3-theme-and-animations` | UT-09 | Phase 2 |
+| FR-09 | 主题 (System/Light/Dark) | ARCH §Android/Theme | `p2-android-workspace-settings`, `p3-theme-and-animations`, `p3-design-md-ui-refresh` | UT-09 | Phase 2 |
 | FR-10 | 审批保留 (默认 bypass) | DATA §approvals, ARCH §permission_mode | `p3-approval-path-reserved` | UT-10, IT-10 | Phase 3 (reserved) |
 
 ## Non-Functional Requirements → Spec → Test

@@ -20,10 +20,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,7 +45,7 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.StopCircle
 import androidx.compose.material3.AlertDialog
@@ -53,15 +58,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -92,6 +94,7 @@ import com.imbot.android.ui.components.ErrorScope
 import com.imbot.android.ui.components.LocalSnackbarHostState
 import com.imbot.android.ui.components.StatusIndicator
 import com.imbot.android.ui.components.StatusIndicatorVariant
+import com.imbot.android.ui.theme.CodeFontFamily
 import com.imbot.android.ui.theme.IMbotAnimations
 import com.imbot.android.ui.theme.LocalProviderColors
 import kotlinx.coroutines.delay
@@ -372,153 +375,145 @@ fun SessionDetailScreen(
     }
 
     CompositionLocalProvider(LocalSnackbarHostState provides snackbarHostState) {
-        Scaffold(
-            modifier = modifier,
-            topBar = {
-                Column {
-                    TopAppBar(
-                        colors =
-                            TopAppBarDefaults.topAppBarColors(
-                                containerColor = MaterialTheme.colorScheme.surface,
-                            ),
-                        title = {
-                            DetailTopBarTitle(
-                                title = uiState.session?.let(::sessionTitle) ?: "会话详情",
-                                subtitle = uiState.session?.let(::sessionSubtitle),
-                                provider = uiState.session?.provider.orEmpty(),
-                                usage = uiState.usage,
-                                showUsageIndicator = showUsageIndicator,
-                            )
-                        },
-                        navigationIcon = {
-                            IconButton(
-                                onClick = {
-                                    if (selectionModeActive) {
-                                        viewModel.onExitSelectionMode()
-                                    } else {
-                                        onNavigateBack(false)
-                                    }
-                                },
-                            ) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "返回",
-                                )
+        Box(
+            modifier =
+                modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.background),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                Column(
+                    modifier =
+                        Modifier
+                            .fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.background),
+                ) {
+                    SessionDetailHeader(
+                        subtitle = uiState.session?.let(::sessionSubtitle),
+                        provider = uiState.session?.provider.orEmpty(),
+                        usage = uiState.usage,
+                        showUsageIndicator = showUsageIndicator,
+                        status = effectiveStatus.orEmpty(),
+                        onNavigateBack = {
+                            if (selectionModeActive) {
+                                viewModel.onExitSelectionMode()
+                            } else {
+                                onNavigateBack(false)
                             }
                         },
                         actions = {
-                            TopBarStatusBadge(
-                                status = effectiveStatus.orEmpty(),
-                                modifier = Modifier.padding(end = 8.dp),
-                            )
-                            IconButton(
-                                onClick = {
-                                    menuExpanded = true
-                                },
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Filled.MoreVert,
-                                    contentDescription = "更多操作",
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = menuExpanded,
-                                onDismissRequest = {
-                                    menuExpanded = false
-                                },
-                            ) {
-                                if (canCancelSession(effectiveStatus)) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text("取消会话")
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Filled.StopCircle,
-                                                contentDescription = null,
-                                            )
-                                        },
-                                        enabled = !uiState.isCancelling,
-                                        onClick = {
-                                            menuExpanded = false
-                                            showCancelDialog = true
-                                        },
-                                    )
-                                }
-                                if (canResumeSession(effectiveStatus)) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text("恢复会话")
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Filled.PlayArrow,
-                                                contentDescription = null,
-                                            )
-                                        },
-                                        enabled = !uiState.isResuming,
-                                        onClick = {
-                                            menuExpanded = false
-                                            viewModel.resumeSession()
-                                        },
-                                    )
-                                }
-                                if (canCompleteSession(effectiveStatus)) {
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text("结束会话")
-                                        },
-                                        leadingIcon = {
-                                            Icon(
-                                                imageVector = Icons.Filled.CheckCircle,
-                                                contentDescription = null,
-                                            )
-                                        },
-                                        enabled = !uiState.isCompleting,
-                                        onClick = {
-                                            menuExpanded = false
-                                            showCompleteDialog = true
-                                        },
-                                    )
-                                }
-                                DropdownMenuItem(
-                                    text = {
-                                        Text("删除会话")
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Filled.Delete,
-                                            contentDescription = null,
-                                        )
-                                    },
-                                    enabled = !uiState.isDeleting,
+                            Box {
+                                IconButton(
                                     onClick = {
+                                        menuExpanded = true
+                                    },
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.MoreHoriz,
+                                        contentDescription = "更多操作",
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = menuExpanded,
+                                    onDismissRequest = {
                                         menuExpanded = false
-                                        showDeleteDialog = true
                                     },
-                                )
-                                DropdownMenuItem(
-                                    text = {
-                                        Text("复制全部输出")
-                                    },
-                                    leadingIcon = {
-                                        Icon(
-                                            imageVector = Icons.Filled.ContentCopy,
-                                            contentDescription = null,
+                                ) {
+                                    if (canCancelSession(effectiveStatus)) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text("取消会话")
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Filled.StopCircle,
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            enabled = !uiState.isCancelling,
+                                            onClick = {
+                                                menuExpanded = false
+                                                showCancelDialog = true
+                                            },
                                         )
-                                    },
-                                    onClick = {
-                                        menuExpanded = false
-                                        clipboardManager.setText(
-                                            AnnotatedString(
-                                                copyableAgentTranscript(uiState.messages),
-                                            ),
+                                    }
+                                    if (canResumeSession(effectiveStatus)) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text("恢复会话")
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Filled.PlayArrow,
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            enabled = !uiState.isResuming,
+                                            onClick = {
+                                                menuExpanded = false
+                                                viewModel.resumeSession()
+                                            },
                                         )
-                                        coroutineScope.launch {
-                                            snackbarHostState.showSnackbar("已复制全部输出")
-                                        }
-                                    },
-                                )
+                                    }
+                                    if (canCompleteSession(effectiveStatus)) {
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text("结束会话")
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = Icons.Filled.CheckCircle,
+                                                    contentDescription = null,
+                                                )
+                                            },
+                                            enabled = !uiState.isCompleting,
+                                            onClick = {
+                                                menuExpanded = false
+                                                showCompleteDialog = true
+                                            },
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("删除会话")
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Filled.Delete,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                        enabled = !uiState.isDeleting,
+                                        onClick = {
+                                            menuExpanded = false
+                                            showDeleteDialog = true
+                                        },
+                                    )
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text("复制全部输出")
+                                        },
+                                        leadingIcon = {
+                                            Icon(
+                                                imageVector = Icons.Filled.ContentCopy,
+                                                contentDescription = null,
+                                            )
+                                        },
+                                        onClick = {
+                                            menuExpanded = false
+                                            clipboardManager.setText(
+                                                AnnotatedString(
+                                                    copyableAgentTranscript(uiState.messages),
+                                                ),
+                                            )
+                                            coroutineScope.launch {
+                                                snackbarHostState.showSnackbar("已复制全部输出")
+                                            }
+                                        },
+                                    )
+                                }
                             }
                         },
                     )
@@ -527,38 +522,16 @@ fun SessionDetailScreen(
                         color = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f),
                     )
                 }
-            },
-            bottomBar = {
-                InputBar(
-                    status = effectiveStatus,
-                    canSend = uiState.canSend,
-                    isSending = uiState.isSending,
-                    commandChip = uiState.commandChip,
-                    onSlashTrigger = viewModel::onSlashTrigger,
-                    onDismissCommand = viewModel::onDismissCommand,
-                    onSend = viewModel::sendMessage,
+                ErrorBannerHost(
+                    errorState = errorState,
+                    scope = ErrorScope.SESSION(sessionId),
+                    modifier = Modifier.padding(horizontal = 16.dp),
+                    hostId = uiState.session?.hostId,
                 )
-            },
-            snackbarHost = {
-                SnackbarHost(hostState = snackbarHostState)
-            },
-        ) { innerPadding ->
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .padding(innerPadding),
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxSize(),
-                ) {
-                    ErrorBannerHost(
-                        errorState = errorState,
-                        scope = ErrorScope.SESSION(sessionId),
-                        modifier = Modifier.padding(horizontal = 16.dp),
-                        hostId = uiState.session?.hostId,
-                    )
 
+                Box(
+                    modifier = Modifier.weight(1f),
+                ) {
                     if (uiState.isLoading && uiState.messages.isEmpty()) {
                         Box(
                             modifier = Modifier.fillMaxSize(),
@@ -688,83 +661,163 @@ fun SessionDetailScreen(
                             }
                         }
                     }
+
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = uiState.scrollState.fabVisible,
+                        modifier =
+                            Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(end = 16.dp, bottom = 20.dp),
+                        enter =
+                            fadeIn(animationSpec = tween(durationMillis = 150)) +
+                                scaleIn(
+                                    animationSpec = tween(durationMillis = 150),
+                                    initialScale = 0.92f,
+                                ),
+                        exit =
+                            fadeOut(animationSpec = tween(durationMillis = 150)) +
+                                scaleOut(
+                                    animationSpec = tween(durationMillis = 150),
+                                    targetScale = 0.92f,
+                                ),
+                    ) {
+                        ScrollToBottomButton(
+                            count = uiState.scrollState.newMsgCount,
+                            onClick = viewModel::onFabTapped,
+                        )
+                    }
                 }
 
-                AnimatedVisibility(
-                    visible = uiState.scrollState.fabVisible,
-                    modifier =
-                        Modifier
-                            .align(Alignment.BottomEnd)
-                            .padding(end = 16.dp, bottom = 80.dp),
-                    enter =
-                        fadeIn(animationSpec = tween(durationMillis = 150)) +
-                            scaleIn(
-                                animationSpec = tween(durationMillis = 150),
-                                initialScale = 0.92f,
-                            ),
-                    exit =
-                        fadeOut(animationSpec = tween(durationMillis = 150)) +
-                            scaleOut(
-                                animationSpec = tween(durationMillis = 150),
-                                targetScale = 0.92f,
-                            ),
-                ) {
-                    ScrollToBottomButton(
-                        count = uiState.scrollState.newMsgCount,
-                        onClick = viewModel::onFabTapped,
-                    )
-                }
+                InputBar(
+                    status = effectiveStatus,
+                    canSend = uiState.canSend,
+                    isSending = uiState.isSending,
+                    commandChip = uiState.commandChip,
+                    onSlashTrigger = viewModel::onSlashTrigger,
+                    onDismissCommand = viewModel::onDismissCommand,
+                    onSend = viewModel::sendMessage,
+                    modifier = Modifier.navigationBarsPadding().imePadding(),
+                )
             }
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier =
+                    Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 16.dp),
+            )
         }
     }
 }
 
 @Composable
-private fun DetailTopBarTitle(
-    title: String,
+private fun SessionDetailHeader(
     subtitle: String?,
     provider: String,
     usage: SessionUsageState,
     showUsageIndicator: Boolean,
+    status: String,
+    onNavigateBack: () -> Unit,
+    actions: @Composable () -> Unit,
 ) {
-    Row(
-        modifier = Modifier,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    val providerLabel = providerDisplayName(provider).ifBlank { "会话详情" }
+
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(start = 4.dp, end = 8.dp, top = 4.dp, bottom = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        TopBarProviderBadge(provider = provider)
-        Column(
-            verticalArrangement = Arrangement.spacedBy(2.dp),
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (subtitle != null || (showUsageIndicator && usage.totalTokens > 0)) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    subtitle?.let { subtitleText ->
-                        Text(
-                            text = subtitleText,
-                            modifier = Modifier.widthIn(max = 140.dp),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    UsageIndicator(
-                        usage = usage,
-                        isActive = showUsageIndicator,
-                    )
-                }
+            IconButton(onClick = onNavigateBack) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                    contentDescription = "返回",
+                )
             }
+            Row(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TopBarProviderBadge(provider = provider)
+                Text(
+                    text = providerLabel,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            TopBarStatusBadge(
+                status = status,
+                modifier = Modifier.padding(start = 8.dp, end = 4.dp),
+            )
+            actions()
         }
+        DetailTopBarInfo(
+            subtitle = subtitle,
+            usage = usage,
+            showUsageIndicator = showUsageIndicator,
+            modifier = Modifier.padding(start = 56.dp, end = 8.dp),
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DetailTopBarInfo(
+    subtitle: String?,
+    usage: SessionUsageState,
+    showUsageIndicator: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    if (subtitle != null || (showUsageIndicator && usage.totalTokens > 0)) {
+        FlowRow(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            subtitle?.let { subtitleText ->
+                TopBarMetaPill(
+                    text = subtitleText,
+                    modifier = Modifier.widthIn(max = 240.dp),
+                )
+            }
+            UsageIndicator(
+                usage = usage,
+                isActive = showUsageIndicator,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TopBarMetaPill(
+    text: String,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            style =
+                MaterialTheme.typography.labelMedium.copy(
+                    fontFamily = CodeFontFamily,
+                ),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -780,27 +833,36 @@ private fun UsageIndicator(
 
     val color = usageColor(usage.usagePercent)
 
-    Row(
+    Surface(
         modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        shape = MaterialTheme.shapes.extraLarge,
+        color = color.copy(alpha = 0.1f),
+        border = BorderStroke(1.dp, color.copy(alpha = 0.18f)),
     ) {
-        Text(
-            text = "${formatTokenCount(usage.totalTokens)} / ${formatTokenCount(usage.contextWindow)}",
-            style = MaterialTheme.typography.labelSmall,
-            color = color,
-            maxLines = 1,
-        )
-        LinearProgressIndicator(
-            progress = { usage.usagePercent.coerceIn(0f, 1f) },
+        Row(
             modifier =
                 Modifier
-                    .width(40.dp)
-                    .height(3.dp)
-                    .clip(RoundedCornerShape(1.5.dp)),
-            color = color,
-            trackColor = MaterialTheme.colorScheme.surfaceVariant,
-        )
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Text(
+                text = "${formatTokenCount(usage.totalTokens)} / ${formatTokenCount(usage.contextWindow)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = color,
+                maxLines = 1,
+            )
+            LinearProgressIndicator(
+                progress = { usage.usagePercent.coerceIn(0f, 1f) },
+                modifier =
+                    Modifier
+                        .width(40.dp)
+                        .height(3.dp)
+                        .clip(RoundedCornerShape(1.5.dp)),
+                color = color,
+                trackColor = MaterialTheme.colorScheme.surfaceVariant,
+            )
+        }
     }
 }
 
@@ -828,10 +890,10 @@ private fun TopBarProviderBadge(provider: String) {
     Box(
         modifier =
             Modifier
-                .size(24.dp)
+                .size(28.dp)
                 .background(
                     color = badgeColor.copy(alpha = 0.16f),
-                    shape = CircleShape,
+                    shape = RoundedCornerShape(10.dp),
                 ),
         contentAlignment = Alignment.Center,
     ) {

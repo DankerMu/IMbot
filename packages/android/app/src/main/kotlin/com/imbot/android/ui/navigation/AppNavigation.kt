@@ -3,6 +3,7 @@
 package com.imbot.android.ui.navigation
 
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -17,12 +18,14 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -46,6 +49,7 @@ import com.imbot.android.ui.onboarding.OnboardingViewModel
 import com.imbot.android.ui.prototype.PrototypeScreen
 import com.imbot.android.ui.settings.SettingsScreen
 import com.imbot.android.ui.settings.SettingsViewModel
+import com.imbot.android.ui.theme.LocalUseDarkTheme
 import com.imbot.android.ui.theme.imbotEnterTransition
 import com.imbot.android.ui.theme.imbotExitTransition
 import com.imbot.android.ui.theme.imbotPopEnterTransition
@@ -69,6 +73,7 @@ fun AppNavigation(
     val navController = rememberNavController()
     val homeUiState by homeViewModel.uiState.collectAsStateWithLifecycle()
     val errorState by mainViewModel.errorState.collectAsStateWithLifecycle()
+    val isDarkTheme = LocalUseDarkTheme.current
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = backStackEntry?.destination
     val currentRoute = currentDestination?.route
@@ -122,53 +127,66 @@ fun AppNavigation(
         modifier = modifier,
         bottomBar = {
             if (showBottomBar) {
-                NavigationBar(
-                    containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
-                    tonalElevation = 0.dp,
+                Surface(
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+                    shadowElevation = if (isDarkTheme) 0.dp else 8.dp,
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)),
                 ) {
-                    topLevelDestinations.forEach { destination ->
-                        val selected =
-                            currentDestination?.hierarchy?.any { navDestination ->
-                                navDestination.route == destination.route
-                            } == true
+                    NavigationBar(
+                        containerColor = Color.Transparent,
+                        tonalElevation = 0.dp,
+                    ) {
+                        topLevelDestinations.forEach { destination ->
+                            val selected =
+                                currentDestination?.hierarchy?.any { navDestination ->
+                                    navDestination.route == destination.route
+                                } == true
 
-                        NavigationBarItem(
-                            selected = selected,
-                            onClick = {
-                                navigateToTopLevel(navController, destination.route)
-                            },
-                            icon = {
-                                val iconContent: @Composable () -> Unit = {
-                                    Icon(
-                                        imageVector = destination.icon,
-                                        contentDescription = destination.label,
-                                    )
-                                }
+                            NavigationBarItem(
+                                selected = selected,
+                                onClick = {
+                                    navigateToTopLevel(navController, destination.route)
+                                },
+                                icon = {
+                                    val iconContent: @Composable () -> Unit = {
+                                        Icon(
+                                            imageVector = destination.icon,
+                                            contentDescription = destination.label,
+                                        )
+                                    }
 
-                                if (
-                                    destination.route == AppRoute.HOME &&
-                                    homeUiState.runningSessionCount > 0 &&
-                                    currentRoute != AppRoute.HOME
-                                ) {
-                                    BadgedBox(
-                                        badge = {
-                                            Badge()
-                                        },
+                                    if (
+                                        destination.route == AppRoute.HOME &&
+                                        homeUiState.runningSessionCount > 0 &&
+                                        currentRoute != AppRoute.HOME
                                     ) {
+                                        BadgedBox(
+                                            badge = {
+                                                Badge()
+                                            },
+                                        ) {
+                                            iconContent()
+                                        }
+                                    } else {
                                         iconContent()
                                     }
-                                } else {
-                                    iconContent()
-                                }
-                            },
-                            label = {
-                                Text(
-                                    text = destination.label,
-                                    style = MaterialTheme.typography.labelMedium,
-                                )
-                            },
-                            colors = NavigationBarItemDefaults.colors(),
-                        )
+                                },
+                                label = {
+                                    Text(
+                                        text = destination.label,
+                                        style = MaterialTheme.typography.labelMedium,
+                                    )
+                                },
+                                colors =
+                                    NavigationBarItemDefaults.colors(
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.primaryContainer,
+                                        MaterialTheme.colorScheme.onSurfaceVariant,
+                                        MaterialTheme.colorScheme.onSurfaceVariant,
+                                    ),
+                            )
+                        }
                     }
                 }
             }

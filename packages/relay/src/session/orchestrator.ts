@@ -174,6 +174,7 @@ export class SessionOrchestrator {
     try {
       if (hasPrompt) {
         const startMetadata = await this.dispatchCreate(session);
+        this.emitSyntheticInitialUserMessage(session.id, session.provider, session.initial_prompt);
         await this.markSessionStarted(session.id, startMetadata, "queued");
         await this.applyPendingTerminalTransition(session.id);
       } else {
@@ -253,6 +254,7 @@ export class SessionOrchestrator {
         this.db
           .prepare("UPDATE sessions SET initial_prompt = ?, updated_at = datetime('now') WHERE id = ?")
           .run(text, currentSession.id);
+        this.emitSyntheticInitialUserMessage(currentSession.id, currentSession.provider, text);
         await this.markSessionStarted(currentSession.id, startMetadata, "idle");
         await this.applyPendingTerminalTransition(currentSession.id);
       });
@@ -743,6 +745,24 @@ export class SessionOrchestrator {
       timestamp: storedEvent.created_at
     });
     return storedEvent;
+  }
+
+  private emitSyntheticInitialUserMessage(
+    sessionId: string,
+    provider: Session["provider"],
+    text: string | null | undefined
+  ): void {
+    if (provider === "openclaw") {
+      return;
+    }
+
+    if (!text || !text.trim()) {
+      return;
+    }
+
+    this.insertAndBroadcastEvent(sessionId, "user_message", {
+      text
+    });
   }
 
   private normalizeErrorCode(errorCode: string | undefined): ErrorCode {

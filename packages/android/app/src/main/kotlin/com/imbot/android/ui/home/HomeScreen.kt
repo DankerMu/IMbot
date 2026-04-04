@@ -2,6 +2,7 @@
 
 package com.imbot.android.ui.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -30,7 +31,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -49,6 +49,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.imbot.android.data.ErrorState
@@ -130,10 +131,14 @@ fun HomeScreen(
 
     Scaffold(
         modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
             HomeTopAppBar(
                 filter = uiState.filter,
                 selectionCount = uiState.selectedSessionIds.size,
+                totalCount = uiState.sessions.size,
+                runningCount = uiState.runningSessionCount,
+                isConnected = uiState.isConnected,
                 allVisibleSelected = uiState.allVisibleSelected,
                 isSelectionMode = uiState.isSelectionMode,
                 isDeletingSelection = uiState.isDeletingSelection,
@@ -234,9 +239,18 @@ private fun SessionListContent(
 
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 96.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 96.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        if (runningSessions.isNotEmpty()) {
+            item(key = "running-header") {
+                SessionSectionHeader(
+                    title = "Running Now",
+                    meta = "${runningSessions.size} active",
+                )
+            }
+        }
+
         items(
             items = runningSessions,
             key = { session -> session.id },
@@ -266,11 +280,11 @@ private fun SessionListContent(
             )
         }
 
-        if (runningSessions.isNotEmpty() && otherSessions.isNotEmpty()) {
-            item(key = "running-divider") {
-                HorizontalDivider(
-                    thickness = 1.dp,
-                    color = MaterialTheme.colorScheme.outlineVariant,
+        if (otherSessions.isNotEmpty()) {
+            item(key = "recent-header") {
+                SessionSectionHeader(
+                    title = if (runningSessions.isNotEmpty()) "Recent" else "All Sessions",
+                    meta = "${otherSessions.size} sessions",
                 )
             }
         }
@@ -311,6 +325,9 @@ private fun SessionListContent(
 private fun HomeTopAppBar(
     filter: String?,
     selectionCount: Int,
+    totalCount: Int,
+    runningCount: Int,
+    isConnected: Boolean,
     allVisibleSelected: Boolean,
     isSelectionMode: Boolean,
     isDeletingSelection: Boolean,
@@ -326,21 +343,57 @@ private fun HomeTopAppBar(
         modifier =
             Modifier
                 .fillMaxWidth()
-                .background(MaterialTheme.colorScheme.background),
-        verticalArrangement = Arrangement.spacedBy(spacing.sm),
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(spacing.lg),
     ) {
-        Text(
-            text = if (isSelectionMode) "已选 $selectionCount 项" else "会话",
-            style = MaterialTheme.typography.headlineLarge,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = spacing.md),
-        )
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = if (isSelectionMode) "BULK ACTIONS" else "WORKSPACE CONSOLE",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = if (isSelectionMode) "已选 $selectionCount 项" else "Sessions",
+                style = MaterialTheme.typography.headlineLarge,
+            )
+            if (isSelectionMode) {
+                Text(
+                    text = "批量删除会逐个调用当前会话删除接口。",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+
+        if (!isSelectionMode) {
+            Row(
+                modifier =
+                    Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                HomeSummaryPill(
+                    label = if (isConnected) "Relay Online" else "Relay Offline",
+                    emphasized = isConnected,
+                )
+                HomeSummaryPill(
+                    label = "$runningCount running",
+                    emphasized = runningCount > 0,
+                )
+                HomeSummaryPill(label = "$totalCount total")
+            }
+        }
+
         Row(
             modifier =
                 Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(horizontal = 20.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (isSelectionMode) {
                 SelectionActionChip(
@@ -361,37 +414,120 @@ private fun HomeTopAppBar(
                 )
             } else {
                 providerFilterOptions().forEach { option ->
-                    val selected = filter == option.value
-                    Surface(
+                    ProviderFilterChip(
+                        text = option.label,
+                        selected = filter == option.value,
                         shape = componentShapes.button,
-                        color =
-                            if (selected) {
-                                MaterialTheme.colorScheme.primary
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
-                        border = null,
-                        modifier =
-                            Modifier.clickable {
-                                onFilterSelected(option.value)
-                            },
-                    ) {
-                        Text(
-                            text = option.label,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.labelLarge,
-                            color =
-                                if (selected) {
-                                    MaterialTheme.colorScheme.onPrimary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                        )
-                    }
+                        onClick = {
+                            onFilterSelected(option.value)
+                        },
+                    )
                 }
             }
         }
-        Spacer(modifier = Modifier.height(spacing.xs))
+    }
+}
+
+@Composable
+private fun HomeSummaryPill(
+    label: String,
+    emphasized: Boolean = false,
+) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color =
+            if (emphasized) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        border =
+            BorderStroke(
+                1.dp,
+                if (emphasized) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                } else {
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                },
+            ),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color =
+                if (emphasized) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+        )
+    }
+}
+
+@Composable
+private fun ProviderFilterChip(
+    text: String,
+    selected: Boolean,
+    shape: androidx.compose.ui.graphics.Shape,
+    onClick: () -> Unit,
+) {
+    Surface(
+        shape = shape,
+        color =
+            if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        border =
+            BorderStroke(
+                1.dp,
+                if (selected) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                } else {
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
+                },
+            ),
+        modifier =
+            Modifier.clickable {
+                onClick()
+            },
+    ) {
+        Text(
+            text = text,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color =
+                if (selected) {
+                    MaterialTheme.colorScheme.onPrimary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+        )
+    }
+}
+
+@Composable
+private fun SessionSectionHeader(
+    title: String,
+    meta: String,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = title,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            text = meta,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 
@@ -408,9 +544,18 @@ private fun SelectionActionChip(
         color =
             when {
                 destructive && enabled -> MaterialTheme.colorScheme.errorContainer
-                enabled -> MaterialTheme.colorScheme.surfaceVariant
+                enabled -> MaterialTheme.colorScheme.surface
                 else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
             },
+        border =
+            BorderStroke(
+                1.dp,
+                when {
+                    destructive && enabled -> MaterialTheme.colorScheme.error.copy(alpha = 0.28f)
+                    enabled -> MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+                    else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                },
+            ),
         modifier =
             Modifier.clickable(enabled = enabled) {
                 onClick()
@@ -418,12 +563,12 @@ private fun SelectionActionChip(
     ) {
         Text(
             text = text,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
             style = MaterialTheme.typography.labelLarge,
             color =
                 when {
                     destructive && enabled -> MaterialTheme.colorScheme.onErrorContainer
-                    enabled -> MaterialTheme.colorScheme.onSurfaceVariant
+                    enabled -> MaterialTheme.colorScheme.onSurface
                     else -> MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
                 },
         )
@@ -455,31 +600,26 @@ private fun HomeEmptyState(
 private fun SessionListSkeleton(modifier: Modifier = Modifier) {
     Column(
         modifier = modifier.padding(horizontal = 20.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         repeat(3) {
             Card(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .height(112.dp),
+                        .height(132.dp),
             ) {
                 Column(
                     modifier =
                         Modifier
                             .fillMaxSize()
-                            .padding(16.dp),
+                            .padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    ShimmerSkeleton(modifier = Modifier.fillMaxWidth(0.4f).height(14.dp))
-                    ShimmerSkeleton(modifier = Modifier.fillMaxWidth(0.6f).height(14.dp))
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        ShimmerSkeleton(modifier = Modifier.weight(1f).height(14.dp))
-                        ShimmerSkeleton(modifier = Modifier.size(12.dp), shape = MaterialTheme.shapes.small)
-                    }
+                    ShimmerSkeleton(modifier = Modifier.fillMaxWidth(0.35f).height(14.dp))
+                    ShimmerSkeleton(modifier = Modifier.fillMaxWidth(0.7f).height(20.dp))
+                    ShimmerSkeleton(modifier = Modifier.fillMaxWidth(0.9f).height(12.dp))
+                    ShimmerSkeleton(modifier = Modifier.fillMaxWidth(0.45f).height(12.dp))
                 }
             }
         }
@@ -493,7 +633,7 @@ private fun SessionEmptyIllustration(modifier: Modifier = Modifier) {
             modifier
                 .size(72.dp)
                 .background(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.75f),
                     shape = MaterialTheme.shapes.extraLarge,
                 ),
     )

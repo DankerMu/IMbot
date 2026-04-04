@@ -34,7 +34,7 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 | FR-06 流式输出与渲染 | `p0-android-prototype`, `p2-android-session-detail`, `p3-theme-and-animations`, `persistent-interactive-sessions`, `p3-session-detail-hardening`, `p3-message-rendering-polish`, `p3-message-copy`, `p3-tool-call-rich-display`, `p3-ask-user-question-fix`, `p3-longpress-menu-fix` |
 | FR-07 断线恢复       | `p1-reconnect-and-catchup`, `p3-error-ux-and-cleanup`                                                                                                                                                                                                                                |
 | FR-08 FCM 推送       | `p1-fcm-push`                                                                                                                                                                                                                                                                        |
-| FR-09 主题与外观     | `p2-android-workspace-settings`, `p3-theme-and-animations`, `p3-visual-redesign`, `p3-message-rendering-polish`, `p3-visual-polish-v2`, `p3-visual-polish-v3`                                                                                                                        |
+| FR-09 主题与外观     | `p2-android-workspace-settings`, `p3-theme-and-animations`, `p3-visual-redesign`, `p3-message-rendering-polish`, `p3-visual-polish-v2`, `p3-visual-polish-v3`, `p3-design-md-ui-refresh`                                                                                              |
 | FR-10 审批保留       | `p3-approval-path-reserved`, `p3-mobile-skill-interaction`                                                                                                                                                                                                                           |
 
 ## Change Index
@@ -81,8 +81,10 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 ### `p3` Hardening / Future
 
 - `p3-idle-session-delete` — idle interactive session delete: allow deleting `idle` Claude/Book sessions without `state_conflict` by reusing the existing cancel-then-delete path
+- `p3-initial-user-message-echo` — 首条 prompt 回显：对 companion-backed session 在启动时补写 `user_message`，避免详情页吞掉第一条用户消息
 - `p3-session-list-multi-select` — Android 会话列表长按进入多选模式，支持批量删除多个会话
 - `p3-context-usage-display` — session 上下文用量实时展示：在 Android detail 顶部状态栏显示 token 计数和上下文窗口使用进度
+- `p3-design-md-ui-refresh` — 基于 awesome-design-md 的 Android UI 设计系统刷新：暖中性色主题、首页/新建/详情壳层重构
 - `p3-theme-and-animations` — theme system, transitions, motion, code theme
 - `p3-error-ux-and-cleanup` — three-layer error UX, purge job, connection stability
 - `p3-approval-path-reserved` — reserved non-bypass permission mode and approval event plumbing

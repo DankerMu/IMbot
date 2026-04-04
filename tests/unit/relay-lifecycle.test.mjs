@@ -316,9 +316,52 @@ test("orchestrator.sendMessage starts an empty idle session with create_session 
   });
 
   const storedEvents = runtime.db
-    .prepare("SELECT type FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? ORDER BY seq ASC")
     .all(session.id);
+  assert.equal(storedEvents.some((event) => event.type === "user_message"), true);
+  assert.deepEqual(
+    JSON.parse(storedEvents.find((event) => event.type === "user_message").payload),
+    { text: "hello from the first turn" }
+  );
   assert.equal(storedEvents.some((event) => event.type === "session_started"), true);
+});
+
+test("orchestrator.create records the initial prompt as a user_message for companion-backed providers", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-create-initial-user-message-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  runtime.companionManager.isOnline = () => true;
+  runtime.companionManager.sendCommand = async () => ({
+    type: "ack",
+    status: "ok",
+    data: {
+      provider_session_id: "provider-session-create-prompt"
+    }
+  });
+
+  const session = await runtime.orchestrator.create({
+    provider: "book",
+    host_id: "macbook-1",
+    cwd: "/tmp/novel",
+    prompt: "chapter opening prompt"
+  });
+
+  assert.equal(session.status, "running");
+
+  const storedEvents = runtime.db
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+    .all(session.id);
+
+  assert.equal(storedEvents.some((event) => event.type === "user_message"), true);
+  assert.deepEqual(
+    JSON.parse(storedEvents.find((event) => event.type === "user_message").payload),
+    { text: "chapter opening prompt" }
+  );
 });
 
 test("orchestrator.sendMessage returns host_offline for empty idle sessions when the host disconnects before the first message", async (t) => {
