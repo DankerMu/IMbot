@@ -87,6 +87,7 @@ function createAdapterHarness(tempDir, harnessOptions = {}) {
     sessionIndex,
     logger: silentLogger,
     idleTimeoutMs: harnessOptions.idleTimeoutMs,
+    interactiveToolTimeoutMs: harnessOptions.interactiveToolTimeoutMs,
     sendEvent: (message) => {
       events.push(message);
     },
@@ -266,7 +267,7 @@ test("AskUserQuestion control_request emits tool_call_started and blocks", async
   assert.equal(children[0].getWrittenMessages().length, 1);
   assert.equal(getSession(adapter, "relay-control-1").pendingControlResponse.requestId, "req-ask-1");
   assert.equal(getSession(adapter, "relay-control-1").pendingControlResponse.callId, "toolu_ask_1");
-  assert.notEqual(getSession(adapter, "relay-control-1").pendingControlTimer, null);
+  assert.equal(getSession(adapter, "relay-control-1").pendingControlTimer, null);
 });
 
 test("tool_call_started uses tool_use_id not request_id", async (t) => {
@@ -567,12 +568,48 @@ test("process exit cleans up pending", async (t) => {
   assert.equal(getSession(adapter, "relay-control-1"), undefined);
 });
 
-test("AskUserQuestion times out after idleTimeoutMs", async (t) => {
+test("AskUserQuestion does not time out by default while waiting for an answer", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-no-timeout-"));
+  const cwd = path.join(tempDir, "project");
+  mkdirSync(cwd, { recursive: true });
+  const { adapter, children } = createAdapterHarness(tempDir, {
+    idleTimeoutMs: 50
+  });
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await createSession(adapter, cwd);
+  const writtenCountBeforeAsk = children[0].getWrittenMessages().length;
+  children[0].emitJson({
+    type: "control_request",
+    request_id: "req-ask-stays-pending",
+    request: {
+      subtype: "can_use_tool",
+      tool_use_id: "toolu_ask_stays_pending",
+      tool_name: "AskUserQuestion",
+      input: {
+        questions: [{ question: "Pick one" }]
+      }
+    }
+  });
+  await flushRuntime();
+  await delay(80);
+  await flushRuntime();
+
+  assert.notEqual(getSession(adapter, "relay-control-1").pendingControlResponse, null);
+  assert.equal(getSession(adapter, "relay-control-1").pendingControlTimer, null);
+  assert.equal(children[0].getWrittenMessages().length, writtenCountBeforeAsk);
+});
+
+test("AskUserQuestion times out after interactiveToolTimeoutMs", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-timeout-"));
   const cwd = path.join(tempDir, "project");
   mkdirSync(cwd, { recursive: true });
   const { adapter, children, events } = createAdapterHarness(tempDir, {
-    idleTimeoutMs: 50
+    interactiveToolTimeoutMs: 50
   });
 
   t.after(async () => {
