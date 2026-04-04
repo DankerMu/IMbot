@@ -1000,10 +1000,12 @@ class DetailViewModel
         ): MessageItem.UserMessage? {
             val currentSession = session
             val initialPrompt = currentSession?.initialPrompt?.trim().orEmpty()
-            val promptAlreadyPresent =
-                eventMessages.any { message ->
-                    message is MessageItem.UserMessage && message.text.trim() == initialPrompt
+            val firstConversationMessage =
+                eventMessages.firstOrNull { message ->
+                    message is MessageItem.UserMessage || message is MessageItem.AgentMessage
                 }
+            val promptAlreadyPresent =
+                (firstConversationMessage as? MessageItem.UserMessage)?.text?.trim() == initialPrompt
             val promptSession =
                 currentSession?.takeIf {
                     initialPrompt.isNotBlank() &&

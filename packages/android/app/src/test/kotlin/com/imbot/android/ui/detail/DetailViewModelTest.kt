@@ -151,6 +151,42 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `loadSession still restores legacy initial prompt when a later turn repeats the same text`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionEventsResult =
+                        Result.success(
+                            RelayEventPage(
+                                events =
+                                    listOf(
+                                        event(
+                                            seq = 1,
+                                            eventType = "assistant_message",
+                                            payload = payload("text" to "先看一下仓库"),
+                                        ),
+                                        event(
+                                            seq = 2,
+                                            eventType = "user_message",
+                                            payload = payload("text" to "分析这个仓库"),
+                                        ),
+                                    ),
+                                hasMore = false,
+                            ),
+                        )
+                }
+
+            val viewModel = createViewModel(relay = relay, ws = FakeRelayWsClient())
+            advanceUntilIdle()
+
+            val messages = viewModel.uiState.value.messages
+            assertEquals(3, messages.size)
+            assertUserMessage(messages[0], "分析这个仓库")
+            assertAgentMessage(messages[1], "先看一下仓库", isStreaming = false)
+            assertUserMessage(messages[2], "分析这个仓库")
+        }
+
+    @Test
     fun `loadSession does not synthesize a user bubble for empty sessions`() =
         runTest(mainDispatcherRule.dispatcher) {
             val relay =

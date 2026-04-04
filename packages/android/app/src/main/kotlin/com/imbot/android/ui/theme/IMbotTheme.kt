@@ -27,6 +27,7 @@ val LocalUseDarkTheme = staticCompositionLocalOf { false }
 internal fun resolveThemeResolution(
     themeMode: String,
     systemInDarkTheme: Boolean,
+    @Suppress("UnusedParameter")
     sdkInt: Int,
 ): ThemeResolution {
     val useDarkTheme =

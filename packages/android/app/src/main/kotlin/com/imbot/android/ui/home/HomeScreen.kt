@@ -1,4 +1,4 @@
-@file:Suppress("FunctionName")
+@file:Suppress("FunctionName", "TooManyFunctions")
 
 package com.imbot.android.ui.home
 

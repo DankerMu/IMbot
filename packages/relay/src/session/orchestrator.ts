@@ -479,6 +479,10 @@ export class SessionOrchestrator {
       return;
     }
 
+    if (this.shouldDropDuplicateSyntheticInitialUserMessage(session, message, payload)) {
+      return;
+    }
+
     this.insertAndBroadcastEvent(session.id, message.event_type, payload);
 
     const pendingTerminalTransition = this.buildPendingTerminalTransition(activeMutation, message.event_type, payload);
@@ -764,6 +768,53 @@ export class SessionOrchestrator {
     this.insertAndBroadcastEvent(sessionId, "user_message", {
       text: normalizedText
     });
+  }
+
+  private shouldDropDuplicateSyntheticInitialUserMessage(
+    session: Session,
+    message: CompanionEventMessage,
+    payload: unknown
+  ): boolean {
+    if (message.source !== "transcript_sync" || message.event_type !== "user_message") {
+      return false;
+    }
+
+    const initialPrompt = session.initial_prompt?.trim();
+    if (!initialPrompt) {
+      return false;
+    }
+
+    const incomingText =
+      payload && typeof payload === "object" && "text" in payload && typeof payload.text === "string"
+        ? payload.text.trim()
+        : "";
+    if (!incomingText || incomingText !== initialPrompt) {
+      return false;
+    }
+
+    const conversationalEvents = this.db
+      .prepare(
+        `
+        SELECT type, payload
+        FROM session_events
+        WHERE session_id = ?
+          AND type IN ('user_message', 'assistant_message')
+        ORDER BY seq ASC
+        LIMIT 2
+        `
+      )
+      .all(session.id) as Array<{ type: EventType; payload: string }>;
+
+    if (conversationalEvents.length !== 1 || conversationalEvents[0].type !== "user_message") {
+      return false;
+    }
+
+    try {
+      const storedPayload = JSON.parse(conversationalEvents[0].payload) as { text?: string };
+      return typeof storedPayload.text === "string" && storedPayload.text.trim() === incomingText;
+    } catch {
+      return false;
+    }
   }
 
   private normalizeErrorCode(errorCode: string | undefined): ErrorCode {
