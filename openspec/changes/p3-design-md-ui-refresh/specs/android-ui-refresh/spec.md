@@ -72,6 +72,8 @@ The Session Detail top shell SHALL present provider, workspace identity, status,
 - **THEN** the top bar remains visible
 - **AND** only the middle transcript area compresses
 - **AND** the composer stays pinned above the keyboard
+- **AND** the soft-input handling remains scoped to the detail experience instead of changing every text-entry screen in the activity
+- **AND** transcript-hosted interactive answer inputs remain scrollable into view while focused
 
 ### Requirement: Workspace and Settings adopt the same editorial shell
 

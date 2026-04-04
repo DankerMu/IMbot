@@ -2,6 +2,10 @@
 
 package com.imbot.android.ui.detail
 
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.ExitTransition
@@ -20,8 +24,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,7 +35,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -66,6 +67,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -82,6 +84,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -375,6 +378,8 @@ fun SessionDetailScreen(
     }
 
     CompositionLocalProvider(LocalSnackbarHostState provides snackbarHostState) {
+        DetailSoftInputModeEffect(softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+
         Box(
             modifier =
                 modifier
@@ -711,6 +716,24 @@ fun SessionDetailScreen(
 }
 
 @Composable
+private fun DetailSoftInputModeEffect(softInputMode: Int) {
+    val view = LocalView.current
+    DisposableEffect(view, softInputMode) {
+        val activity = view.context.findActivity()
+        val window = activity?.window
+        val previousMode = window?.attributes?.softInputMode
+        if (window != null) {
+            window.setSoftInputMode(softInputMode)
+        }
+        onDispose {
+            if (window != null && previousMode != null) {
+                window.setSoftInputMode(previousMode)
+            }
+        }
+    }
+}
+
+@Composable
 private fun SessionDetailHeader(
     subtitle: String?,
     provider: String,
@@ -768,7 +791,6 @@ private fun SessionDetailHeader(
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun DetailTopBarInfo(
     subtitle: String?,
@@ -776,23 +798,25 @@ private fun DetailTopBarInfo(
     showUsageIndicator: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    if (subtitle != null || (showUsageIndicator && usage.totalTokens > 0)) {
-        FlowRow(
-            modifier = modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            subtitle?.let { subtitleText ->
-                TopBarMetaPill(
-                    text = subtitleText,
-                    modifier = Modifier.widthIn(max = 240.dp),
-                )
-            }
-            UsageIndicator(
-                usage = usage,
-                isActive = showUsageIndicator,
+    if (subtitle == null && (!showUsageIndicator || usage.totalTokens <= 0)) {
+        return
+    }
+
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        subtitle?.let { subtitleText ->
+            TopBarMetaPill(
+                text = subtitleText,
+                modifier = Modifier.fillMaxWidth(),
+                maxLines = 2,
             )
         }
+        UsageIndicator(
+            usage = usage,
+            isActive = showUsageIndicator,
+        )
     }
 }
 
@@ -800,6 +824,7 @@ private fun DetailTopBarInfo(
 private fun TopBarMetaPill(
     text: String,
     modifier: Modifier = Modifier,
+    maxLines: Int = 1,
 ) {
     Surface(
         modifier = modifier,
@@ -815,7 +840,7 @@ private fun TopBarMetaPill(
                     fontFamily = CodeFontFamily,
                 ),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1,
+            maxLines = maxLines,
             overflow = TextOverflow.Ellipsis,
         )
     }
@@ -1070,3 +1095,10 @@ private suspend fun alignTargetItemBottom(
         listState.animateScrollBy(overflow.toFloat())
     }
 }
+
+private tailrec fun Context.findActivity(): Activity? =
+    when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
+    }

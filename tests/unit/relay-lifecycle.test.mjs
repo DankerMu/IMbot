@@ -348,7 +348,7 @@ test("orchestrator.create records the initial prompt as a user_message for compa
     provider: "book",
     host_id: "macbook-1",
     cwd: "/tmp/novel",
-    prompt: "chapter opening prompt"
+    prompt: "  chapter opening prompt  "
   });
 
   assert.equal(session.status, "running");
@@ -362,6 +362,36 @@ test("orchestrator.create records the initial prompt as a user_message for compa
     JSON.parse(storedEvents.find((event) => event.type === "user_message").payload),
     { text: "chapter opening prompt" }
   );
+});
+
+test("orchestrator.create does not synthesize a user_message for openclaw sessions", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-create-openclaw-no-synthetic-user-message-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  runtime.openClawBridge.isAvailable = () => true;
+  runtime.openClawBridge.createSession = async () => ({
+    providerSessionId: "openclaw-session-1",
+    model: "openclaw"
+  });
+
+  const session = await runtime.orchestrator.create({
+    provider: "openclaw",
+    host_id: "relay-local",
+    cwd: "/tmp/openclaw-demo",
+    prompt: "  openclaw prompt should not be echoed synthetically  "
+  });
+
+  assert.equal(session.status, "running");
+
+  const storedEvents = runtime.db
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+    .all(session.id);
+
+  assert.equal(storedEvents.some((event) => event.type === "user_message"), false);
 });
 
 test("orchestrator.sendMessage returns host_offline for empty idle sessions when the host disconnects before the first message", async (t) => {

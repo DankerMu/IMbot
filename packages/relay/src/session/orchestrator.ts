@@ -756,12 +756,13 @@ export class SessionOrchestrator {
       return;
     }
 
-    if (!text || !text.trim()) {
+    const normalizedText = text?.trim();
+    if (!normalizedText) {
       return;
     }
 
     this.insertAndBroadcastEvent(sessionId, "user_message", {
-      text
+      text: normalizedText
     });
   }
 

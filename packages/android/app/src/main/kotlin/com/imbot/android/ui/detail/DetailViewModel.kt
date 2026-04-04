@@ -954,7 +954,9 @@ class DetailViewModel
                 return
             }
 
-            val messageIdentityChanged = renderedMessages.map(::messageIdentityKey) != previousState.messages.map(::messageIdentityKey)
+            val messageIdentityChanged =
+                renderedMessages.map(::messageIdentityKey) !=
+                    previousState.messages.map(::messageIdentityKey)
 
             val mutation =
                 if (allowAutoScroll) {
@@ -996,20 +998,30 @@ class DetailViewModel
             session: RelaySession?,
             eventMessages: List<MessageItem>,
         ): MessageItem.UserMessage? {
-            val currentSession = session ?: return null
-            val initialPrompt = currentSession.initialPrompt?.trim().orEmpty().ifBlank { return null }
-            if (currentSession.provider != "claude" && currentSession.provider != "book") {
-                return null
+            val currentSession = session
+            val initialPrompt = currentSession?.initialPrompt?.trim().orEmpty()
+            val promptAlreadyPresent =
+                eventMessages.any { message ->
+                    message is MessageItem.UserMessage && message.text.trim() == initialPrompt
+                }
+            val promptSession =
+                currentSession?.takeIf {
+                    initialPrompt.isNotBlank() &&
+                        supportsLegacyInitialPrompt(it.provider) &&
+                        !promptAlreadyPresent
+                }
+
+            return promptSession?.let { safeSession ->
+                MessageItem.UserMessage(
+                    id = "legacy-initial-prompt-${safeSession.id}",
+                    text = initialPrompt,
+                    timestamp = safeSession.createdAt,
+                )
             }
-            if (eventMessages.any { it is MessageItem.UserMessage }) {
-                return null
-            }
-            return MessageItem.UserMessage(
-                id = "legacy-initial-prompt-${currentSession.id}",
-                text = initialPrompt,
-                timestamp = currentSession.createdAt,
-            )
         }
+
+        private fun supportsLegacyInitialPrompt(provider: String): Boolean =
+            provider == "claude" || provider == "book"
 
         private fun messageIdentityKey(item: MessageItem): String =
             when (item) {

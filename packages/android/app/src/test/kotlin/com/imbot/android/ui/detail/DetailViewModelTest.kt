@@ -121,6 +121,36 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `loadSession preserves legacy initial prompt when later user messages exist`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionEventsResult =
+                        Result.success(
+                            RelayEventPage(
+                                events =
+                                    listOf(
+                                        event(
+                                            seq = 1,
+                                            eventType = "user_message",
+                                            payload = payload("text" to "继续下一步"),
+                                        ),
+                                    ),
+                                hasMore = false,
+                            ),
+                        )
+                }
+
+            val viewModel = createViewModel(relay = relay, ws = FakeRelayWsClient())
+            advanceUntilIdle()
+
+            val messages = viewModel.uiState.value.messages
+            assertEquals(2, messages.size)
+            assertUserMessage(messages[0], "分析这个仓库")
+            assertUserMessage(messages[1], "继续下一步")
+        }
+
+    @Test
     fun `loadSession does not synthesize a user bubble for empty sessions`() =
         runTest(mainDispatcherRule.dispatcher) {
             val relay =
@@ -138,7 +168,10 @@ class DetailViewModelTest {
     @Test
     fun `websocket events update message timeline through event processor`() =
         runTest(mainDispatcherRule.dispatcher) {
-            val relay = FakeRelayHttpClient()
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(initialPrompt = null))
+                }
             val ws = FakeRelayWsClient()
             val viewModel = createViewModel(relay = relay, ws = ws)
             advanceUntilIdle()
@@ -394,6 +427,7 @@ class DetailViewModelTest {
         runTest(mainDispatcherRule.dispatcher) {
             val relay =
                 FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(initialPrompt = null))
                     getSessionEventsHandler =
                         { _, _, _, sinceSeq, _ ->
                             when (sinceSeq) {
@@ -470,7 +504,7 @@ class DetailViewModelTest {
         runTest(mainDispatcherRule.dispatcher) {
             val relay =
                 FakeRelayHttpClient().apply {
-                    getSessionResult = Result.success(TEST_SESSION.copy(status = "idle"))
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "idle", initialPrompt = null))
                     getSessionEventsHandler =
                         { _, _, _, sinceSeq, _ ->
                             when (sinceSeq) {
@@ -1046,6 +1080,7 @@ class DetailViewModelTest {
         runTest(mainDispatcherRule.dispatcher) {
             val relay =
                 FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(initialPrompt = null))
                     getSessionEventsHandler =
                         { _, _, _, sinceSeq, _ ->
                             when (sinceSeq) {
@@ -1094,6 +1129,7 @@ class DetailViewModelTest {
             val reconnectGate = CompletableDeferred<Result<RelayEventPage>>()
             val relay =
                 FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(initialPrompt = null))
                     getSessionEventsHandler =
                         { _, _, _, sinceSeq, _ ->
                             when (sinceSeq) {

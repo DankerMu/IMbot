@@ -15,6 +15,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.CheckCircle
@@ -33,11 +35,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -50,6 +54,7 @@ import com.imbot.android.ui.theme.BrandBlue
 import com.imbot.android.ui.theme.BrandBlueLight
 import com.imbot.android.ui.theme.LabelSecondary
 import com.imbot.android.ui.theme.SuccessColor
+import kotlinx.coroutines.launch
 
 private val CardShape = RoundedCornerShape(16.dp)
 private val OptionShape = RoundedCornerShape(10.dp)
@@ -265,6 +270,7 @@ private fun InteractiveToolInputRow(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun SingleSelectInputRow(
     answerDraft: String,
@@ -275,6 +281,9 @@ private fun SingleSelectInputRow(
     onAnswerDraftChanged: (String) -> Unit,
     onSubmitAnswer: (String) -> Unit,
 ) {
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val coroutineScope = rememberCoroutineScope()
+
     Row(
         Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Bottom,
@@ -283,7 +292,17 @@ private fun SingleSelectInputRow(
         OutlinedTextField(
             value = answerDraft,
             onValueChange = onAnswerDraftChanged,
-            modifier = Modifier.weight(1f),
+            modifier =
+                Modifier
+                    .weight(1f)
+                    .bringIntoViewRequester(bringIntoViewRequester)
+                    .onFocusChanged { focusState ->
+                        if (focusState.isFocused) {
+                            coroutineScope.launch {
+                                bringIntoViewRequester.bringIntoView()
+                            }
+                        }
+                    },
             enabled = inputEnabled,
             shape = RoundedCornerShape(12.dp),
             colors =
