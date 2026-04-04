@@ -65,6 +65,9 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 ### Cross-Cutting (Completed)
 
 - `persistent-interactive-sessions` — stream-json bidirectional protocol, `idle` session state, viewer CLI, Android idle UX ✅
+- `dual-session-persistence` — 双端 session 持久化：per-provider configDir/projectsDir，SessionIndex 元数据增强，discovery/reconciler 补强
+- `stream-json-control-protocol` — stream-json 控制协议：AskUserQuestion 双向 control_request/control_response，relay answer_interactive_tool 通道
+- `visual-polish-v4` — 详情页 UI 润色 v4：CommandChip inline variant、InputBar 状态驱动、MarkdownText 表格/公式、DetailUtils 重构
 
 ### `p1` Active
 
