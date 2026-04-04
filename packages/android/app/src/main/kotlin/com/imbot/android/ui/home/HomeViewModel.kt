@@ -36,6 +36,7 @@ data class HomeUiState(
         get() = sessions.isNotEmpty() && sessions.all { session -> session.id in selectedSessionIds }
 }
 
+@Suppress("TooManyFunctions")
 @HiltViewModel
 class HomeViewModel
     @Inject

@@ -1,4 +1,4 @@
-@file:Suppress("FunctionName")
+@file:Suppress("FunctionName", "MatchingDeclarationName")
 
 package com.imbot.android.ui.detail
 
