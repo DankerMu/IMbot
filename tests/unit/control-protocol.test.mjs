@@ -105,7 +105,8 @@ function createAdapterHarness(tempDir, harnessOptions = {}) {
           child.emitJson({
             type: "system",
             subtype: "init",
-            session_id: harnessOptions.providerSessionId ?? `provider-session-${childIndex}`
+            session_id: harnessOptions.providerSessionId ?? `provider-session-${childIndex}`,
+            ...(harnessOptions.model ? { model: harnessOptions.model } : {})
           });
         }
       });
@@ -183,6 +184,139 @@ test("control_request is NOT passed to eventMapper", async (t) => {
   await flushRuntime();
 
   assert.equal(mapCalls, 0);
+});
+
+test("system init message stores model on session", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-model-"));
+  const cwd = path.join(tempDir, "project");
+  mkdirSync(cwd, { recursive: true });
+  const { adapter } = createAdapterHarness(tempDir, {
+    model: "claude-opus-4-6[1m]"
+  });
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const result = await createSession(adapter, cwd);
+
+  assert.deepEqual(result, {
+    provider_session_id: "provider-session-1",
+    model: "claude-opus-4-6[1m]"
+  });
+  assert.equal(getSession(adapter, "relay-control-1").model, "claude-opus-4-6[1m]");
+});
+
+test("result event with usage data emits session_usage event", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-usage-result-"));
+  const cwd = path.join(tempDir, "project");
+  mkdirSync(cwd, { recursive: true });
+  const { adapter, children, events } = createAdapterHarness(tempDir);
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await createSession(adapter, cwd);
+  children[0].exitCode = 0;
+  children[0].emitJson({
+    type: "result",
+    result: "done",
+    usage: {
+      input_tokens: 3,
+      cache_creation_input_tokens: 28840,
+      cache_read_input_tokens: 0,
+      output_tokens: 7
+    },
+    modelUsage: {
+      "claude-opus-4-6[1m]": {
+        inputTokens: 3,
+        outputTokens: 7,
+        cacheReadInputTokens: 0,
+        cacheCreationInputTokens: 28840,
+        contextWindow: 1000000,
+        maxOutputTokens: 64000,
+        costUSD: 0.18044
+      }
+    },
+    total_cost_usd: 0.18044
+  });
+  await flushRuntime();
+
+  assert.deepEqual(
+    events.slice(-2).map((event) => event.event_type),
+    ["session_result", "session_usage"]
+  );
+  assert.deepEqual(events.at(-1).payload, {
+    input_tokens: 3,
+    output_tokens: 7,
+    cache_creation_input_tokens: 28840,
+    cache_read_input_tokens: 0,
+    total_cost_usd: 0.18044,
+    context_window: 1000000,
+    model: "claude-opus-4-6[1m]"
+  });
+});
+
+test("result event without usage does not emit session_usage", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-no-usage-"));
+  const cwd = path.join(tempDir, "project");
+  mkdirSync(cwd, { recursive: true });
+  const { adapter, children, events } = createAdapterHarness(tempDir);
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await createSession(adapter, cwd);
+  children[0].exitCode = 0;
+  children[0].emitJson({
+    type: "result",
+    result: "done"
+  });
+  await flushRuntime();
+
+  assert.equal(events.some((event) => event.event_type === "session_usage"), false);
+});
+
+test("result event while runtime stays alive emits session_usage after session_idle", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-idle-usage-"));
+  const cwd = path.join(tempDir, "project");
+  mkdirSync(cwd, { recursive: true });
+  const { adapter, children, events } = createAdapterHarness(tempDir, {
+    model: "claude-sonnet-4-6[1m]"
+  });
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await createSession(adapter, cwd);
+  children[0].emitJson({
+    type: "result",
+    result: "turn-complete",
+    usage: {
+      input_tokens: 12,
+      output_tokens: 34
+    },
+    total_cost_usd: 0.05
+  });
+  await flushRuntime();
+
+  assert.deepEqual(
+    events.slice(-2).map((event) => event.event_type),
+    ["session_idle", "session_usage"]
+  );
+  assert.deepEqual(events.at(-1).payload, {
+    input_tokens: 12,
+    output_tokens: 34,
+    total_cost_usd: 0.05,
+    model: "claude-sonnet-4-6[1m]"
+  });
 });
 
 test("non-interactive control_request auto-allowed", async (t) => {

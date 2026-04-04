@@ -94,6 +94,104 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `session_usage event updates uiState usage`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "session_usage",
+                    payload =
+                        payload(
+                            "input_tokens" to 12,
+                            "output_tokens" to 34,
+                            "cache_creation_input_tokens" to 56,
+                            "cache_read_input_tokens" to 78,
+                            "total_cost_usd" to 0.12,
+                            "context_window" to 200_000,
+                            "model" to "claude-sonnet-4-6[1m]",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            assertEquals(
+                SessionUsageState(
+                    inputTokens = 12,
+                    outputTokens = 34,
+                    cacheCreationTokens = 56,
+                    cacheReadTokens = 78,
+                    totalCostUsd = 0.12,
+                    contextWindow = 200_000,
+                    model = "claude-sonnet-4-6[1m]",
+                ),
+                viewModel.uiState.value.usage,
+            )
+        }
+
+    @Test
+    fun `session_started event updates uiState usage model`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(model = null))
+                }
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            assertNull(viewModel.uiState.value.usage.model)
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "session_started",
+                    payload =
+                        payload(
+                            "provider_session_id" to "provider-1",
+                            "model" to "claude-opus-4-6[1m]",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            assertEquals("claude-opus-4-6[1m]", viewModel.uiState.value.usage.model)
+        }
+
+    @Test
+    fun `loadSession resets usage to default values`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "session_usage",
+                    payload =
+                        payload(
+                            "input_tokens" to 12,
+                            "output_tokens" to 34,
+                            "context_window" to 200_000,
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.loadSession()
+            advanceUntilIdle()
+
+            assertEquals(
+                SessionUsageState(model = TEST_SESSION.model),
+                viewModel.uiState.value.usage,
+            )
+        }
+
+    @Test
     fun `sendMessage adds optimistic message and removes it on failure`() =
         runTest(mainDispatcherRule.dispatcher) {
             val relay =

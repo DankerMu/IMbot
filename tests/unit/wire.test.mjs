@@ -26,7 +26,7 @@ function withMockedRandom(sequence, callback) {
 
 test("wire exports the expected protocol constants", () => {
   assert.deepEqual(wire.PROVIDERS, ["claude", "book", "openclaw"]);
-  assert.equal(wire.EVENT_TYPES.length, 12);
+  assert.equal(wire.EVENT_TYPES.length, 13);
   assert.deepEqual(wire.VALID_TRANSITIONS.running, [
     "idle",
     "completed",
@@ -50,6 +50,10 @@ test("SESSION_STATUSES includes idle", () => {
 
 test("EVENT_TYPES includes session_idle", () => {
   assert.ok(wire.EVENT_TYPES.includes("session_idle"));
+});
+
+test("EVENT_TYPES includes session_usage", () => {
+  assert.ok(wire.EVENT_TYPES.includes("session_usage"));
 });
 
 test("VALID_TRANSITIONS allows running to idle", () => {

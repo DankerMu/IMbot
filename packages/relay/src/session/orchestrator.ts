@@ -48,6 +48,11 @@ type PendingTerminalTransition = {
   readonly context?: SessionErrorContext;
 };
 
+type SessionStartMetadata = {
+  readonly providerSessionId: string | null;
+  readonly model: string | null;
+};
+
 function toBooleanFields(session: Session): Session {
   return {
     ...session,
@@ -167,8 +172,8 @@ export class SessionOrchestrator {
     this.activeLifecycleMutations.set(session.id, "create");
     try {
       if (hasPrompt) {
-        const providerSessionId = await this.dispatchCreate(session);
-        await this.markSessionStarted(session.id, providerSessionId, "queued");
+        const startMetadata = await this.dispatchCreate(session);
+        await this.markSessionStarted(session.id, startMetadata, "queued");
         await this.applyPendingTerminalTransition(session.id);
       } else {
         await this.transitionWithConflictTolerance(session.id, "idle");
@@ -211,8 +216,8 @@ export class SessionOrchestrator {
       this.assertProviderAvailable(session);
 
       const previousStatus = session.status;
-      const providerSessionId = await this.dispatchResume(session);
-      await this.markSessionStarted(session.id, providerSessionId, previousStatus);
+      const startMetadata = await this.dispatchResume(session);
+      await this.markSessionStarted(session.id, startMetadata, previousStatus);
       this.auditLogger.write("session.resume", {
         session_id: session.id,
         host_id: session.host_id,
@@ -243,11 +248,11 @@ export class SessionOrchestrator {
           ...currentSession,
           initial_prompt: text
         };
-        const providerSessionId = await this.dispatchCreate(sessionWithPrompt);
+        const startMetadata = await this.dispatchCreate(sessionWithPrompt);
         this.db
           .prepare("UPDATE sessions SET initial_prompt = ?, updated_at = datetime('now') WHERE id = ?")
           .run(text, currentSession.id);
-        await this.markSessionStarted(currentSession.id, providerSessionId, "idle");
+        await this.markSessionStarted(currentSession.id, startMetadata, "idle");
         await this.applyPendingTerminalTransition(currentSession.id);
       });
     }
@@ -785,27 +790,37 @@ export class SessionOrchestrator {
     return null;
   }
 
-  private async dispatchCreate(session: Session): Promise<string | null> {
+  private async dispatchCreate(session: Session): Promise<SessionStartMetadata> {
     if (session.provider === "openclaw") {
-      return (
-        await this.openClawBridge.createSession(session.id, session.workspace_cwd, session.initial_prompt ?? "", {
+      const openClawSession = await this.openClawBridge.createSession(
+        session.id,
+        session.workspace_cwd,
+        session.initial_prompt ?? "",
+        {
           model: session.model,
           permissionMode: session.permission_mode
-        })
-      ).sessionKey;
+        }
+      );
+      return {
+        providerSessionId: openClawSession.sessionKey,
+        model: session.model
+      };
     }
 
     return await this.createCompanionSession(session);
   }
 
-  private async dispatchResume(session: Session): Promise<string> {
+  private async dispatchResume(session: Session): Promise<SessionStartMetadata> {
     if (!session.provider_session_id) {
       throw new RelayError("session_not_resumable", `Session ${session.id} has no provider session id`);
     }
 
     if (session.provider === "openclaw") {
       await this.openClawBridge.resumeSession(session.id, session.provider_session_id);
-      return session.provider_session_id;
+      return {
+        providerSessionId: session.provider_session_id,
+        model: session.model
+      };
     }
 
     const ack = await this.companionManager.sendCommand(session.host_id, {
@@ -816,7 +831,11 @@ export class SessionOrchestrator {
       cwd: session.workspace_cwd
     });
 
-    return this.extractProviderSessionIdFromAck(ack) ?? session.provider_session_id;
+    const startMetadata = this.extractStartMetadataFromAck(ack);
+    return {
+      providerSessionId: startMetadata.providerSessionId ?? session.provider_session_id,
+      model: startMetadata.model ?? session.model
+    };
   }
 
   private async dispatchSendMessage(session: Session, text: string): Promise<void> {
@@ -860,7 +879,7 @@ export class SessionOrchestrator {
     this.assertAckOk(ack);
   }
 
-  private async createCompanionSession(session: Session): Promise<string | null> {
+  private async createCompanionSession(session: Session): Promise<SessionStartMetadata> {
     const command = {
       cmd: "create_session" as const,
       req_id: this.companionManager.createRequestId(),
@@ -875,7 +894,11 @@ export class SessionOrchestrator {
     };
 
     const ack = await this.companionManager.sendCommand(session.host_id, command);
-    return this.extractProviderSessionIdFromAck(ack);
+    const startMetadata = this.extractStartMetadataFromAck(ack);
+    return {
+      providerSessionId: startMetadata.providerSessionId,
+      model: startMetadata.model ?? session.model
+    };
   }
 
   private assertAckOk(ack: unknown): asserts ack is { type: "ack"; status: "ok"; data?: unknown } {
@@ -891,28 +914,33 @@ export class SessionOrchestrator {
     }
   }
 
-  private extractProviderSessionIdFromAck(ack: unknown): string | null {
+  private extractStartMetadataFromAck(ack: unknown): SessionStartMetadata {
     this.assertAckOk(ack);
 
-    return ack.data &&
-      typeof ack.data === "object" &&
-      "provider_session_id" in ack.data &&
-      typeof ack.data.provider_session_id === "string"
-      ? ack.data.provider_session_id
-      : null;
+    const data = ack.data && typeof ack.data === "object" ? ack.data : null;
+    return {
+      providerSessionId:
+        data && "provider_session_id" in data && typeof data.provider_session_id === "string"
+          ? data.provider_session_id
+          : null,
+      model: data && "model" in data && typeof data.model === "string" ? data.model : null
+    };
   }
 
   private async markSessionStarted(
     sessionId: string,
-    providerSessionId: string | null,
+    startMetadata: SessionStartMetadata,
     expectedStatus: "queued" | "idle" | "completed" | "failed" | "cancelled"
   ): Promise<void> {
+    const session = this.requireSession(sessionId);
+    const model = startMetadata.model ?? session.model ?? null;
     const now = new Date().toISOString();
     const result = this.db
       .prepare(
         `
         UPDATE sessions
         SET provider_session_id = ?,
+            model = ?,
             status = 'running',
             error_code = NULL,
             error_message = NULL,
@@ -922,7 +950,7 @@ export class SessionOrchestrator {
         WHERE id = ? AND status = ?
         `
       )
-      .run(providerSessionId, now, now, sessionId, expectedStatus);
+      .run(startMetadata.providerSessionId, model, now, now, sessionId, expectedStatus);
 
     if (result.changes !== 1) {
       throw new RelayError(
@@ -933,7 +961,8 @@ export class SessionOrchestrator {
 
     if (!this.isLatestEventType(sessionId, "session_started")) {
       this.insertAndBroadcastEvent(sessionId, "session_started", {
-        provider_session_id: providerSessionId
+        provider_session_id: startMetadata.providerSessionId,
+        ...(model ? { model } : {})
       });
     }
 

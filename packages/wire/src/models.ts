@@ -49,3 +49,13 @@ export interface SessionEvent {
   payload: unknown;
   created_at: string;
 }
+
+export interface SessionUsagePayload {
+  input_tokens: number;
+  output_tokens: number;
+  cache_creation_input_tokens?: number;
+  cache_read_input_tokens?: number;
+  total_cost_usd?: number;
+  context_window?: number;
+  model?: string;
+}

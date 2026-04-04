@@ -5,6 +5,7 @@ export type RuntimeMappedMessage =
   | {
       readonly kind: "provider_session_id";
       readonly providerSessionId: string;
+      readonly model?: string;
     }
   | {
       readonly kind: "event";
@@ -50,9 +51,11 @@ export class RuntimeEventMapper {
 
     // ── provider session id ──────────────────────────────────────────
     if (type === "system" && typeof record.session_id === "string") {
+      const model = getString(record.model);
       return {
         kind: "provider_session_id",
-        providerSessionId: record.session_id
+        providerSessionId: record.session_id,
+        ...(model ? { model } : {})
       };
     }
 
