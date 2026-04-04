@@ -54,10 +54,14 @@ function createRuntimeConfig(tempDir) {
     hostId: "macbook-1",
     providers: {
       claude: {
-        binary: "claude"
+        binary: "claude",
+        configDir: path.join(tempDir, ".claude"),
+        projectsDir: path.join(tempDir, ".claude", "projects")
       },
       book: {
-        binary: "book"
+        binary: "book",
+        configDir: path.join(tempDir, ".claudebook"),
+        projectsDir: path.join(tempDir, ".claudebook", "projects")
       }
     },
     sessionIndexPath: path.join(tempDir, "sessions.json"),
@@ -69,8 +73,8 @@ function encodeProjectPath(projectPath) {
   return projectPath.replace(/^\/+/, "").replace(/\//g, "-");
 }
 
-function createDiscoveredSessionFile(cwd, sessionId, createdAt, contents = '{"ok":true}\n') {
-  const projectDir = path.join(os.homedir(), ".claude", "projects", encodeProjectPath(cwd));
+function createDiscoveredSessionFileInProjectsDir(projectsDir, cwd, sessionId, createdAt, contents = '{"ok":true}\n') {
+  const projectDir = path.join(projectsDir, encodeProjectPath(cwd));
   mkdirSync(projectDir, { recursive: true });
 
   const sessionFile = path.join(projectDir, `${sessionId}.jsonl`);
@@ -83,6 +87,16 @@ function createDiscoveredSessionFile(cwd, sessionId, createdAt, contents = '{"ok
     projectDir,
     sessionFile
   };
+}
+
+function createDiscoveredSessionFile(cwd, sessionId, createdAt, contents = '{"ok":true}\n') {
+  return createDiscoveredSessionFileInProjectsDir(
+    path.join(os.homedir(), ".claude", "projects"),
+    cwd,
+    sessionId,
+    createdAt,
+    contents
+  );
 }
 
 test("loadCompanionConfig reads env overrides and validates configured providers", () => {
@@ -1229,13 +1243,19 @@ test("CompanionRuntime list_sessions handler dispatches correctly", async () => 
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-list-"));
   const cwd = path.join(tempDir, "workspace");
   const sentMessages = [];
-  const { projectDir } = createDiscoveredSessionFile(cwd, "session-runtime", "2026-03-30T02:00:00.000Z");
+  const config = createRuntimeConfig(tempDir);
+  const { projectDir } = createDiscoveredSessionFileInProjectsDir(
+    config.providers.claude.projectsDir,
+    cwd,
+    "session-runtime",
+    "2026-03-30T02:00:00.000Z"
+  );
   mkdirSync(cwd, { recursive: true });
 
   let runtime;
   try {
     runtime = await companion.createCompanionRuntime({
-      config: createRuntimeConfig(tempDir),
+      config,
       logger: silentLogger
     });
     runtime.relayClient.send = (message) => {
@@ -1268,6 +1288,137 @@ test("CompanionRuntime list_sessions handler dispatches correctly", async () => 
     }
 
     rmSync(projectDir, { recursive: true, force: true });
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("CompanionRuntime list_sessions uses full-scan mode when cwd is omitted", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-list-all-"));
+  const sentMessages = [];
+  const config = createRuntimeConfig(tempDir);
+  const firstCwd = "/tmp/imbotsessionall/workspacea";
+  const secondCwd = "/tmp/imbotsessionall/workspaceb";
+
+  createDiscoveredSessionFileInProjectsDir(
+    config.providers.claude.projectsDir,
+    firstCwd,
+    "session-a",
+    "2026-03-30T01:00:00.000Z"
+  );
+  createDiscoveredSessionFileInProjectsDir(
+    config.providers.claude.projectsDir,
+    secondCwd,
+    "session-b",
+    "2026-03-30T02:00:00.000Z"
+  );
+
+  let runtime;
+  try {
+    runtime = await companion.createCompanionRuntime({
+      config,
+      logger: silentLogger
+    });
+    runtime.relayClient.send = (message) => {
+      sentMessages.push(message);
+    };
+
+    runtime.relayClient.emit("message", {
+      cmd: "list_sessions",
+      req_id: "req-list-all",
+      provider: "claude"
+    });
+
+    await waitFor(() => sentMessages.length === 1);
+
+    assert.equal(sentMessages[0].type, "ack");
+    assert.equal(sentMessages[0].status, "ok");
+    assert.deepEqual(
+      sentMessages[0].data.map((entry) => ({
+        provider_session_id: entry.provider_session_id,
+        cwd: entry.cwd
+      })),
+      [
+        {
+          provider_session_id: "session-b",
+          cwd: secondCwd
+        },
+        {
+          provider_session_id: "session-a",
+          cwd: firstCwd
+        }
+      ]
+    );
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("CompanionRuntime list_sessions uses full-scan mode for wildcard cwd", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-list-wildcard-"));
+  const sentMessages = [];
+  const config = createRuntimeConfig(tempDir);
+  const firstCwd = "/tmp/imbotsessionwildcard/workspacea";
+  const secondCwd = "/tmp/imbotsessionwildcard/workspaceb";
+
+  createDiscoveredSessionFileInProjectsDir(
+    config.providers.claude.projectsDir,
+    firstCwd,
+    "session-a",
+    "2026-03-30T01:00:00.000Z"
+  );
+  createDiscoveredSessionFileInProjectsDir(
+    config.providers.claude.projectsDir,
+    secondCwd,
+    "session-b",
+    "2026-03-30T02:00:00.000Z"
+  );
+
+  let runtime;
+  try {
+    runtime = await companion.createCompanionRuntime({
+      config,
+      logger: silentLogger
+    });
+    runtime.relayClient.send = (message) => {
+      sentMessages.push(message);
+    };
+
+    runtime.relayClient.emit("message", {
+      cmd: "list_sessions",
+      req_id: "req-list-wildcard",
+      cwd: "*",
+      provider: "claude"
+    });
+
+    await waitFor(() => sentMessages.length === 1);
+
+    assert.equal(sentMessages[0].type, "ack");
+    assert.equal(sentMessages[0].status, "ok");
+    assert.deepEqual(
+      sentMessages[0].data.map((entry) => ({
+        provider_session_id: entry.provider_session_id,
+        cwd: entry.cwd
+      })),
+      [
+        {
+          provider_session_id: "session-b",
+          cwd: secondCwd
+        },
+        {
+          provider_session_id: "session-a",
+          cwd: firstCwd
+        }
+      ]
+    );
+  } finally {
+    if (runtime) {
+      await runtime.close();
+    }
+
     rmSync(tempDir, { recursive: true, force: true });
   }
 });

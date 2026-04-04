@@ -7,7 +7,7 @@ import type {
 import type { CompanionProviderConfig } from "../config";
 import type { LoggerLike } from "../types";
 import { ConfigManager } from "../workspace/config-manager";
-import { discoverSessions } from "./session-discovery";
+import { discoverAllSessions } from "./session-discovery";
 import { SessionIndex, type SessionIndexEntry } from "./session-index";
 
 const MAX_REPORTED_SESSIONS = 200;
@@ -19,7 +19,7 @@ export interface SessionReconcilerOptions {
   readonly sendMessage: (message: CompanionReportLocalSessionsMessage) => void;
   readonly hostId: string;
   readonly logger?: LoggerLike;
-  readonly discoverSessionsFn?: typeof discoverSessions;
+  readonly discoverAllSessionsFn?: typeof discoverAllSessions;
 }
 
 type DiscoveredSessionRecord = LocalSessionInfo & {
@@ -28,12 +28,12 @@ type DiscoveredSessionRecord = LocalSessionInfo & {
 
 export class SessionReconciler {
   private readonly logger: LoggerLike;
-  private readonly discoverSessionsFn: typeof discoverSessions;
+  private readonly discoverAllSessionsFn: typeof discoverAllSessions;
   private running = false;
 
   constructor(private readonly options: SessionReconcilerOptions) {
     this.logger = options.logger ?? console;
-    this.discoverSessionsFn = options.discoverSessionsFn ?? discoverSessions;
+    this.discoverAllSessionsFn = options.discoverAllSessionsFn ?? discoverAllSessions;
   }
 
   async reconcile(): Promise<{ reported: number; skipped: number }> {
@@ -58,24 +58,25 @@ export class SessionReconciler {
     const pendingProviderSessionIds = new Set<string>();
     const newSessions: DiscoveredSessionRecord[] = [];
     let skipped = 0;
+    const providers = new Set(roots.map((root) => root.provider));
 
-    for (const root of roots) {
-      const providerConfig = this.options.providers[root.provider];
+    for (const provider of providers) {
+      const providerConfig = this.options.providers[provider];
       if (!providerConfig) {
-        this.logger.warn?.(`Skipping session reconciliation for unconfigured provider ${root.provider}`);
+        this.logger.warn?.(`Skipping session reconciliation for unconfigured provider ${provider}`);
         continue;
       }
 
       let discovered: LocalSessionInfo[];
       try {
-        discovered = await this.discoverSessionsFn(root.path, root.provider, {
+        discovered = await this.discoverAllSessionsFn(provider, {
           claudeProjectsDir: providerConfig.projectsDir,
           logger: this.logger,
           limit: MAX_REPORTED_SESSIONS
         });
       } catch (error) {
         this.logger.warn?.(
-          `Failed to reconcile local sessions for provider ${root.provider} at ${root.path}: ${formatError(error)}`
+          `Failed to reconcile local sessions for provider ${provider}: ${formatError(error)}`
         );
         continue;
       }
@@ -99,7 +100,7 @@ export class SessionReconciler {
         pendingProviderSessionIds.add(session.provider_session_id);
         newSessions.push({
           ...session,
-          provider: root.provider
+          provider
         });
       }
     }

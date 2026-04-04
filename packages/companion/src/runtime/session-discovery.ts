@@ -107,6 +107,104 @@ export async function discoverSessions(
   return discovered.slice(0, maxResults);
 }
 
+export async function discoverAllSessions(
+  provider: InteractiveProvider,
+  options: SessionDiscoveryOptions = {}
+): Promise<LocalSessionInfo[]> {
+  const logger = options.logger ?? console;
+  const claudeProjectsDir =
+    options.claudeProjectsDir ?? path.join(os.homedir(), ".claude", "projects");
+
+  // The caller selects the provider-specific projects directory.
+  void provider;
+
+  let projectEntries: Dirent[];
+  try {
+    projectEntries = await fs.readdir(claudeProjectsDir, {
+      withFileTypes: true
+    });
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return [];
+    }
+
+    logger.warn?.(
+      `Failed to read Claude projects directory ${claudeProjectsDir}: ${formatErrorMessage(error)}`
+    );
+    return [];
+  }
+
+  const discovered: LocalSessionInfo[] = [];
+  for (const projectEntry of projectEntries) {
+    if (!projectEntry.isDirectory()) {
+      continue;
+    }
+
+    const projectDirPath = path.join(claudeProjectsDir, projectEntry.name);
+    const decodedProjectCwd = decodeProjectDirectory(projectEntry.name);
+    const projectCwd =
+      decodedProjectCwd ??
+      normalizeComparablePath(`/${projectEntry.name.replace(/-/g, "/")}`);
+    if (!decodedProjectCwd) {
+      logger.warn?.(
+        `Failed to decode project directory ${projectEntry.name}; using fallback cwd ${projectCwd}`
+      );
+    }
+
+    let sessionEntries: Dirent[];
+    try {
+      sessionEntries = await fs.readdir(projectDirPath, {
+        withFileTypes: true
+      });
+    } catch (error) {
+      logger.warn?.(`Skipping unreadable project directory ${projectDirPath}: ${formatErrorMessage(error)}`);
+      continue;
+    }
+
+    for (const sessionEntry of sessionEntries) {
+      if (!sessionEntry.isFile() || !sessionEntry.name.endsWith(".jsonl")) {
+        continue;
+      }
+
+      const providerSessionId = sessionEntry.name.slice(0, -".jsonl".length);
+      if (!providerSessionId) {
+        logger.warn?.(`Skipping session file without session id: ${path.join(projectDirPath, sessionEntry.name)}`);
+        continue;
+      }
+
+      const sessionFilePath = path.join(projectDirPath, sessionEntry.name);
+      let stat: Stats;
+      try {
+        stat = await fs.stat(sessionFilePath);
+      } catch (error) {
+        logger.warn?.(`Skipping unreadable session file ${sessionFilePath}: ${formatErrorMessage(error)}`);
+        continue;
+      }
+
+      let status: LocalSessionInfo["status"] = stat.size === 0 ? "unknown" : "completed";
+      if (status === "completed") {
+        try {
+          await fs.access(sessionFilePath, fsConstants.R_OK);
+        } catch (error) {
+          logger.warn?.(`Session file ${sessionFilePath} is unreadable: ${formatErrorMessage(error)}`);
+          status = "unknown";
+        }
+      }
+
+      discovered.push({
+        provider_session_id: providerSessionId,
+        cwd: projectCwd,
+        created_at: stat.mtime.toISOString(),
+        status
+      });
+    }
+  }
+
+  const maxResults = options.limit ?? 200;
+  discovered.sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+  return discovered.slice(0, maxResults);
+}
+
 function resolveProjectCwd(projectDirName: string, normalizedCwd: string): string | null {
   const recoveredFromPrefix = recoverProjectPathFromPrefix(projectDirName, normalizedCwd);
   if (recoveredFromPrefix && isSameOrNestedPath(recoveredFromPrefix, normalizedCwd)) {

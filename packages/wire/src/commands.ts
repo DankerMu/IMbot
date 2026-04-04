@@ -50,7 +50,7 @@ export type AnswerInteractiveToolCommand = {
 export type ListSessionsCommand = {
   cmd: "list_sessions";
   req_id: string;
-  cwd: string;
+  cwd?: string;
   provider: InteractiveProvider;
 };
 
