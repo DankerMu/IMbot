@@ -153,7 +153,6 @@ class EventProcessor(
             val resolved =
                 if (
                     interactive.isAnswered ||
-                    canRespondToInteractiveRequest(sessionStatus) ||
                     mergedAnswer.isNullOrBlank()
                 ) {
                     interactive

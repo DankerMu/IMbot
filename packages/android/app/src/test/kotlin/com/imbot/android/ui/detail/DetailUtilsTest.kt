@@ -455,6 +455,7 @@ class DetailUtilsTest {
     fun `shouldIgnoreSessionSnapshotStatus blocks stale regressions after catch up`() {
         assertTrue(shouldIgnoreSessionSnapshotStatus(currentStatus = "idle", snapshotStatus = "running"))
         assertTrue(shouldIgnoreSessionSnapshotStatus(currentStatus = "completed", snapshotStatus = "running"))
+        assertTrue(shouldIgnoreSessionSnapshotStatus(currentStatus = "running", snapshotStatus = "queued"))
         assertFalse(shouldIgnoreSessionSnapshotStatus(currentStatus = "running", snapshotStatus = "completed"))
         assertFalse(shouldIgnoreSessionSnapshotStatus(currentStatus = "failed", snapshotStatus = "completed"))
     }

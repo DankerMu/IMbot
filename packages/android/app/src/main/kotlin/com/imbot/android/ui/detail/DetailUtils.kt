@@ -178,6 +178,7 @@ internal fun shouldIgnoreSessionSnapshotStatus(
         currentStatus.isNullOrBlank() || snapshotStatus.isNullOrBlank() -> false
         currentStatus == snapshotStatus -> false
         currentStatus == "idle" && snapshotStatus in setOf("queued", "running") -> true
+        currentStatus == "running" && snapshotStatus == "queued" -> true
         currentStatus in RESUMABLE_STATUSES && snapshotStatus !in RESUMABLE_STATUSES -> true
         else -> false
     }
