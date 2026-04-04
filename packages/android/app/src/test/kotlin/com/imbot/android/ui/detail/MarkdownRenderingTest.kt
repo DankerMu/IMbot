@@ -107,4 +107,43 @@ class MarkdownRenderingTest {
         assertEquals(12.dp, markdownBlockBottomPadding(0, blocks, MarkdownParagraphSpacing))
         assertEquals(0.dp, markdownBlockBottomPadding(1, blocks, MarkdownParagraphSpacing))
     }
+
+    @Test
+    fun `assistant single-line fast path stays plain text only for true plain paragraphs`() {
+        assertTrue(
+            shouldRenderAssistantMessageAsPlainText(
+                content = "plain status reply",
+                parsedBlocks = listOf(MarkdownBlock.Paragraph("plain status reply")),
+            ),
+        )
+
+        assertEquals(
+            false,
+            shouldRenderAssistantMessageAsPlainText(
+                content = "**bold**",
+                parsedBlocks = listOf(MarkdownBlock.Paragraph("**bold**")),
+            ),
+        )
+        assertEquals(
+            false,
+            shouldRenderAssistantMessageAsPlainText(
+                content = "`code`",
+                parsedBlocks = listOf(MarkdownBlock.Paragraph("`code`")),
+            ),
+        )
+        assertEquals(
+            false,
+            shouldRenderAssistantMessageAsPlainText(
+                content = "[OpenAI](https://openai.com)",
+                parsedBlocks = listOf(MarkdownBlock.Paragraph("[OpenAI](https://openai.com)")),
+            ),
+        )
+        assertEquals(
+            false,
+            shouldRenderAssistantMessageAsPlainText(
+                content = "\$x^2\$",
+                parsedBlocks = listOf(MarkdownBlock.Paragraph("\$x^2\$")),
+            ),
+        )
+    }
 }

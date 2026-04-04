@@ -195,7 +195,12 @@ private fun AgentMessageBubble(
         }
     val parsedBlocks = remember(content) { parseMarkdownBlocks(content) }
     val plainParagraph = parsedBlocks.singleOrNull() as? MarkdownBlock.Paragraph
-    val renderAsPlainText = plainParagraph != null && !content.contains('\n')
+    val renderAsPlainText =
+        plainParagraph != null &&
+            shouldRenderAssistantMessageAsPlainText(
+                content = content,
+                parsedBlocks = parsedBlocks,
+            )
     val outlineVariant = MaterialTheme.colorScheme.outlineVariant
     val bubbleBorder =
         remember(outlineVariant, useDarkTheme) {
@@ -291,6 +296,31 @@ private fun AgentMessageBubble(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+private val assistantInlineMarkdownRegexes =
+    listOf(
+        Regex("""`[^`\n]+`"""),
+        Regex("""\[[^\]\n]+]\([^)]+\)"""),
+        Regex("""\*\*[^*\n]+\*\*"""),
+        Regex("""__[^_\n]+__"""),
+        Regex("""~~[^~\n]+~~"""),
+        Regex("""(?<!\*)\*[^*\n]+\*(?!\*)"""),
+        Regex("""(?<!_)_[^_\n]+_(?!_)"""),
+        Regex("""\$[^$\n]+\$"""),
+    )
+
+internal fun shouldRenderAssistantMessageAsPlainText(
+    content: String,
+    parsedBlocks: List<MarkdownBlock>,
+): Boolean {
+    if (content.contains('\n')) {
+        return false
+    }
+    if (parsedBlocks.singleOrNull() !is MarkdownBlock.Paragraph) {
+        return false
+    }
+    return assistantInlineMarkdownRegexes.none { regex -> regex.containsMatchIn(content) }
 }
 
 @Composable
