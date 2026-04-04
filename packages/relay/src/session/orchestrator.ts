@@ -239,15 +239,14 @@ export class SessionOrchestrator {
         }
 
         this.assertProviderAvailable(currentSession);
-        this.db
-          .prepare("UPDATE sessions SET initial_prompt = ?, updated_at = datetime('now') WHERE id = ?")
-          .run(text, currentSession.id);
-
         const sessionWithPrompt = {
           ...currentSession,
           initial_prompt: text
         };
         const providerSessionId = await this.dispatchCreate(sessionWithPrompt);
+        this.db
+          .prepare("UPDATE sessions SET initial_prompt = ?, updated_at = datetime('now') WHERE id = ?")
+          .run(text, currentSession.id);
         await this.markSessionStarted(currentSession.id, providerSessionId, "idle");
         await this.applyPendingTerminalTransition(currentSession.id);
       });
@@ -377,7 +376,7 @@ export class SessionOrchestrator {
       const session = this.requireSession(sessionId);
       const previousStatus = session.status;
 
-      if (session.status === "running" || session.status === "idle") {
+      if ((session.status === "running" || session.status === "idle") && Boolean(session.provider_session_id)) {
         try {
           await this.dispatchCancel(session);
         } catch {

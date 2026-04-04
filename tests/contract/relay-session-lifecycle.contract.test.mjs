@@ -1395,3 +1395,64 @@ test("relay returns host_offline when resuming a completed session after the com
     status: "completed"
   });
 });
+
+test("relay deletes an empty idle session without sending companion commands", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-empty-delete-contract-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  const companionMessages = [];
+  companion.addEventListener("message", (event) => {
+    companionMessages.push(JSON.parse(event.data));
+  });
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createIdleSessionWithoutPrompt({ baseUrl, config, runtime }, companion);
+
+  const deleteResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}`, {
+    method: "DELETE",
+    headers: { authorization: `Bearer ${config.staticToken}` }
+  });
+  assert.equal(deleteResponse.status, 204);
+
+  const deletedSession = runtime.db
+    .prepare("SELECT id FROM sessions WHERE id = ?")
+    .get(sessionId);
+  assert.equal(deletedSession, undefined);
+
+  const cancelCommands = companionMessages.filter(
+    (msg) => msg.cmd === "cancel_session" && msg.session_id === sessionId
+  );
+  assert.equal(cancelCommands.length, 0, "no cancel_session sent to companion for empty session");
+});
+
+test("relay rejects resume on an idle session with state_conflict", async (t) => {
+  const { tempDir, config, runtime, baseUrl, baseWsUrl } = await createRelayRuntime("imbot-relay-idle-resume-reject-contract-");
+  const companion = new WebSocket(
+    `${baseWsUrl}/v1/companion?token=${config.staticToken}&host_id=macbook-1`
+  );
+  await waitForOpen(companion, "companion");
+
+  t.after(async () => {
+    companion.close();
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const { sessionId } = await createIdleSessionWithoutPrompt({ baseUrl, config, runtime }, companion);
+
+  const resumeResponse = await fetch(`${baseUrl}/v1/sessions/${sessionId}/resume`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${config.staticToken}` }
+  });
+  assert.equal(resumeResponse.status, 409);
+
+  assert.deepEqual(await resumeResponse.json(), { error: "state_conflict" });
+});
