@@ -85,7 +85,7 @@ async function waitForCondition(check, label, timeoutMs = 5000, intervalMs = 25)
 }
 
 test("relay marks running sessions as failed when the companion disconnects unexpectedly", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-host-disconnect-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_relay_host_disconnect_"));
   const config = relay.loadConfig({
     RELAY_STATIC_TOKEN: "t".repeat(64),
     RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
@@ -217,7 +217,7 @@ test("relay marks running sessions as failed when the companion disconnects unex
 });
 
 test("relay also marks idle sessions as failed when the companion disconnects unexpectedly", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-idle-host-disconnect-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_relay_idle_host_disconnect_"));
   const config = relay.loadConfig({
     RELAY_STATIC_TOKEN: "t".repeat(64),
     RELAY_DB_PATH: path.join(tempDir, "imbot.db"),

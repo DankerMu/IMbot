@@ -252,7 +252,7 @@ function createDiscoveredSessionFile(projectsDir, cwd, sessionId, createdAt, con
 }
 
 test("companion runs a persistent multi-turn stream-json session and completes it explicitly", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-runtime-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_companion_runtime_"));
   const server = new WebSocketServer({
     port: 0,
     host: "127.0.0.1"
@@ -456,7 +456,7 @@ test("companion runs a persistent multi-turn stream-json session and completes i
 });
 
 test("companion triggers session reconciliation on connect and reconnect", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-reconcile-runtime-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_companion_reconcile_runtime_"));
   const server = new WebSocketServer({
     port: 0,
     host: "127.0.0.1"
@@ -576,7 +576,7 @@ test("companion triggers session reconciliation on connect and reconnect", async
 });
 
 test("companion handles browse_directory commands and returns subdirectories only", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-browse-runtime-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_companion_browse_runtime_"));
   const workspaceRoot = path.join(tempDir, "workspace");
   const workspaceLink = path.join(tempDir, "workspace-link");
   const projectDir = path.join(workspaceRoot, "project");
@@ -666,7 +666,7 @@ test("companion handles browse_directory commands and returns subdirectories onl
 });
 
 test("companion rejects browse_directory when canonical target escapes provided roots", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-browse-guard-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_companion_browse_guard_"));
   const workspaceRoot = path.join(tempDir, "workspace");
   const outsideDir = path.join(tempDir, "outside");
   const escapeLink = path.join(workspaceRoot, "escape-link");
@@ -739,7 +739,7 @@ test("companion rejects browse_directory when canonical target escapes provided 
 });
 
 test("companion reconnects after relay disconnect and supports send_message plus cancel_session", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-reconnect-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_companion_reconnect_"));
   const server = new WebSocketServer({
     port: 0,
     host: "127.0.0.1"
