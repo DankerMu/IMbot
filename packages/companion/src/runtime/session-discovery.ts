@@ -64,7 +64,7 @@ export async function discoverSessions(
     }
 
     for (const sessionEntry of sessionEntries) {
-      if (!sessionEntry.isFile() || !sessionEntry.name.endsWith(".jsonl")) {
+      if (!sessionEntry.isFile() || sessionEntry.isSymbolicLink() || !sessionEntry.name.endsWith(".jsonl")) {
         continue;
       }
 
@@ -77,9 +77,13 @@ export async function discoverSessions(
       const sessionFilePath = path.join(projectDirPath, sessionEntry.name);
       let stat: Stats;
       try {
-        stat = await fs.stat(sessionFilePath);
+        stat = await fs.lstat(sessionFilePath);
       } catch (error) {
         logger.warn?.(`Skipping unreadable session file ${sessionFilePath}: ${formatErrorMessage(error)}`);
+        continue;
+      }
+
+      if (stat.isSymbolicLink()) {
         continue;
       }
 
@@ -136,7 +140,7 @@ export async function discoverAllSessions(
 
   const discovered: LocalSessionInfo[] = [];
   for (const projectEntry of projectEntries) {
-    if (!projectEntry.isDirectory()) {
+    if (!projectEntry.isDirectory() || projectEntry.isSymbolicLink()) {
       continue;
     }
 
@@ -145,6 +149,15 @@ export async function discoverAllSessions(
     const projectCwd =
       decodedProjectCwd ??
       normalizeComparablePath(`/${projectEntry.name.replace(/-/g, "/")}`);
+
+    // Reject decoded paths that escape the root via ".." segments
+    if (projectCwd.includes("/..") || projectCwd.includes("\\..")) {
+      logger.warn?.(
+        `Skipping project directory with path traversal: ${projectEntry.name} → ${projectCwd}`
+      );
+      continue;
+    }
+
     if (!decodedProjectCwd) {
       logger.warn?.(
         `Failed to decode project directory ${projectEntry.name}; using fallback cwd ${projectCwd}`
@@ -162,7 +175,7 @@ export async function discoverAllSessions(
     }
 
     for (const sessionEntry of sessionEntries) {
-      if (!sessionEntry.isFile() || !sessionEntry.name.endsWith(".jsonl")) {
+      if (!sessionEntry.isFile() || sessionEntry.isSymbolicLink() || !sessionEntry.name.endsWith(".jsonl")) {
         continue;
       }
 
@@ -175,9 +188,13 @@ export async function discoverAllSessions(
       const sessionFilePath = path.join(projectDirPath, sessionEntry.name);
       let stat: Stats;
       try {
-        stat = await fs.stat(sessionFilePath);
+        stat = await fs.lstat(sessionFilePath);
       } catch (error) {
         logger.warn?.(`Skipping unreadable session file ${sessionFilePath}: ${formatErrorMessage(error)}`);
+        continue;
+      }
+
+      if (stat.isSymbolicLink()) {
         continue;
       }
 

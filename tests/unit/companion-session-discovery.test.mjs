@@ -524,21 +524,21 @@ test("discoverAllSessions skips session files when stat fails", async () => {
   const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-all-stat-fail-"));
   const cwd = "/Users/danker/Desktop/AIvault";
   const warnings = [];
-  const originalStat = nodeFs.promises.stat;
+  const originalLstat = nodeFs.promises.lstat;
   let brokenSessionFile;
 
   try {
     brokenSessionFile = createSessionFile(projectsDir, cwd, "session-bad", "2026-03-30T07:00:00.000Z");
     createSessionFile(projectsDir, cwd, "session-good", "2026-03-30T08:00:00.000Z");
 
-    nodeFs.promises.stat = async function patchedStat(targetPath, ...rest) {
+    nodeFs.promises.lstat = async function patchedLstat(targetPath, ...rest) {
       if (String(targetPath) === brokenSessionFile) {
         const error = new Error("stat failed");
         error.code = "EACCES";
         throw error;
       }
 
-      return await originalStat.call(this, targetPath, ...rest);
+      return await originalLstat.call(this, targetPath, ...rest);
     };
 
     const results = await companion.discoverAllSessions("claude", {
@@ -557,7 +557,7 @@ test("discoverAllSessions skips session files when stat fails", async () => {
     );
     assert.equal(warnings.length > 0, true);
   } finally {
-    nodeFs.promises.stat = originalStat;
+    nodeFs.promises.lstat = originalLstat;
     rmSync(projectsDir, { recursive: true, force: true });
   }
 });
