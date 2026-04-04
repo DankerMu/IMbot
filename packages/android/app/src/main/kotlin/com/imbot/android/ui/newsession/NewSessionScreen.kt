@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.pager.HorizontalPager
@@ -124,6 +126,7 @@ fun NewSessionScreen(
                 canMoveNext = canMoveNext(uiState),
                 canCreate = canCreate(uiState),
                 isCreating = uiState.isCreating,
+                modifier = Modifier.navigationBarsPadding().imePadding(),
                 onPrevious = {
                     viewModel.goToStep(uiState.step - 1)
                 },
@@ -142,6 +145,7 @@ fun NewSessionScreen(
                 Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
+                    .imePadding()
                     .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
@@ -329,6 +333,7 @@ private fun WizardNavigationBar(
     canMoveNext: Boolean,
     canCreate: Boolean,
     isCreating: Boolean,
+    modifier: Modifier = Modifier,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
     onCreate: () -> Unit,
@@ -344,6 +349,7 @@ private fun WizardNavigationBar(
         )
 
     Surface(
+        modifier = modifier,
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.98f),
         shadowElevation = if (isDarkTheme) 0.dp else 8.dp,
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)),
