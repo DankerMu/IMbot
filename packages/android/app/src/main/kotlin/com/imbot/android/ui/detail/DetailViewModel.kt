@@ -755,7 +755,7 @@ class DetailViewModel
             eventProcessor.reconcileInteractiveToolCalls(session.status, fallbackAnswers)
             val newMessages =
                 presentInteractiveMessages(
-                    messages = combinedMessages(),
+                    messages = combinedMessages(session),
                     sessionStatus = session.status,
                 )
             val effectiveStatus = effectiveSessionStatus(session.status, newMessages)

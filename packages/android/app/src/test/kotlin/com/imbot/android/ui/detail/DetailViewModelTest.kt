@@ -92,6 +92,38 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `loadSession publishes legacy initial prompt before catch-up refresh runs`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val eventsGate = CompletableDeferred<Unit>()
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionEventsHandler =
+                        { _, _, _, _, _ ->
+                            eventsGate.await()
+                            Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                        }
+                }
+
+            val viewModel = createViewModel(relay = relay, ws = FakeRelayWsClient())
+            val initialPublish =
+                backgroundScope.async {
+                    viewModel.uiState.first { state ->
+                        state.session != null && state.messages.isNotEmpty()
+                    }
+                }
+
+            runCurrent()
+
+            val state = initialPublish.await()
+            assertEquals(1, relay.getSessionCalls)
+            assertEquals(1, state.messages.size)
+            assertUserMessage(state.messages.single(), "分析这个仓库")
+
+            eventsGate.complete(Unit)
+            advanceUntilIdle()
+        }
+
+    @Test
     fun `loadSession does not duplicate initial prompt when history already has user_message`() =
         runTest(mainDispatcherRule.dispatcher) {
             val relay =
