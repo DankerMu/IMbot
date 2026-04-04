@@ -29,7 +29,7 @@ export const SESSION_STATUSES = [
 export type SessionStatus = (typeof SESSION_STATUSES)[number];
 
 export const VALID_TRANSITIONS: Readonly<Record<SessionStatus, readonly SessionStatus[]>> = {
-  queued: ["running", "failed"],
+  queued: ["running", "idle", "failed"],
   running: ["idle", "completed", "failed", "cancelled"],
   idle: ["running", "completed", "failed", "cancelled"],
   completed: ["running"],

@@ -15,7 +15,7 @@ const sessionIdParamsSchema = {
 
 const createSessionBodySchema = {
   type: "object",
-  required: ["provider", "host_id", "cwd", "prompt"],
+  required: ["provider", "host_id", "cwd"],
   additionalProperties: false,
   properties: {
     provider: { type: "string" },

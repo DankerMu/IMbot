@@ -27,6 +27,36 @@ function createTestDatabase(prefix) {
   };
 }
 
+async function createRelayRuntime(prefix) {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), prefix));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_COMPANION_TIMEOUT_MS: "2000",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  return {
+    tempDir,
+    runtime
+  };
+}
+
+function insertHost(db, hostId = "macbook-1", status = "online") {
+  const now = new Date().toISOString();
+  db.prepare(
+    `
+    INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+    VALUES (?, ?, 'macbook', ?, ?, ?, ?)
+    `
+  ).run(hostId, hostId, status, now, now, now);
+}
+
 function insertSession(db, sessionId, status = "running") {
   const now = new Date().toISOString();
   db.prepare(
@@ -171,14 +201,221 @@ test("initializeDatabase migrates existing sessions tables so idle becomes a val
 });
 
 test("relay lifecycle transitions match the expected state machine table", () => {
-  assert.deepEqual(TRANSITIONS.queued, ["running", "failed"]);
+  assert.deepEqual(TRANSITIONS.queued, ["running", "idle", "failed"]);
   assert.deepEqual(TRANSITIONS.running, ["idle", "completed", "failed", "cancelled"]);
   assert.deepEqual(TRANSITIONS.idle, ["running", "completed", "failed", "cancelled"]);
   assert.equal(isValidTransition("completed", "running"), true);
   assert.equal(isValidTransition("failed", "running"), true);
   assert.equal(isValidTransition("cancelled", "running"), true);
   assert.equal(isValidTransition("idle", "failed"), true);
+  assert.equal(isValidTransition("queued", "idle"), true);
   assert.equal(isValidTransition("queued", "cancelled"), false);
+});
+
+test("orchestrator.create keeps promptless sessions idle and records awaiting_first_message", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-empty-session-create-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  runtime.companionManager.isOnline = () => true;
+
+  let sendCommandCalls = 0;
+  runtime.companionManager.sendCommand = async () => {
+    sendCommandCalls += 1;
+    return {
+      type: "ack",
+      status: "ok",
+      data: {
+        provider_session_id: "unexpected-provider-session"
+      }
+    };
+  };
+
+  const session = await runtime.orchestrator.create({
+    provider: "claude",
+    host_id: "macbook-1",
+    cwd: "/tmp/project"
+  });
+
+  assert.equal(session.status, "idle");
+  assert.equal(session.initial_prompt, null);
+  assert.equal(sendCommandCalls, 0);
+  assert.equal(runtime.orchestrator.activeLifecycleMutations.has(session.id), false);
+
+  const storedSession = runtime.db
+    .prepare("SELECT status, initial_prompt, provider_session_id, local_available FROM sessions WHERE id = ?")
+    .get(session.id);
+  assert.deepEqual(storedSession, {
+    status: "idle",
+    initial_prompt: null,
+    provider_session_id: null,
+    local_available: 0
+  });
+
+  const storedEvents = runtime.db
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+    .all(session.id);
+  assert.deepEqual(
+    storedEvents.map((event) => event.type),
+    ["session_status_changed", "session_idle"]
+  );
+  assert.deepEqual(JSON.parse(storedEvents[1].payload), {
+    reason: "awaiting_first_message"
+  });
+});
+
+test("orchestrator.sendMessage starts an empty idle session with create_session on the first message", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-empty-session-first-message-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  runtime.companionManager.isOnline = () => true;
+
+  const commands = [];
+  runtime.companionManager.sendCommand = async (hostId, command) => {
+    commands.push({ hostId, command });
+    return {
+      type: "ack",
+      status: "ok",
+      data: {
+        provider_session_id: "provider-session-first-message"
+      }
+    };
+  };
+
+  const session = await runtime.orchestrator.create({
+    provider: "claude",
+    host_id: "macbook-1",
+    cwd: "/tmp/project"
+  });
+
+  await runtime.orchestrator.sendMessage(session.id, "hello from the first turn");
+
+  assert.equal(commands.length, 1);
+  assert.equal(commands[0].hostId, "macbook-1");
+  assert.equal(commands[0].command.cmd, "create_session");
+  assert.equal(commands[0].command.session_id, session.id);
+  assert.equal(commands[0].command.prompt, "hello from the first turn");
+
+  const storedSession = runtime.db
+    .prepare("SELECT status, initial_prompt, provider_session_id, local_available FROM sessions WHERE id = ?")
+    .get(session.id);
+  assert.deepEqual(storedSession, {
+    status: "running",
+    initial_prompt: "hello from the first turn",
+    provider_session_id: "provider-session-first-message",
+    local_available: 1
+  });
+
+  const storedEvents = runtime.db
+    .prepare("SELECT type FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+    .all(session.id);
+  assert.equal(storedEvents.some((event) => event.type === "session_started"), true);
+});
+
+test("orchestrator.sendMessage returns host_offline for empty idle sessions when the host disconnects before the first message", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-empty-session-host-offline-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  runtime.companionManager.isOnline = () => true;
+
+  const session = await runtime.orchestrator.create({
+    provider: "claude",
+    host_id: "macbook-1",
+    cwd: "/tmp/project"
+  });
+
+  runtime.companionManager.isOnline = () => false;
+  runtime.companionManager.sendCommand = async () => {
+    throw new Error("sendCommand should not be called when the host is offline");
+  };
+
+  await assert.rejects(runtime.orchestrator.sendMessage(session.id, "hello"), (error) => {
+    assert.equal(error.code, "host_offline");
+    return true;
+  });
+
+  const storedSession = runtime.db
+    .prepare("SELECT status, initial_prompt, provider_session_id FROM sessions WHERE id = ?")
+    .get(session.id);
+  assert.deepEqual(storedSession, {
+    status: "idle",
+    initial_prompt: null,
+    provider_session_id: null
+  });
+});
+
+test("orchestrator.cancel skips provider commands for empty idle sessions", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-empty-session-cancel-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  runtime.companionManager.isOnline = () => true;
+
+  const session = await runtime.orchestrator.create({
+    provider: "claude",
+    host_id: "macbook-1",
+    cwd: "/tmp/project"
+  });
+
+  let sendCommandCalls = 0;
+  runtime.companionManager.isOnline = () => false;
+  runtime.companionManager.sendCommand = async () => {
+    sendCommandCalls += 1;
+    throw new Error("sendCommand should not be called for empty idle cancellation");
+  };
+
+  const cancelledSession = await runtime.orchestrator.cancel(session.id);
+
+  assert.equal(cancelledSession.status, "cancelled");
+  assert.equal(sendCommandCalls, 0);
+});
+
+test("orchestrator.complete skips provider commands for empty idle sessions", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-empty-session-complete-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  runtime.companionManager.isOnline = () => true;
+
+  const session = await runtime.orchestrator.create({
+    provider: "claude",
+    host_id: "macbook-1",
+    cwd: "/tmp/project"
+  });
+
+  let sendCommandCalls = 0;
+  runtime.companionManager.isOnline = () => false;
+  runtime.companionManager.sendCommand = async () => {
+    sendCommandCalls += 1;
+    throw new Error("sendCommand should not be called for empty idle completion");
+  };
+
+  const completedSession = await runtime.orchestrator.complete(session.id);
+
+  assert.equal(completedSession.status, "completed");
+  assert.equal(sendCommandCalls, 0);
 });
 
 test("fresh database includes local_available in the sessions table schema", (t) => {

@@ -494,7 +494,7 @@ open class RelayHttpClient
             provider: String,
             hostId: String,
             cwd: String,
-            prompt: String,
+            prompt: String?,
             permissionMode: String,
             model: String? = null,
         ): Result<SessionResponse> =
@@ -506,9 +506,11 @@ open class RelayHttpClient
                             .put("provider", provider)
                             .put("host_id", hostId)
                             .put("cwd", cwd)
-                            .put("prompt", prompt)
                             .put("permission_mode", permissionMode)
                             .also { payload ->
+                                if (!prompt.isNullOrBlank()) {
+                                    payload.put("prompt", prompt)
+                                }
                                 if (!model.isNullOrBlank()) {
                                     payload.put("model", model)
                                 }

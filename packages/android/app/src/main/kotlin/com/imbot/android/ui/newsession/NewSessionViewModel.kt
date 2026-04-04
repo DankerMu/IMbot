@@ -316,14 +316,13 @@ class NewSessionViewModel
             val provider = current.provider
             val hostId = current.hostId
             val cwd = current.cwd
-            val prompt = current.prompt.trim()
+            val prompt = current.prompt.trim().takeIf { it.isNotBlank() }
 
             val validationError =
                 when {
                     provider.isNullOrBlank() -> "请先选择 Provider"
                     hostId.isNullOrBlank() -> "当前 Provider 未关联可用主机"
                     cwd.isNullOrBlank() -> "请先选择目录"
-                    prompt.isBlank() -> "请输入 prompt"
                     else -> null
                 }
             if (validationError != null) {

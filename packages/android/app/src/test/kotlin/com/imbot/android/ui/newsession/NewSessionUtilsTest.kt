@@ -120,27 +120,26 @@ class NewSessionUtilsTest {
     }
 
     @Test
-    fun `canCreate returns true when all required fields are present`() {
+    fun `canCreate returns true when provider host and cwd are present even when prompt is blank`() {
         assertTrue(
             canCreate(
                 NewSessionUiState(
                     provider = "claude",
                     hostId = "macbook-1",
                     cwd = "/Users/danker/projects",
-                    prompt = "Analyze this repo",
+                    prompt = "   ",
                 ),
             ),
         )
     }
 
     @Test
-    fun `canCreate returns false when any required field is missing or prompt blank`() {
+    fun `canCreate returns false when provider host or cwd is missing`() {
         val states =
             listOf(
                 NewSessionUiState(hostId = "macbook-1", cwd = "/tmp", prompt = "test"),
                 NewSessionUiState(provider = "claude", cwd = "/tmp", prompt = "test"),
                 NewSessionUiState(provider = "claude", hostId = "macbook-1", prompt = "test"),
-                NewSessionUiState(provider = "claude", hostId = "macbook-1", cwd = "/tmp", prompt = "   "),
             )
 
         states.forEach { state ->

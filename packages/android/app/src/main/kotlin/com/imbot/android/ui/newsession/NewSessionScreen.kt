@@ -327,7 +327,9 @@ private fun WizardNavigationBar(
             ) {
                 Text("下一步")
             }
-        } else {
+        }
+
+        if (step >= 1) {
             Button(
                 onClick = onCreate,
                 enabled = canCreate && !isCreating,
@@ -359,10 +361,9 @@ internal fun canMoveNext(state: NewSessionUiState): Boolean =
 internal fun canCreate(state: NewSessionUiState): Boolean =
     !state.provider.isNullOrBlank() &&
         !state.hostId.isNullOrBlank() &&
-        !state.cwd.isNullOrBlank() &&
-        state.prompt.trim().isNotBlank()
+        !state.cwd.isNullOrBlank()
 
-private val STEP_TITLES = listOf("Provider", "目录", "开始")
+private val STEP_TITLES = listOf("Provider", "目录", "消息（可选）")
 
 private fun newSessionBannerHostId(state: NewSessionUiState): String? =
     if (state.provider == "claude" || state.provider == "book") {
