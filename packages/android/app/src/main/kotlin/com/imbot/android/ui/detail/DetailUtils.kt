@@ -161,13 +161,11 @@ internal fun effectiveSessionStatus(
                 statusChange.status.takeIf(String::isNotBlank)
             }
 
-    if (normalizedSessionStatus in RESUMABLE_STATUSES) {
-        return normalizedSessionStatus
+    return when {
+        normalizedSessionStatus in RESUMABLE_STATUSES -> normalizedSessionStatus
+        hasPendingSessionInteraction(messages) -> "running"
+        else -> normalizedSessionStatus ?: timelineStatus
     }
-    if (hasPendingSessionInteraction(messages)) {
-        return "running"
-    }
-    return normalizedSessionStatus ?: timelineStatus
 }
 
 internal fun shouldIgnoreSessionSnapshotStatus(
@@ -495,18 +493,16 @@ internal fun resolvedInteractiveToolCall(
     item: MessageItem.InteractiveToolCall,
     sessionStatus: String?,
 ): MessageItem.InteractiveToolCall =
-    if (
-        item.isAnswered ||
-        sessionStatus.isNullOrBlank() ||
-        canRespondToInteractiveRequest(sessionStatus) ||
-        (sessionStatus == "idle" && item.answer.isNullOrBlank())
-    ) {
-        item
-    } else {
-        item.copy(
-            isAnswered = true,
-            errorMessage = null,
-        )
+    when {
+        item.isAnswered -> item
+        sessionStatus.isNullOrBlank() -> item
+        canRespondToInteractiveRequest(sessionStatus) -> item
+        sessionStatus == "idle" && item.answer.isNullOrBlank() -> item
+        else ->
+            item.copy(
+                isAnswered = true,
+                errorMessage = null,
+            )
     }
 
 internal fun isLatestPendingApprovalRequest(

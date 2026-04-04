@@ -286,7 +286,8 @@ class DetailViewModelTest {
                                                     event(
                                                         seq = 1,
                                                         eventType = "session_error",
-                                                        payload = payload("message" to "Companion shutting down; session process will be lost"),
+                                                        payload =
+                                                            payload("message" to "Companion shutting down; session process will be lost"),
                                                     ),
                                                     event(
                                                         seq = 2,

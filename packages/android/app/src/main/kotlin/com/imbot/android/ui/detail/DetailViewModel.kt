@@ -363,7 +363,8 @@ class DetailViewModel
         fun cancelSession() {
             val state = _uiState.value
             val session = state.session
-            val canCancel = session != null && !state.isCancelling && canCancelSession(state.effectiveStatus ?: session.status)
+            val status = state.effectiveStatus ?: session?.status
+            val canCancel = session != null && !state.isCancelling && canCancelSession(status)
             val settings = if (canCancel) requireValidSettings() else null
             if (!canCancel || session == null || settings == null) {
                 return
@@ -401,7 +402,8 @@ class DetailViewModel
         fun resumeSession() {
             val state = _uiState.value
             val session = state.session
-            val canResume = session != null && !state.isResuming && canResumeSession(state.effectiveStatus ?: session.status)
+            val status = state.effectiveStatus ?: session?.status
+            val canResume = session != null && !state.isResuming && canResumeSession(status)
             if (!canResume || session == null) {
                 return
             }
@@ -439,7 +441,8 @@ class DetailViewModel
         fun completeSession() {
             val state = _uiState.value
             val session = state.session
-            val canComplete = session != null && !state.isCompleting && canCompleteSession(state.effectiveStatus ?: session.status)
+            val status = state.effectiveStatus ?: session?.status
+            val canComplete = session != null && !state.isCompleting && canCompleteSession(status)
             if (!canComplete || session == null) {
                 return
             }
@@ -821,7 +824,8 @@ class DetailViewModel
             val settings = requireValidSettings() ?: return
             val deadlineMs = System.currentTimeMillis() + INTERACTIVE_ANSWER_SYNC_TIMEOUT_MS
 
-            while (System.currentTimeMillis() < deadlineMs) {
+            var syncing = true
+            while (syncing && System.currentTimeMillis() < deadlineMs) {
                 val syncSucceeded =
                     pullEventsSince(
                         settings = settings,
@@ -829,17 +833,13 @@ class DetailViewModel
                         allowAutoScroll = true,
                         failureMessage = null,
                     )
-                if (!syncSucceeded) {
-                    return
-                }
-
-                val sessionStatus = _uiState.value.effectiveStatus ?: _uiState.value.session?.status
+                val sessionStatus =
+                    _uiState.value.effectiveStatus ?: _uiState.value.session?.status
                 val stillPending = latestPendingInteractiveToolCallId() == callId
-                if (!stillPending && sessionStatus != "running") {
-                    return
+                syncing = syncSucceeded && (stillPending || sessionStatus == "running")
+                if (syncing) {
+                    delay(INTERACTIVE_ANSWER_SYNC_INTERVAL_MS)
                 }
-
-                delay(INTERACTIVE_ANSWER_SYNC_INTERVAL_MS)
             }
         }
 
