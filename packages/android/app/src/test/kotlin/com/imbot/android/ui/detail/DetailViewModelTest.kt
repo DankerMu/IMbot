@@ -194,6 +194,82 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `submitToolAnswer catches up relay events when websocket misses final updates`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionEventsHandler =
+                        { _, _, _, sinceSeq, _ ->
+                            when (sinceSeq) {
+                                0 -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                                1 ->
+                                    Result.success(
+                                        RelayEventPage(
+                                            events =
+                                                listOf(
+                                                    event(
+                                                        seq = 2,
+                                                        eventType = "tool_call_completed",
+                                                        payload =
+                                                            payload(
+                                                                "call_id" to "tool-1",
+                                                                "tool_name" to "AskUserQuestion",
+                                                                "result" to "User has answered your questions: \"0\"=\"Beta\".",
+                                                            ),
+                                                    ),
+                                                    event(
+                                                        seq = 3,
+                                                        eventType = "assistant_delta",
+                                                        payload = payload("text" to "FINAL_ANSWER:Beta"),
+                                                    ),
+                                                    event(seq = 4, eventType = "session_idle"),
+                                                    event(
+                                                        seq = 5,
+                                                        eventType = "session_status_changed",
+                                                        payload = payload("status" to "idle"),
+                                                    ),
+                                                ),
+                                            hasMore = false,
+                                        ),
+                                    )
+
+                                else -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                            }
+                        }
+                }
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "tool_call_started",
+                    payload =
+                        payload(
+                            "call_id" to "tool-1",
+                            "tool_name" to "AskUserQuestion",
+                            "args" to """{"question":"选哪个?","options":["A","B"]}""",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.submitToolAnswer("Beta")
+            advanceUntilIdle()
+
+            assertEquals(listOf(0, 1), relay.getSessionEventRequests.map(SessionEventsRequest::sinceSeq))
+            assertEquals("idle", viewModel.uiState.value.session?.status)
+            assertTrue(viewModel.uiState.value.canSend)
+
+            val messages = viewModel.uiState.value.messages
+            val interactive = messages.filterIsInstance<MessageItem.InteractiveToolCall>().single()
+            assertTrue(interactive.isAnswered)
+            assertEquals("Beta", interactive.answer)
+            assertAgentMessage(messages.last(), "FINAL_ANSWER:Beta", isStreaming = true)
+        }
+
+    @Test
     fun `submitToolAnswer failure sets errorMessage on card and reverts answer`() =
         runTest(mainDispatcherRule.dispatcher) {
             val relay =

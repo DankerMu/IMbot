@@ -298,6 +298,55 @@ test("tool_call_started uses tool_use_id not request_id", async (t) => {
   assert.equal(events.at(-1).payload.call_id, "toolu_call_id_1");
 });
 
+test("control_request does not duplicate tool_call_started after assistant tool_use", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-dedupe-"));
+  const cwd = path.join(tempDir, "project");
+  mkdirSync(cwd, { recursive: true });
+  const { adapter, children, events } = createAdapterHarness(tempDir);
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await createSession(adapter, cwd);
+  children[0].emitJson({
+    type: "assistant",
+    message: {
+      role: "assistant",
+      content: [
+        {
+          type: "tool_use",
+          id: "toolu_dedupe_1",
+          name: "AskUserQuestion",
+          input: {
+            questions: [{ question: "Pick one", options: [{ label: "A" }, { label: "B" }] }]
+          }
+        }
+      ]
+    }
+  });
+  children[0].emitJson({
+    type: "control_request",
+    request_id: "req-dedupe-1",
+    request: {
+      subtype: "can_use_tool",
+      tool_use_id: "toolu_dedupe_1",
+      tool_name: "AskUserQuestion",
+      input: {
+        questions: [{ question: "Pick one", options: [{ label: "A" }, { label: "B" }] }]
+      }
+    }
+  });
+  await flushRuntime();
+
+  const startedEvents = events.filter((event) => event.event_type === "tool_call_started");
+  assert.equal(startedEvents.length, 1);
+  assert.equal(startedEvents[0].payload.call_id, "toolu_dedupe_1");
+  assert.equal(getSession(adapter, "relay-control-1").pendingControlResponse.requestId, "req-dedupe-1");
+  assert.equal(getSession(adapter, "relay-control-1").pendingControlResponse.callId, "toolu_dedupe_1");
+});
+
 test("answerInteractiveTool resolves pending and writes control_response", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-answer-"));
   const cwd = path.join(tempDir, "project");

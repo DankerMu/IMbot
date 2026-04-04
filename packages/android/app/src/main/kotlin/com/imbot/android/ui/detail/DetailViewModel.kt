@@ -97,6 +97,7 @@ class DetailViewModel
         private var historyLoaded = false
         private val catchUpBuffer = mutableListOf<ServerMessage.Event>()
         private var isCatchingUp = false
+        private var interactiveAnswerSyncJob: Job? = null
 
         init {
             observeConnectionState()
@@ -147,6 +148,7 @@ class DetailViewModel
                             sessionId = sessionId,
                         ).getOrThrow()
                     }.onSuccess { session ->
+                        interactiveAnswerSyncJob?.cancel()
                         publishSession(session)
                         fetchEventsSince(
                             settings = settings,
@@ -319,6 +321,15 @@ class DetailViewModel
                             isSending = false,
                             canSend = false,
                         )
+                    }
+                    if (isInteractiveToolAnswer) {
+                        interactiveAnswerSyncJob?.cancel()
+                        interactiveAnswerSyncJob =
+                            launch {
+                                syncInteractiveAnswerProgress(
+                                    callId = interactiveToolCallId!!,
+                                )
+                            }
                     }
                 }.onFailure { error ->
                     interactiveToolCallId?.let { id ->
@@ -572,6 +583,7 @@ class DetailViewModel
         }
 
         override fun onCleared() {
+            interactiveAnswerSyncJob?.cancel()
             relayWsClient.clearSubscription()
             super.onCleared()
         }
@@ -662,36 +674,12 @@ class DetailViewModel
             }
 
             val catchUpSucceeded =
-                runCatching {
-                    var cursor = sinceSeq
-                    var hasMore: Boolean
-
-                    do {
-                        val page =
-                            relayHttpClient.getSessionEvents(
-                                relayUrl = settings.relayUrl,
-                                token = settings.token,
-                                sessionId = sessionId,
-                                sinceSeq = cursor,
-                            ).getOrThrow()
-
-                        val sortedEvents = page.events.sortedBy(ServerMessage.Event::seq)
-                        sortedEvents.forEach { event ->
-                            handleSessionEvent(
-                                event = event,
-                                allowAutoScroll = false,
-                            )
-                        }
-                        cursor = maxOf(cursor, sortedEvents.maxOfOrNull(ServerMessage.Event::seq) ?: cursor)
-                        hasMore = page.hasMore
-                    } while (hasMore)
-                }.onFailure { error ->
-                    _uiState.update { current ->
-                        current.copy(
-                            error = error.message ?: "同步消息失败",
-                        )
-                    }
-                }.isSuccess
+                pullEventsSince(
+                    settings = settings,
+                    sinceSeq = sinceSeq,
+                    allowAutoScroll = false,
+                    failureMessage = "同步消息失败",
+                )
 
             finishCatchUp(processBufferedEvents = catchUpSucceeded)
 
@@ -794,6 +782,71 @@ class DetailViewModel
                 }
             }
         }
+
+        private suspend fun syncInteractiveAnswerProgress(callId: String) {
+            val settings = requireValidSettings() ?: return
+            val deadlineMs = System.currentTimeMillis() + INTERACTIVE_ANSWER_SYNC_TIMEOUT_MS
+
+            while (System.currentTimeMillis() < deadlineMs) {
+                val syncSucceeded =
+                    pullEventsSince(
+                        settings = settings,
+                        sinceSeq = eventProcessor.lastProcessedSeq(),
+                        allowAutoScroll = true,
+                        failureMessage = null,
+                    )
+                if (!syncSucceeded) {
+                    return
+                }
+
+                val sessionStatus = _uiState.value.session?.status
+                val stillPending = latestPendingInteractiveToolCallId() == callId
+                if (!stillPending && sessionStatus != "running") {
+                    return
+                }
+
+                delay(INTERACTIVE_ANSWER_SYNC_INTERVAL_MS)
+            }
+        }
+
+        private suspend fun pullEventsSince(
+            settings: RelaySettings,
+            sinceSeq: Int,
+            allowAutoScroll: Boolean,
+            failureMessage: String?,
+        ): Boolean =
+            runCatching {
+                var cursor = sinceSeq
+                var hasMore: Boolean
+
+                do {
+                    val page =
+                        relayHttpClient.getSessionEvents(
+                            relayUrl = settings.relayUrl,
+                            token = settings.token,
+                            sessionId = sessionId,
+                            sinceSeq = cursor,
+                        ).getOrThrow()
+
+                    val sortedEvents = page.events.sortedBy(ServerMessage.Event::seq)
+                    sortedEvents.forEach { event ->
+                        handleSessionEvent(
+                            event = event,
+                            allowAutoScroll = allowAutoScroll,
+                        )
+                    }
+                    cursor = maxOf(cursor, sortedEvents.maxOfOrNull(ServerMessage.Event::seq) ?: cursor)
+                    hasMore = page.hasMore
+                } while (hasMore)
+            }.onFailure { error ->
+                if (failureMessage != null) {
+                    _uiState.update { current ->
+                        current.copy(
+                            error = error.message ?: failureMessage,
+                        )
+                    }
+                }
+            }.isSuccess
 
         private fun publishMessages(
             newMessages: List<MessageItem>,
@@ -965,3 +1018,6 @@ class DetailViewModel
                 ConnectionState.NotConfigured -> null
             }
     }
+
+private const val INTERACTIVE_ANSWER_SYNC_INTERVAL_MS = 500L
+private const val INTERACTIVE_ANSWER_SYNC_TIMEOUT_MS = 15_000L

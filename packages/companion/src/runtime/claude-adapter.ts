@@ -40,6 +40,7 @@ interface RuntimeSession {
   exitPromise: Promise<void>;
   resolveExit: () => void;
   readonly eventMapper: RuntimeEventMapper;
+  readonly emittedToolCallIds: Set<string>;
   pendingControlResponse: {
     requestId: string;
     callId: string;
@@ -437,6 +438,7 @@ export class ClaudeRuntimeAdapter {
       exitPromise,
       resolveExit,
       eventMapper: new RuntimeEventMapper(),
+      emittedToolCallIds: new Set<string>(),
       pendingControlResponse: null
     };
 
@@ -543,6 +545,17 @@ export class ClaudeRuntimeAdapter {
       session.resultEmitted = true;
     }
 
+    if (mapped.eventType === "tool_call_started") {
+      const payload = asRecord(mapped.payload);
+      const callId = typeof payload?.call_id === "string" ? payload.call_id : null;
+      if (callId) {
+        if (session.emittedToolCallIds.has(callId)) {
+          return;
+        }
+        session.emittedToolCallIds.add(callId);
+      }
+    }
+
     await Promise.resolve(
       this.options.sendEvent({
         type: "event",
@@ -603,6 +616,11 @@ export class ClaudeRuntimeAdapter {
     };
     this.startPendingControlTimer(session);
     session.eventMapper.markToolEmitted(callId, "AskUserQuestion");
+
+    if (session.emittedToolCallIds.has(callId)) {
+      return;
+    }
+    session.emittedToolCallIds.add(callId);
 
     await Promise.resolve(
       this.options.sendEvent({
