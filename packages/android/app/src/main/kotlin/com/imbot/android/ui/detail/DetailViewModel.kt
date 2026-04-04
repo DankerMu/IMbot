@@ -1022,8 +1022,7 @@ class DetailViewModel
             }
         }
 
-        private fun supportsLegacyInitialPrompt(provider: String): Boolean =
-            provider == "claude" || provider == "book"
+        private fun supportsLegacyInitialPrompt(provider: String): Boolean = provider == "claude" || provider == "book"
 
         private fun messageIdentityKey(item: MessageItem): String =
             when (item) {

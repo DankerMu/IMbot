@@ -107,5 +107,4 @@ class MarkdownRenderingTest {
         assertEquals(12.dp, markdownBlockBottomPadding(0, blocks, MarkdownParagraphSpacing))
         assertEquals(0.dp, markdownBlockBottomPadding(1, blocks, MarkdownParagraphSpacing))
     }
-
 }
