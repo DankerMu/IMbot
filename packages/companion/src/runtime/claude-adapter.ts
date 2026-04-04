@@ -798,6 +798,12 @@ export class ClaudeRuntimeAdapter {
       return;
     }
 
+    const inputTokens = getNumber(usage.input_tokens);
+    const outputTokens = getNumber(usage.output_tokens);
+    if (inputTokens == null && outputTokens == null) {
+      return;
+    }
+
     const [modelName, modelUsageEntry] = firstRecordEntry(record.modelUsage);
     const modelUsage = asRecord(modelUsageEntry);
     const model = modelName ?? getString(record.model) ?? session.model ?? undefined;
@@ -806,8 +812,8 @@ export class ClaudeRuntimeAdapter {
     }
 
     await this.emitSessionEvent(session, "session_usage", {
-      input_tokens: getNumber(usage.input_tokens) ?? 0,
-      output_tokens: getNumber(usage.output_tokens) ?? 0,
+      input_tokens: inputTokens ?? 0,
+      output_tokens: outputTokens ?? 0,
       ...(hasNumber(usage.cache_creation_input_tokens)
         ? { cache_creation_input_tokens: getNumber(usage.cache_creation_input_tokens) }
         : {}),

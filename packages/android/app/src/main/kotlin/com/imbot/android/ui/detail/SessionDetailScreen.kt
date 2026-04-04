@@ -774,7 +774,7 @@ private fun UsageIndicator(
     isActive: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    if (!isActive || usage.totalTokens == 0) {
+    if (!isActive || usage.totalTokens == 0 || usage.contextWindow == 0) {
         return
     }
 
