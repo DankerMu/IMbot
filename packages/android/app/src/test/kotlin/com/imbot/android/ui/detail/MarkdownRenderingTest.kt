@@ -92,7 +92,7 @@ class MarkdownRenderingTest {
     fun `paragraph and inline code style constants match spec`() {
         assertEquals(26.sp, MarkdownParagraphLineHeight)
         assertEquals(12.dp, MarkdownParagraphSpacing)
-        assertEquals(Color(0xFFF1F5F9), markdownInlineCodeBackground(useDarkTheme = false))
+        assertEquals(Color(0xFFF1EBE2), markdownInlineCodeBackground(useDarkTheme = false))
         assertEquals(Color(0xFF2D333B), markdownInlineCodeBackground(useDarkTheme = true))
     }
 

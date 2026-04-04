@@ -316,9 +316,82 @@ test("orchestrator.sendMessage starts an empty idle session with create_session 
   });
 
   const storedEvents = runtime.db
-    .prepare("SELECT type FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? ORDER BY seq ASC")
     .all(session.id);
+  assert.equal(storedEvents.some((event) => event.type === "user_message"), true);
+  assert.deepEqual(
+    JSON.parse(storedEvents.find((event) => event.type === "user_message").payload),
+    { text: "hello from the first turn" }
+  );
   assert.equal(storedEvents.some((event) => event.type === "session_started"), true);
+});
+
+test("orchestrator.create records the initial prompt as a user_message for companion-backed providers", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-create-initial-user-message-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  runtime.companionManager.isOnline = () => true;
+  runtime.companionManager.sendCommand = async () => ({
+    type: "ack",
+    status: "ok",
+    data: {
+      provider_session_id: "provider-session-create-prompt"
+    }
+  });
+
+  const session = await runtime.orchestrator.create({
+    provider: "book",
+    host_id: "macbook-1",
+    cwd: "/tmp/novel",
+    prompt: "  chapter opening prompt  "
+  });
+
+  assert.equal(session.status, "running");
+
+  const storedEvents = runtime.db
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+    .all(session.id);
+
+  assert.equal(storedEvents.some((event) => event.type === "user_message"), true);
+  assert.deepEqual(
+    JSON.parse(storedEvents.find((event) => event.type === "user_message").payload),
+    { text: "chapter opening prompt" }
+  );
+});
+
+test("orchestrator.create does not synthesize a user_message for openclaw sessions", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-create-openclaw-no-synthetic-user-message-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  runtime.openClawBridge.isAvailable = () => true;
+  runtime.openClawBridge.createSession = async () => ({
+    providerSessionId: "openclaw-session-1",
+    model: "openclaw"
+  });
+
+  const session = await runtime.orchestrator.create({
+    provider: "openclaw",
+    host_id: "relay-local",
+    cwd: "/tmp/openclaw-demo",
+    prompt: "  openclaw prompt should not be echoed synthetically  "
+  });
+
+  assert.equal(session.status, "running");
+
+  const storedEvents = runtime.db
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+    .all(session.id);
+
+  assert.equal(storedEvents.some((event) => event.type === "user_message"), false);
 });
 
 test("orchestrator.sendMessage returns host_offline for empty idle sessions when the host disconnects before the first message", async (t) => {
@@ -960,6 +1033,51 @@ test("handleEvent accepts transcript_sync message events after a session reaches
       status
     });
   }
+});
+
+test("handleEvent drops transcript_sync duplicates for the synthetic initial user_message", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-dedupe-synthetic-initial-user-message-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  runtime.companionManager.isOnline = () => true;
+  runtime.companionManager.sendCommand = async () => ({
+    type: "ack",
+    status: "ok",
+    data: {
+      provider_session_id: "provider-session-create-prompt"
+    }
+  });
+
+  const session = await runtime.orchestrator.create({
+    provider: "book",
+    host_id: "macbook-1",
+    cwd: "/tmp/novel",
+    prompt: "chapter opening prompt"
+  });
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: session.id,
+    event_type: "user_message",
+    payload: {
+      text: "chapter opening prompt"
+    },
+    source: "transcript_sync"
+  });
+
+  const userMessages = runtime.db
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? AND type = 'user_message' ORDER BY seq ASC")
+    .all(session.id);
+
+  assert.equal(userMessages.length, 1);
+  assert.deepEqual(JSON.parse(userMessages[0].payload), {
+    text: "chapter opening prompt"
+  });
 });
 
 test("handleEvent recovers failed sessions when the companion reconnect reports them as running", async (t) => {

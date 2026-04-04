@@ -882,21 +882,34 @@ private fun relayFailure(
 internal fun JSONObject.toRelaySession(): RelaySession {
     val id = optString("id")
     require(id.isNotBlank()) { "Relay response is missing session.id" }
+    val createdAt = optString("created_at")
+    val updatedAt = optNullableString("updated_at") ?: createdAt
+    val lastActiveAt = optNullableString("last_active_at") ?: updatedAt
 
     return RelaySession(
         id = id,
         provider = optString("provider"),
         hostId = optString("host_id"),
         workspaceCwd = optString("workspace_cwd"),
-        initialPrompt = optString("initial_prompt").ifBlank { null },
-        model = optString("model").ifBlank { null },
+        initialPrompt = optNullableString("initial_prompt"),
+        model = optNullableString("model"),
         status = optString("status"),
-        errorMessage = optString("error_message").ifBlank { null },
-        createdAt = optString("created_at"),
-        updatedAt = optString("updated_at").ifBlank { optString("created_at") },
-        lastActiveAt = optString("last_active_at").ifBlank { optString("updated_at") },
+        errorMessage = optNullableString("error_message"),
+        createdAt = createdAt,
+        updatedAt = updatedAt,
+        lastActiveAt = lastActiveAt,
     )
 }
+
+private fun JSONObject.optNullableString(key: String): String? =
+    when (val value = opt(key)) {
+        null,
+        JSONObject.NULL,
+        -> null
+
+        is String -> value.ifBlank { null }
+        else -> value.toString().ifBlank { null }
+    }
 
 internal fun JSONObject.requireRelaySessionObject(): JSONObject {
     return optJSONObject("session")

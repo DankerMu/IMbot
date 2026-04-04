@@ -9,29 +9,34 @@
 | PRD ref | FR-01, FR-05 |
 
 App 的主页面。展示所有会话列表，支持按 provider 过滤，可快速进入详情或创建新会话。
+视觉上采用“editorial header + grouped list”的结构：顶部只保留 eyebrow、主标题、summary pills 与 filter，不再加入冗余说明文案。
 长按任意会话可进入多选模式，批量删除多个会话。
 
 ## 布局
 
 ```
 ┌──────────────────────────────────────┐
-│  IMbot                    [filter ▼] │  ← TopAppBar
+│  Workspace Console                  │  ← Eyebrow
+│  Sessions        [online] [3 running]│  ← 标题 + 摘要 pill
+│  [全部] [Claude] [book] [OpenClaw]   │  ← segmented filters
 ├──────────────────────────────────────┤
 │  [ConnectionBanner if disconnected]  │
 ├──────────────────────────────────────┤
+│  Running now                         │  ← section label
+├──────────────────────────────────────┤
 │                                      │
 │  ┌──────────────────────────────┐    │
-│  │ SessionCard (running, pulse) │    │  ← Running sessions 置顶
+│  │ provider/meta                │    │
+│  │ Prompt summary               │    │  ← Running sessions 置顶
+│  │ /workspace/path              │    │  ← 卡片压缩到高密度节奏
 │  └──────────────────────────────┘    │
+│                                      │
+│  Recent                              │  ← section label
+├──────────────────────────────────────┤
 │  ┌──────────────────────────────┐    │
-│  │ SessionCard (running, pulse) │    │
-│  └──────────────────────────────┘    │
-│  ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─    │  ← 分隔线
-│  ┌──────────────────────────────┐    │
-│  │ SessionCard (completed)      │    │  ← 按 lastActiveAt 倒序
-│  └──────────────────────────────┘    │
-│  ┌──────────────────────────────┐    │
-│  │ SessionCard (failed)         │    │
+│  │ provider/meta                │    │  ← 按 lastActiveAt 倒序
+│  │ Prompt summary               │    │
+│  │ /workspace/path              │    │
 │  └──────────────────────────────┘    │
 │  ...                                 │
 │                                      │
@@ -100,11 +105,16 @@ data class HomeUiState(
 
 ### 过滤
 
-TopAppBar 右侧 filter dropdown：
-- All（默认）
+顶部 filter 使用横向 segmented pills：
+- 全部（默认）
 - Claude Code
 - book
 - OpenClaw
+
+标题区摘要 pills：
+- relay 在线状态
+- running session 数
+- 当前列表总量
 
 ## 事件
 
@@ -123,6 +133,8 @@ TopAppBar 右侧 filter dropdown：
 
 - [ ] App 启动后 < 2s 看到列表或 loading。
 - [ ] Running session 置顶且有脉冲动画。
+- [ ] 顶部标题区能清晰展示连接状态与会话摘要，且不出现解释性冗余句子。
+- [ ] 常见大屏手机上一屏可稳定看到至少 3 张 session card。
 - [ ] 过滤器切换即时生效。
 - [ ] 下拉刷新正常。
 - [ ] 空状态展示正确。

@@ -9,20 +9,24 @@
 | PRD ref | FR-01, FR-02, FR-03 |
 
 三步式新建会话流程：选 Provider → 选目录 → 输入 Prompt。
+整体视觉上表现为“launch sequence”，每一步都在统一 stage 容器内完成，而不是普通分页表单。
 
 ## 布局
 
-使用 `HorizontalPager` 实现步骤切换，顶部 step indicator。
+使用 `HorizontalPager` 实现步骤切换。顶部为带阶段感的 step indicator，中部为共享 stage 容器，底部为固定动作条。
 
 ```
 ┌──────────────────────────────────────┐
 │  ← 新建会话                          │  ← TopAppBar
+│  Launch a remote session             │  ← Subtitle / context
 ├──────────────────────────────────────┤
-│  ● ─ ─ ○ ─ ─ ○                      │  ← Step indicator (1/3)
-│  Provider  目录  消息（可选）        │
+│  [1 Provider] [2 目录] [3 消息]      │  ← stage-aware step indicator
 ├──────────────────────────────────────┤
 │                                      │
-│  Step 1: Provider Picker             │
+│  ┌──────────────────────────────┐    │
+│  │ Step 1 stage container       │    │
+│  │                              │    │
+│  │  Provider Picker             │
 │                                      │
 │  ┌────────────────────┐              │
 │  │  🟠 Claude Code     │ ← selected  │
@@ -34,11 +38,10 @@
 │  │  🔴 OpenClaw        │              │
 │  └────────────────────┘              │
 │                                      │
-│  Host status: MacBook online ✓       │  ← 底部提示
-│               OpenClaw online ✓      │
+│  └──────────────────────────────┘    │
 │                                      │
 ├──────────────────────────────────────┤
-│              [ 下一步 → ]            │
+│    [ 上一步 ]        [ 下一步 / 开始 ]│  ← action container
 └──────────────────────────────────────┘
 ```
 
@@ -134,6 +137,7 @@ data class NewSessionUiState(
 ## 验收标准
 
 - [ ] 三步流程顺畅，可前后切换。
+- [ ] 整个流程在视觉上有明显阶段感，不像普通表单页。
 - [ ] 离线 host 的 provider disabled。
 - [ ] book 只能选 novel 目录。
 - [ ] 创建成功后直接跳转 session detail。

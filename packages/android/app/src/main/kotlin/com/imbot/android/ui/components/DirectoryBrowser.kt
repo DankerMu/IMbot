@@ -2,6 +2,7 @@
 
 package com.imbot.android.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -68,11 +69,18 @@ fun DirectoryBrowser(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Text(
-            text = "主机: $hostId",
-            style = MaterialTheme.typography.labelLarge,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Surface(
+            shape = MaterialTheme.shapes.extraLarge,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)),
+        ) {
+            Text(
+                text = "Host: $hostId",
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
 
         if (!showingRoots) {
             BreadcrumbBar(
@@ -187,7 +195,8 @@ private fun BreadcrumbBar(
         breadcrumbs.forEachIndexed { index, breadcrumb ->
             Surface(
                 shape = componentShapes.button,
-                color = MaterialTheme.colorScheme.surfaceVariant,
+                color = MaterialTheme.colorScheme.surface,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
                 modifier =
                     Modifier.clickable {
                         onBrowse(breadcrumb.path)
@@ -240,6 +249,12 @@ private fun DirectoryEntryCard(
                 MaterialTheme.colorScheme.surface
             },
         shape = componentShapes.card,
+        border =
+            if (selected) {
+                BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.32f))
+            } else {
+                null
+            },
     ) {
         Row(
             modifier =

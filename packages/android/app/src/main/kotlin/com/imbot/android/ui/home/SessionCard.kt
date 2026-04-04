@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
@@ -41,6 +42,7 @@ import androidx.compose.ui.unit.dp
 import com.imbot.android.data.local.SessionEntity
 import com.imbot.android.ui.components.StatusIndicator
 import com.imbot.android.ui.components.StatusIndicatorVariant
+import com.imbot.android.ui.theme.CodeFontFamily
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalProviderColors
 import com.imbot.android.ui.theme.LocalUseDarkTheme
@@ -127,9 +129,9 @@ fun SessionCard(
                         isDarkTheme = isDarkTheme,
                         outlineColor =
                             if (selected) {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.42f)
                             } else {
-                                MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.42f)
                             },
                         shadowTokens = shadowTokens,
                     )
@@ -140,13 +142,13 @@ fun SessionCard(
             shape = componentShapes.card,
             color =
                 if (selected) {
-                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.32f)
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.62f)
                 } else {
                     MaterialTheme.colorScheme.surface
                 },
             border =
                 if (selected) {
-                    BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.55f))
                 } else {
                     null
                 },
@@ -155,66 +157,74 @@ fun SessionCard(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(horizontal = 14.dp, vertical = 14.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Top,
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(
                         modifier = Modifier.weight(1f),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         ProviderBadge(provider = session.provider)
                         Column(
-                            verticalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp),
                         ) {
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Text(
-                                    text = providerDisplayName(session.provider),
-                                    style = MaterialTheme.typography.titleLarge,
-                                    fontWeight = FontWeight.SemiBold,
-                                )
-                                StatusIndicator(
-                                    status = session.status,
-                                    variant = StatusIndicatorVariant.Dot,
-                                )
-                            }
+                            Text(
+                                text = providerDisplayName(session.provider),
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                             Text(
                                 text = summarizeWorkspacePath(session.workspaceCwd),
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.labelMedium.copy(fontFamily = CodeFontFamily),
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
+
+                    Column(
+                        horizontalAlignment = Alignment.End,
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
-                        if (selectionMode) {
-                            SelectionIndicator(selected = selected)
-                        }
-                        Text(
-                            text = formatRelativeTime(session.lastActiveAt),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        StatusIndicator(
+                            status = session.status,
+                            variant = StatusIndicatorVariant.Badge,
                         )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (selectionMode) {
+                                SelectionIndicator(selected = selected)
+                            }
+                            TimePill(label = formatRelativeTime(session.lastActiveAt))
+                        }
                     }
                 }
 
                 Text(
-                    text = summarizePrompt(session.initialPrompt),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    text = sessionCardTitle(session.initialPrompt),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+
+                Text(
+                    text = session.workspaceCwd,
+                    style =
+                        MaterialTheme.typography.bodySmall.copy(
+                            fontFamily = CodeFontFamily,
+                        ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -228,7 +238,7 @@ private fun DeleteBackground() {
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(MaterialTheme.colorScheme.error)
+                .background(MaterialTheme.colorScheme.errorContainer)
                 .padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically,
@@ -236,7 +246,23 @@ private fun DeleteBackground() {
         Icon(
             imageVector = Icons.Filled.Delete,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onError,
+            tint = MaterialTheme.colorScheme.onErrorContainer,
+        )
+    }
+}
+
+@Composable
+private fun TimePill(label: String) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -284,8 +310,8 @@ private fun ProviderBadge(provider: String) {
             Modifier
                 .size(36.dp)
                 .background(
-                    color = badgeColor.copy(alpha = 0.16f),
-                    shape = CircleShape,
+                    color = badgeColor.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(12.dp),
                 ),
         contentAlignment = Alignment.Center,
     ) {
@@ -295,6 +321,15 @@ private fun ProviderBadge(provider: String) {
             color = badgeColor,
             fontWeight = FontWeight.Bold,
         )
+    }
+}
+
+private fun sessionCardTitle(prompt: String?): String {
+    val summary = summarizePrompt(prompt, maxLength = 64)
+    return if (summary == "无初始提示词") {
+        "空白会话"
+    } else {
+        summary
     }
 }
 

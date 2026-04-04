@@ -215,7 +215,7 @@
 }
 ```
 
-**Side effects**: 先以 `queued` 插入 session 记录，再立即向 companion（或 OpenClaw bridge）发送 `create_session` 命令；成功 ack 后会话转为 `running`，响应返回更新后的 session。
+**Side effects**: 先以 `queued` 插入 session 记录，再立即向 companion（或 OpenClaw bridge）发送 `create_session` 命令；成功 ack 后会话转为 `running`，响应返回更新后的 session。对 `claude` / `book`，relay 还会把初始 `prompt` 作为 `user_message` event 写入 timeline，避免详情页丢失第一条用户消息。
 
 当 `prompt` 缺失或为空白时：session 仍先以 `queued` 写入，再立即转为 `idle`，广播 `session_idle { reason: "awaiting_first_message" }`，且不发送 `create_session` 命令。
 
@@ -245,6 +245,7 @@
 
 - `idle` 状态：先 transition → `running`，再通过 stdin JSON 发送消息给存活进程。若发送失败则回滚到 `idle`。
 - `running` 状态：直接转发消息。
+- 若 session 处于 `idle` 且尚未启动 provider（`provider_session_id == null`），relay 会以这条消息作为首个 prompt 启动 provider；对 `claude` / `book`，这条消息会同步记录为 `user_message` event。
 
 **Request**:
 ```json

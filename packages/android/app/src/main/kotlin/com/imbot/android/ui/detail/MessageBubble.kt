@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -194,12 +195,20 @@ private fun AgentMessageBubble(
         }
     val outlineVariant = MaterialTheme.colorScheme.outlineVariant
     val bubbleBorder =
-        remember(outlineVariant) {
-            BorderStroke(0.5.dp, outlineVariant.copy(alpha = 0.45f))
+        remember(outlineVariant, useDarkTheme) {
+            BorderStroke(
+                width = 0.5.dp,
+                color =
+                    if (useDarkTheme) {
+                        outlineVariant.copy(alpha = 0.45f)
+                    } else {
+                        outlineVariant.copy(alpha = 0.72f)
+                    },
+            )
         }
     val bubbleModifier =
         Modifier
-            .widthIn(max = 300.dp)
+            .widthIn(max = 316.dp)
             .messageLongPressable(
                 item = item,
                 onLongPress = onLongPress,
@@ -232,18 +241,23 @@ private fun AgentMessageBubble(
                         isSelectionMode = isSelectionMode,
                     ),
                 shape = componentShapes.assistantMessageBubble,
-                border = if (useDarkTheme) bubbleBorder else null,
+                border = bubbleBorder,
                 shadowElevation = if (useDarkTheme) 0.dp else 1.dp,
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    SelectableBubbleContent(isSelectionMode = isSelectionMode) {
-                        MarkdownText(
-                            markdown = content,
-                            contentColor = assistantMessageTextColor(useDarkTheme),
-                        )
+                    Box(
+                        modifier = Modifier.defaultMinSize(minHeight = 24.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        SelectableBubbleContent(isSelectionMode = isSelectionMode) {
+                            MarkdownText(
+                                markdown = content,
+                                contentColor = assistantMessageTextColor(useDarkTheme),
+                            )
+                        }
                     }
                     if (!expanded && !isSelectionMode) {
                         TextButton(

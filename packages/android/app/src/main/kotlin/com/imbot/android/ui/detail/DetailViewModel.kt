@@ -755,7 +755,7 @@ class DetailViewModel
             eventProcessor.reconcileInteractiveToolCalls(session.status, fallbackAnswers)
             val newMessages =
                 presentInteractiveMessages(
-                    messages = combinedMessages(),
+                    messages = combinedMessages(session),
                     sessionStatus = session.status,
                 )
             val effectiveStatus = effectiveSessionStatus(session.status, newMessages)
@@ -954,6 +954,10 @@ class DetailViewModel
                 return
             }
 
+            val messageIdentityChanged =
+                renderedMessages.map(::messageIdentityKey) !=
+                    previousState.messages.map(::messageIdentityKey)
+
             val mutation =
                 if (allowAutoScroll) {
                     onTimelineChanged(
@@ -970,12 +974,7 @@ class DetailViewModel
                     messages = renderedMessages,
                     effectiveStatus = effectiveStatus,
                     canSend = canInputToSession(effectiveStatus) && !current.isSending,
-                    selectionModeMessageId =
-                        if (renderedMessages.size != current.messages.size) {
-                            null
-                        } else {
-                            current.selectionModeMessageId
-                        },
+                    selectionModeMessageId = if (messageIdentityChanged) null else current.selectionModeMessageId,
                     scrollState = mutation.state,
                 )
             }
@@ -985,7 +984,54 @@ class DetailViewModel
             }
         }
 
-        private fun combinedMessages(): List<MessageItem> = eventProcessor.snapshot() + optimisticMessages
+        private fun combinedMessages(session: RelaySession? = _uiState.value.session): List<MessageItem> {
+            val eventMessages = eventProcessor.snapshot()
+            val legacyInitialPrompt = legacyInitialPromptMessage(session, eventMessages)
+            return buildList {
+                legacyInitialPrompt?.let(::add)
+                addAll(eventMessages)
+                addAll(optimisticMessages)
+            }
+        }
+
+        private fun legacyInitialPromptMessage(
+            session: RelaySession?,
+            eventMessages: List<MessageItem>,
+        ): MessageItem.UserMessage? {
+            val currentSession = session
+            val initialPrompt = currentSession?.initialPrompt?.trim().orEmpty()
+            val firstConversationMessage =
+                eventMessages.firstOrNull { message ->
+                    message is MessageItem.UserMessage || message is MessageItem.AgentMessage
+                }
+            val promptAlreadyPresent =
+                (firstConversationMessage as? MessageItem.UserMessage)?.text?.trim() == initialPrompt
+            val promptSession =
+                currentSession?.takeIf {
+                    initialPrompt.isNotBlank() &&
+                        supportsLegacyInitialPrompt(it.provider) &&
+                        !promptAlreadyPresent
+                }
+
+            return promptSession?.let { safeSession ->
+                MessageItem.UserMessage(
+                    id = "legacy-initial-prompt-${safeSession.id}",
+                    text = initialPrompt,
+                    timestamp = safeSession.createdAt,
+                )
+            }
+        }
+
+        private fun supportsLegacyInitialPrompt(provider: String): Boolean = provider == "claude" || provider == "book"
+
+        private fun messageIdentityKey(item: MessageItem): String =
+            when (item) {
+                is MessageItem.UserMessage -> "user:${item.id}"
+                is MessageItem.AgentMessage -> "agent:${item.id}"
+                is MessageItem.InteractiveToolCall -> "interactive:${item.id}"
+                is MessageItem.ToolCall -> "tool:${item.callId}"
+                is MessageItem.StatusChange -> "status:${item.id}"
+            }
 
         private fun interactiveAnswerFallbacks(): Map<String, String> =
             buildMap {

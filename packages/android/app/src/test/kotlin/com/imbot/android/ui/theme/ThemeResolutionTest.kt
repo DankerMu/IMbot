@@ -72,7 +72,7 @@ class ThemeResolutionTest {
     }
 
     @Test
-    fun `api 31 system mode enables dynamic color`() {
+    fun `api 31 system mode still uses curated static colors`() {
         val resolution =
             resolveThemeResolution(
                 themeMode = SettingsRepository.THEME_MODE_SYSTEM,
@@ -80,7 +80,7 @@ class ThemeResolutionTest {
                 sdkInt = 31,
             )
 
-        assertTrue(resolution.useDynamicColor)
+        assertFalse(resolution.useDynamicColor)
     }
 
     @Test
@@ -105,10 +105,10 @@ class ThemeResolutionTest {
     }
 
     @Test
-    fun `shape tokens use apple radii`() {
-        assertEquals(RoundedCornerShape(8.dp), IMbotMaterialShapes.small)
-        assertEquals(RoundedCornerShape(12.dp), IMbotMaterialShapes.medium)
-        assertEquals(RoundedCornerShape(16.dp), IMbotMaterialShapes.large)
+    fun `shape tokens use editorial container radii`() {
+        assertEquals(RoundedCornerShape(10.dp), IMbotMaterialShapes.small)
+        assertEquals(RoundedCornerShape(14.dp), IMbotMaterialShapes.medium)
+        assertEquals(RoundedCornerShape(20.dp), IMbotMaterialShapes.large)
     }
 
     @Test
@@ -138,17 +138,17 @@ class ThemeResolutionTest {
         assertEquals(AssistantBubbleDark, assistantBubbleBackground(useDarkTheme = true))
         assertEquals(CodeBlockHeaderBg, codeBlockHeaderBackground(useDarkTheme = false))
         assertEquals(CodeBlockHeaderBgDark, codeBlockHeaderBackground(useDarkTheme = true))
-        assertEquals(Color(0xFF0A0A0A), TerminalBg)
+        assertEquals(Color(0xFF12100E), TerminalBg)
     }
 
     @Test
     fun `typography tokens match redesign spec`() {
-        assertEquals(20.sp, IMbotTypography.titleLarge.fontSize)
+        assertEquals(18.sp, IMbotTypography.titleLarge.fontSize)
         assertEquals(androidx.compose.ui.text.font.FontWeight.SemiBold, IMbotTypography.titleLarge.fontWeight)
-        assertEquals(16.sp, IMbotTypography.bodyLarge.fontSize)
-        assertEquals(26.sp, IMbotTypography.bodyLarge.lineHeight)
-        assertEquals(14.sp, IMbotTypography.labelLarge.fontSize)
-        assertEquals(12.sp, IMbotTypography.labelMedium.fontSize)
+        assertEquals(15.sp, IMbotTypography.bodyLarge.fontSize)
+        assertEquals(24.sp, IMbotTypography.bodyLarge.lineHeight)
+        assertEquals(13.sp, IMbotTypography.labelLarge.fontSize)
+        assertEquals(11.sp, IMbotTypography.labelMedium.fontSize)
         assertTrue(IMbotTypography.headlineLarge.letterSpacing.value < 0f)
     }
 }

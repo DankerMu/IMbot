@@ -7,6 +7,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -18,11 +19,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.Computer
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -65,7 +66,7 @@ fun ProviderPickerStep(
         modifier =
             modifier
                 .fillMaxSize()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .padding(horizontal = 20.dp, vertical = 20.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Text(
@@ -74,7 +75,7 @@ fun ProviderPickerStep(
             fontWeight = FontWeight.SemiBold,
         )
         Text(
-            text = "系统会自动匹配对应的主机，离线 Provider 不可选择。",
+            text = "每个 provider 对应独立的 session 运行面与工作空间。",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -92,12 +93,6 @@ fun ProviderPickerStep(
             providerSpecs.forEach { provider ->
                 val host = hosts.findProviderHost(provider.id)
                 val isOnline = host?.status == "online"
-                val statusLabel =
-                    when {
-                        host == null -> "未配置"
-                        isOnline -> "在线"
-                        else -> "离线"
-                    }
                 val selected = selectedProvider == provider.id
 
                 Surface(
@@ -107,7 +102,11 @@ fun ProviderPickerStep(
                             .appleChrome(
                                 shape = componentShapes.card,
                                 isDarkTheme = isDarkTheme,
-                                outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f),
+                                outlineColor =
+                                    when {
+                                        selected -> MaterialTheme.colorScheme.primary.copy(alpha = 0.36f)
+                                        else -> MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                                    },
                                 shadowTokens = shadowTokens,
                             )
                             .clickable(enabled = isOnline) {
@@ -116,16 +115,22 @@ fun ProviderPickerStep(
                     shape = componentShapes.card,
                     color =
                         when {
-                            selected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.82f)
-                            !isOnline -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                            selected -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.72f)
+                            !isOnline -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.72f)
                             else -> MaterialTheme.colorScheme.surface
+                        },
+                    border =
+                        if (selected) {
+                            BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+                        } else {
+                            null
                         },
                 ) {
                     Row(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .padding(20.dp),
+                                .padding(18.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
@@ -135,7 +140,7 @@ fun ProviderPickerStep(
                                     .size(52.dp)
                                     .background(
                                         color = provider.tint.copy(alpha = 0.14f),
-                                        shape = MaterialTheme.shapes.medium,
+                                        shape = RoundedCornerShape(16.dp),
                                     ),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -162,24 +167,67 @@ fun ProviderPickerStep(
                                     },
                             )
                             Text(
+                                text = provider.description,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
                                 text = host?.name ?: provider.fallbackHostName,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
 
-                        AssistChip(
-                            onClick = {},
-                            enabled = false,
-                            shape = componentShapes.button,
-                            label = {
-                                Text(statusLabel)
-                            },
+                        ProviderStatusPill(
+                            label =
+                                when {
+                                    host == null -> "未配置"
+                                    isOnline -> "在线"
+                                    else -> "离线"
+                                },
+                            online = isOnline,
                         )
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun ProviderStatusPill(
+    label: String,
+    online: Boolean,
+) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color =
+            if (online) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+        border =
+            BorderStroke(
+                1.dp,
+                if (online) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.28f)
+                } else {
+                    MaterialTheme.colorScheme.outline.copy(alpha = 0.32f)
+                },
+            ),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color =
+                if (online) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+        )
     }
 }
 
@@ -207,7 +255,7 @@ private fun ProviderLoadingState(modifier: Modifier = Modifier) {
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .height(108.dp)
+                        .height(118.dp)
                         .alpha(alpha)
                         .background(
                             color = MaterialTheme.colorScheme.surfaceVariant,
@@ -256,6 +304,7 @@ private fun InlineErrorBanner(
 private data class ProviderSpec(
     val id: String,
     val title: String,
+    val description: String,
     val fallbackHostName: String,
     val icon: ImageVector,
     val tint: Color,
@@ -266,6 +315,7 @@ private val providerSpecs =
         ProviderSpec(
             id = "claude",
             title = "Claude Code",
+            description = "Mac 上的主开发工作流，适合代码任务与长会话。",
             fallbackHostName = "MacBook",
             icon = Icons.Filled.Computer,
             tint = ProviderClaude,
@@ -273,6 +323,7 @@ private val providerSpecs =
         ProviderSpec(
             id = "book",
             title = "book",
+            description = "与 Claude 同源二进制，独立的 novel workspace 与 session 空间。",
             fallbackHostName = "Novel Workspace",
             icon = Icons.AutoMirrored.Filled.MenuBook,
             tint = ProviderBook,
@@ -280,6 +331,7 @@ private val providerSpecs =
         ProviderSpec(
             id = "openclaw",
             title = "OpenClaw",
+            description = "运行在 relay VPS，本地即可直接触达的远端 provider。",
             fallbackHostName = "Relay VPS",
             icon = Icons.Filled.CloudQueue,
             tint = ProviderOpenClaw,

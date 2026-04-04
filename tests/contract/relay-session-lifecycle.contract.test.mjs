@@ -347,6 +347,17 @@ test("relay starts an empty idle session on first message", async (t) => {
       (entry) =>
         entry.sessionId === sessionId &&
         entry.message.type === "event" &&
+        entry.message.event_type === "user_message" &&
+        entry.message.payload?.text === "start from the first message"
+    ),
+    true
+  );
+
+  assert.equal(
+    broadcastCalls.some(
+      (entry) =>
+        entry.sessionId === sessionId &&
+        entry.message.type === "event" &&
         entry.message.event_type === "session_started"
     ),
     true
@@ -407,6 +418,15 @@ test("relay creates a running session when prompt is provided", async (t) => {
   assert.equal(payload.session.status, "running");
   assert.equal(payload.session.initial_prompt, "running path still works");
   assert.equal(payload.session.provider_session_id, "provider-session-with-prompt");
+
+  const storedEvents = runtime.db
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+    .all(payload.session.id);
+  assert.equal(storedEvents.some((event) => event.type === "user_message"), true);
+  assert.deepEqual(
+    JSON.parse(storedEvents.find((event) => event.type === "user_message").payload),
+    { text: "running path still works" }
+  );
 });
 
 test("relay supports the idle multi-turn lifecycle and completes idle sessions through the companion", async (t) => {

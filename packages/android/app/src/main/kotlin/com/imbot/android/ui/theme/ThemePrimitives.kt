@@ -9,6 +9,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.unit.dp
 
 val MaterialTheme.spacing: IMbotSpacing
     @Composable
@@ -23,21 +24,30 @@ fun Modifier.appleChrome(
     isDarkTheme: Boolean,
     outlineColor: Color,
     shadowTokens: IMbotShadowTokens,
-): Modifier =
-    if (isDarkTheme) {
-        border(
-            width = shadowTokens.darkBorderWidth,
-            color = outlineColor,
-            shape = shape,
-        )
-    } else {
-        shadow(
-            elevation = shadowTokens.elevation,
-            shape = shape,
-            ambientColor = Color.Black.copy(alpha = shadowTokens.ambientAlpha),
-            spotColor = Color.Black.copy(alpha = shadowTokens.spotAlpha),
-        )
-    }
+): Modifier {
+    val elevated =
+        if (isDarkTheme) {
+            this
+        } else {
+            shadow(
+                elevation = shadowTokens.elevation,
+                shape = shape,
+                ambientColor = Color.Black.copy(alpha = shadowTokens.ambientAlpha),
+                spotColor = Color.Black.copy(alpha = shadowTokens.spotAlpha),
+            )
+        }
+
+    return elevated.border(
+        width =
+            if (isDarkTheme) {
+                shadowTokens.darkBorderWidth
+            } else {
+                0.75.dp
+            },
+        color = outlineColor,
+        shape = shape,
+    )
+}
 
 @Composable
 fun imbotFilledTextFieldColors(): androidx.compose.material3.TextFieldColors {

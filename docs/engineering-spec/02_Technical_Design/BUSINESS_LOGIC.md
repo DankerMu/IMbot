@@ -234,6 +234,7 @@ Android                    Relay                     Companion              CLI 
 补充规则：
 - `POST /sessions` 若未提供 `prompt`，relay 会创建 `idle` session 并广播 `session_idle { reason: "awaiting_first_message" }`，不会立即启动 companion / provider。
 - 这类空 session 的首条 `POST /message` 会改走 `create_session` 启动路径，并把该消息写入 `initial_prompt`。
+- 对 `claude` / `book`，无论是 `POST /sessions` 直接携带初始 `prompt`，还是空 session 的首条 `POST /message`，relay 都会补写一条 `user_message` event，确保详情页 timeline 能显示第一条用户消息。
 
 ### OpenClaw via Bridge
 

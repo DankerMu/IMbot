@@ -9,17 +9,18 @@
 | PRD ref | FR-03, FR-04, FR-05, FR-06, FR-07 |
 
 会话详情页。核心页面，展示消息流、工具调用、状态，支持继续对话，并在可恢复的终态会话上自动执行 resume。
+顶栏采用高密度 developer header：首行只承载 provider 身份与右上状态/菜单，第二层只保留目录与 context usage 元信息，不再重复渲染目录尾段标题；目录行在长路径场景下允许扩展为两行。
+页面主体使用固定 top shell + 可伸缩消息区 + 固定 composer 的三段式结构，保证软键盘弹起时顶部状态栏不会被消息区顶掉；详情页采用局部软键盘策略，不影响应用内其他输入页。
 
 ## 布局
 
 ```
 ┌──────────────────────────────────────┐
-│  ← Session Title     [●running] [⋮] │  ← TopAppBar + status badge
-│     /path/to/project                 │
+│  ← [CC] Claude Code   [● running] […]│  ← provider identity + right status/menu
+│     /path/to/project                  │  ← path (may wrap)
+│     [12.5k/200k]                      │  ← usage
 ├──────────────────────────────────────┤
 │  [ConnectionBanner if disconnected]  │
-├──────────────────────────────────────┤
-│  [Status bar: 2dp color strip]       │  ← 状态色条
 ├──────────────────────────────────────┤
 │                                      │
 │         ┌──────────────────────┐     │
@@ -44,7 +45,7 @@
 │                          [↓ 2 new]   │  ← 回到底部 FAB (if scrolled up)
 ├──────────────────────────────────────┤
 │  ┌─────────────────────┐  ┌────┐    │
-│  │ 输入消息...          │  │ ➤  │    │  ← InputBar
+│  │ 输入消息...          │  │ ➤  │    │  ← InputBar，IME 弹起后仍固定贴底
 │  └─────────────────────┘  └────┘    │
 └──────────────────────────────────────┘
 ```
@@ -133,7 +134,7 @@ sealed class MessageItem {
   替换最后一条 streaming AgentMessage → isStreaming=false
 ```
 
-## TopAppBar 溢出菜单 (⋮)
+## Header 溢出菜单 (…)
 
 | Action | Condition | Behavior |
 |--------|-----------|----------|
@@ -148,6 +149,8 @@ sealed class MessageItem {
 - [ ] 代码块语法高亮正确，公式和表格渲染正确。
 - [ ] 自动滚动 / 手动查看切换顺畅。
 - [ ] 断线后 banner 出现，重连后消失，events 补拉完整。
+- [ ] 顶栏可同时清晰展示 provider、目录、usage 与状态，不会因右上状态区而异常截断，也不会重复展示同一目录信息；长路径可扩展为两行显示。
+- [ ] 软键盘弹起后，顶栏仍保持可见，消息区只压缩中部可滚动区域，输入条保持贴底，内嵌 AskUserQuestion 文本输入可自动滚入可见区域。
 - [ ] Session idle 时 InputBar 可用，running 时 disabled，completed/failed/cancelled 进入页面时会自动尝试恢复。
 - [ ] ToolCallCard 可折叠/展开。
 - [ ] 长消息（10K chars）不卡。

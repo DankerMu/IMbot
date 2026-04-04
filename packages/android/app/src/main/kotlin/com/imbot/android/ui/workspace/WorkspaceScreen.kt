@@ -1,9 +1,11 @@
-@file:Suppress("FunctionName")
+@file:Suppress("FunctionName", "TooManyFunctions")
 
 package com.imbot.android.ui.workspace
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +18,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -37,8 +40,6 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -56,6 +57,8 @@ import com.imbot.android.ui.components.EmptyState
 import com.imbot.android.ui.components.ErrorBannerHost
 import com.imbot.android.ui.components.ErrorScope
 import com.imbot.android.ui.components.ShimmerSkeleton
+import com.imbot.android.ui.detail.providerDisplayName
+import com.imbot.android.ui.detail.providerShortLabel
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 import com.imbot.android.ui.theme.LocalProviderColors
 import com.imbot.android.ui.theme.LocalUseDarkTheme
@@ -130,15 +133,12 @@ fun WorkspaceScreen(
 
     Scaffold(
         modifier = modifier,
+        containerColor = MaterialTheme.colorScheme.background,
         topBar = {
-            TopAppBar(
-                colors =
-                    TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                    ),
-                title = {
-                    Text("目录管理")
-                },
+            WorkspaceTopBar(
+                hostCount = uiState.hosts.size,
+                rootCount = uiState.hosts.sumOf { hostWithRoots -> hostWithRoots.roots.size },
+                onlineHostCount = uiState.hosts.count { hostWithRoots -> hostWithRoots.host.status == "online" },
             )
         },
         floatingActionButton = {
@@ -208,8 +208,8 @@ fun WorkspaceScreen(
                     else -> {
                         LazyColumn(
                             modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
-                            verticalArrangement = Arrangement.spacedBy(20.dp),
+                            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 96.dp),
+                            verticalArrangement = Arrangement.spacedBy(18.dp),
                         ) {
                             items(
                                 items = uiState.hosts,
@@ -252,11 +252,12 @@ private fun HostSection(
     val shadowTokens = MaterialTheme.appleShadow
 
     Column(
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         HostHeader(
             name = hostWithRoots.host.name,
             status = hostWithRoots.host.status,
+            rootCount = hostWithRoots.roots.size,
         )
         Surface(
             modifier =
@@ -312,35 +313,28 @@ private fun EmptyHostRootsPlaceholder() {
 private fun HostHeader(
     name: String,
     status: String,
+    rootCount: Int,
 ) {
     Row(
-        modifier = Modifier.padding(horizontal = 16.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Box(
-            modifier =
-                Modifier
-                    .size(10.dp)
-                    .background(
-                        color =
-                            if (status == "online") {
-                                MaterialTheme.colorScheme.secondary
-                            } else {
-                                MaterialTheme.colorScheme.outline
-                            },
-                        shape = androidx.compose.foundation.shape.CircleShape,
-                    ),
-        )
-        Text(
-            text = name,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.SemiBold,
-        )
-        Text(
-            text = if (status == "online") "在线" else "离线",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Column(
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = name,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = "$rootCount roots",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        HostStatusPill(status = status)
     }
 }
 
@@ -357,14 +351,14 @@ private fun WorkspaceRootRow(
             Modifier
                 .fillMaxWidth()
                 .clickable(onClick = onClick)
-                .padding(horizontal = 16.dp, vertical = 14.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         Box(
             modifier =
                 Modifier
-                    .size(36.dp)
+                    .size(34.dp)
                     .background(
                         color = providerColor.copy(alpha = 0.18f),
                         shape = androidx.compose.foundation.shape.CircleShape,
@@ -372,9 +366,10 @@ private fun WorkspaceRootRow(
             contentAlignment = Alignment.Center,
         ) {
             Text(
-                text = root.provider.uppercase().take(2),
+                text = providerShortLabel(root.provider),
                 color = providerColor,
                 fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelMedium,
             )
         }
 
@@ -382,11 +377,23 @@ private fun WorkspaceRootRow(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                text = root.label ?: root.path.defaultRootLabel(),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = root.label ?: root.path.defaultRootLabel(),
+                    modifier = Modifier.weight(1f),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                ProviderPill(
+                    label = providerDisplayName(root.provider),
+                    providerColor = providerColor,
+                )
+            }
             Text(
                 text = root.path,
                 style = MaterialTheme.typography.bodySmall,
@@ -403,6 +410,150 @@ private fun WorkspaceRootRow(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+@Composable
+private fun WorkspaceTopBar(
+    hostCount: Int,
+    rootCount: Int,
+    onlineHostCount: Int,
+) {
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.background)
+                .padding(horizontal = 20.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Column(
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Text(
+                text = "WORKSPACE INDEX",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Text(
+                text = "Roots",
+                style = MaterialTheme.typography.headlineLarge,
+            )
+        }
+
+        Row(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            WorkspaceSummaryPill(
+                label = "$onlineHostCount online",
+                emphasized = onlineHostCount > 0,
+            )
+            WorkspaceSummaryPill(label = "$hostCount hosts")
+            WorkspaceSummaryPill(label = "$rootCount roots")
+        }
+    }
+}
+
+@Composable
+private fun WorkspaceSummaryPill(
+    label: String,
+    emphasized: Boolean = false,
+) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color =
+            if (emphasized) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+        border =
+            BorderStroke(
+                width = 1.dp,
+                color =
+                    if (emphasized) {
+                        MaterialTheme.colorScheme.primary.copy(alpha = 0.24f)
+                    } else {
+                        MaterialTheme.colorScheme.outline.copy(alpha = 0.38f)
+                    },
+            ),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color =
+                if (emphasized) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+        )
+    }
+}
+
+@Composable
+private fun HostStatusPill(status: String) {
+    val online = status == "online"
+
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color =
+            if (online) {
+                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(8.dp)
+                        .background(
+                            color =
+                                if (online) {
+                                    MaterialTheme.colorScheme.secondary
+                                } else {
+                                    MaterialTheme.colorScheme.outline
+                                },
+                            shape = androidx.compose.foundation.shape.CircleShape,
+                        ),
+            )
+            Text(
+                text = if (online) "在线" else "离线",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProviderPill(
+    label: String,
+    providerColor: androidx.compose.ui.graphics.Color,
+) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = providerColor.copy(alpha = 0.12f),
+        border = BorderStroke(1.dp, providerColor.copy(alpha = 0.18f)),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = providerColor,
+        )
     }
 }
 

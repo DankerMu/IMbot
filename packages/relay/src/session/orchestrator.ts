@@ -174,6 +174,7 @@ export class SessionOrchestrator {
     try {
       if (hasPrompt) {
         const startMetadata = await this.dispatchCreate(session);
+        this.emitSyntheticInitialUserMessage(session.id, session.provider, session.initial_prompt);
         await this.markSessionStarted(session.id, startMetadata, "queued");
         await this.applyPendingTerminalTransition(session.id);
       } else {
@@ -253,6 +254,7 @@ export class SessionOrchestrator {
         this.db
           .prepare("UPDATE sessions SET initial_prompt = ?, updated_at = datetime('now') WHERE id = ?")
           .run(text, currentSession.id);
+        this.emitSyntheticInitialUserMessage(currentSession.id, currentSession.provider, text);
         await this.markSessionStarted(currentSession.id, startMetadata, "idle");
         await this.applyPendingTerminalTransition(currentSession.id);
       });
@@ -474,6 +476,10 @@ export class SessionOrchestrator {
       "status" in payload &&
       payload.status === "cancelled"
     ) {
+      return;
+    }
+
+    if (this.shouldDropDuplicateSyntheticInitialUserMessage(session, message, payload)) {
       return;
     }
 
@@ -743,6 +749,72 @@ export class SessionOrchestrator {
       timestamp: storedEvent.created_at
     });
     return storedEvent;
+  }
+
+  private emitSyntheticInitialUserMessage(
+    sessionId: string,
+    provider: Session["provider"],
+    text: string | null | undefined
+  ): void {
+    if (provider === "openclaw") {
+      return;
+    }
+
+    const normalizedText = text?.trim();
+    if (!normalizedText) {
+      return;
+    }
+
+    this.insertAndBroadcastEvent(sessionId, "user_message", {
+      text: normalizedText
+    });
+  }
+
+  private shouldDropDuplicateSyntheticInitialUserMessage(
+    session: Session,
+    message: CompanionEventMessage,
+    payload: unknown
+  ): boolean {
+    if (message.source !== "transcript_sync" || message.event_type !== "user_message") {
+      return false;
+    }
+
+    const initialPrompt = session.initial_prompt?.trim();
+    if (!initialPrompt) {
+      return false;
+    }
+
+    const incomingText =
+      payload && typeof payload === "object" && "text" in payload && typeof payload.text === "string"
+        ? payload.text.trim()
+        : "";
+    if (!incomingText || incomingText !== initialPrompt) {
+      return false;
+    }
+
+    const conversationalEvents = this.db
+      .prepare(
+        `
+        SELECT type, payload
+        FROM session_events
+        WHERE session_id = ?
+          AND type IN ('user_message', 'assistant_message')
+        ORDER BY seq ASC
+        LIMIT 2
+        `
+      )
+      .all(session.id) as Array<{ type: EventType; payload: string }>;
+
+    if (conversationalEvents.length !== 1 || conversationalEvents[0].type !== "user_message") {
+      return false;
+    }
+
+    try {
+      const storedPayload = JSON.parse(conversationalEvents[0].payload) as { text?: string };
+      return typeof storedPayload.text === "string" && storedPayload.text.trim() === incomingText;
+    } catch {
+      return false;
+    }
   }
 
   private normalizeErrorCode(errorCode: string | undefined): ErrorCode {

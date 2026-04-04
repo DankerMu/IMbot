@@ -8,11 +8,16 @@
 | ViewModel | `SettingsViewModel` |
 | PRD ref | FR-09 |
 
+设置页沿用设计刷新后的 editorial shell：顶部展示连接/主题/版本摘要 pills，中部是更紧凑的 section cards。
+
 ## 布局
 
 ```
 ┌──────────────────────────────────────┐
-│  设置                                │
+│  SYSTEM PREFERENCES                  │  ← Eyebrow
+│  Settings                            │
+│  [Relay online] [System theme]       │  ← 摘要 pill
+│  [v0.1.0]                            │
 ├──────────────────────────────────────┤
 │                                      │
 │  连接                                │  ← Section
@@ -76,6 +81,7 @@ enum class ThemeMode { SYSTEM, LIGHT, DARK }
 ## 验收标准
 
 - [ ] 连接状态实时更新。
+- [ ] 顶部摘要 pills 能同时展示 relay、主题与版本。
 - [ ] 主题切换即时生效无闪烁。
 - [ ] Relay URL 可编辑并重连。
 - [ ] 清除缓存有确认步骤。
