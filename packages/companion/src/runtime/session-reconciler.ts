@@ -67,12 +67,17 @@ export class SessionReconciler {
         continue;
       }
 
+      const knownCwds = roots
+        .filter((root) => root.provider === provider)
+        .map((root) => root.path);
+
       let discovered: LocalSessionInfo[];
       try {
         discovered = await this.discoverAllSessionsFn(provider, {
           claudeProjectsDir: providerConfig.projectsDir,
           logger: this.logger,
-          limit: MAX_REPORTED_SESSIONS
+          limit: MAX_REPORTED_SESSIONS,
+          knownCwds
         });
       } catch (error) {
         this.logger.warn?.(

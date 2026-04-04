@@ -111,13 +111,19 @@ export async function discoverSessions(
   return discovered.slice(0, maxResults);
 }
 
+export interface DiscoverAllSessionsOptions extends SessionDiscoveryOptions {
+  /** Known cwd paths to resolve ambiguous directory encodings (e.g., hyphens in path segments). */
+  readonly knownCwds?: readonly string[];
+}
+
 export async function discoverAllSessions(
   provider: InteractiveProvider,
-  options: SessionDiscoveryOptions = {}
+  options: DiscoverAllSessionsOptions = {}
 ): Promise<LocalSessionInfo[]> {
   const logger = options.logger ?? console;
   const claudeProjectsDir =
     options.claudeProjectsDir ?? path.join(os.homedir(), ".claude", "projects");
+  const normalizedKnownCwds = (options.knownCwds ?? []).map(normalizeComparablePath);
 
   // The caller selects the provider-specific projects directory.
   void provider;
@@ -145,10 +151,23 @@ export async function discoverAllSessions(
     }
 
     const projectDirPath = path.join(claudeProjectsDir, projectEntry.name);
-    const decodedProjectCwd = decodeProjectDirectory(projectEntry.name);
-    const projectCwd =
-      decodedProjectCwd ??
-      normalizeComparablePath(`/${projectEntry.name.replace(/-/g, "/")}`);
+
+    // Try to resolve cwd via known paths first (handles hyphens in path segments)
+    let projectCwd: string | null = null;
+    for (const knownCwd of normalizedKnownCwds) {
+      const resolved = resolveProjectCwd(projectEntry.name, knownCwd);
+      if (resolved) {
+        projectCwd = resolved;
+        break;
+      }
+    }
+
+    // Fallback to naive decode
+    if (!projectCwd) {
+      projectCwd =
+        decodeProjectDirectory(projectEntry.name) ??
+        normalizeComparablePath(`/${projectEntry.name.replace(/-/g, "/")}`);
+    }
 
     // Reject decoded paths that escape the root via ".." segments
     if (projectCwd.includes("/..") || projectCwd.includes("\\..")) {
@@ -156,12 +175,6 @@ export async function discoverAllSessions(
         `Skipping project directory with path traversal: ${projectEntry.name} → ${projectCwd}`
       );
       continue;
-    }
-
-    if (!decodedProjectCwd) {
-      logger.warn?.(
-        `Failed to decode project directory ${projectEntry.name}; using fallback cwd ${projectCwd}`
-      );
     }
 
     let sessionEntries: Dirent[];
