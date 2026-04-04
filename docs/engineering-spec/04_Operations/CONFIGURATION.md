@@ -72,7 +72,6 @@
 
 - `providers.*.binary` 可使用绝对路径，或保留 `claude` / `book` 这样的命令名；命令名会先按进程 `PATH` 查找，再补充常见 macOS 用户目录（`~/.local/bin`、`~/bin`、`/opt/homebrew/bin`、`/usr/local/bin`）。
 - `idle_timeout_ms` 为 companion 的 idle session 自动结束阈值，默认 `1800000`（30 分钟）；它只在 session 已进入 `idle` 后生效。
-- `interactive_tool_timeout_ms` 为交互工具等待超时，默认无限等待以对齐本机 `claude` / `book` CLI 行为；显式设置为正整数时才启用，设置为 `0` 等同于禁用超时。
 - 兼容旧版 `workspace_roots`：如果条目缺少 `added_at`，companion 仍会加载，并在下次持久化时补齐该字段。
 - `./scripts/install-companion.sh` 会把当前 shell 的关键运行环境写入 launchd plist（完整 `PATH`、代理变量、`NODE_EXTRA_CA_CERTS`，以及 Claude CLI 认证所需的基础用户终端变量），避免后台 companion 进程与交互 shell 的出站网络/认证行为不一致。
 

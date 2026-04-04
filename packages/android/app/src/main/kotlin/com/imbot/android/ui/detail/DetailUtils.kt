@@ -135,6 +135,8 @@ internal fun canSendToSession(status: String?): Boolean = status == "running" ||
 
 internal fun canInputToSession(status: String?): Boolean = status == "idle"
 
+internal fun canRespondToInteractiveRequest(status: String?): Boolean = status == "running"
+
 internal fun canResumeSession(status: String?): Boolean = status in RESUMABLE_STATUSES
 
 private val RESUMABLE_STATUSES = setOf("completed", "failed", "cancelled")
@@ -142,6 +144,43 @@ private val RESUMABLE_STATUSES = setOf("completed", "failed", "cancelled")
 internal fun canCancelSession(status: String?): Boolean = status == "running"
 
 internal fun canCompleteSession(status: String?): Boolean = status == "idle"
+
+internal fun effectiveSessionStatus(
+    sessionStatus: String?,
+    messages: List<MessageItem>,
+): String? {
+    val normalizedSessionStatus = sessionStatus?.takeIf(String::isNotBlank)
+    val timelineStatus =
+        messages
+            .asReversed()
+            .firstNotNullOfOrNull { item ->
+                val statusChange = item as? MessageItem.StatusChange ?: return@firstNotNullOfOrNull null
+                if (statusChange.eventType != null) {
+                    return@firstNotNullOfOrNull null
+                }
+                statusChange.status.takeIf(String::isNotBlank)
+            }
+
+    if (normalizedSessionStatus in RESUMABLE_STATUSES) {
+        return normalizedSessionStatus
+    }
+    if (hasPendingSessionInteraction(messages)) {
+        return "running"
+    }
+    return normalizedSessionStatus ?: timelineStatus
+}
+
+internal fun shouldIgnoreSessionSnapshotStatus(
+    currentStatus: String?,
+    snapshotStatus: String?,
+): Boolean =
+    when {
+        currentStatus.isNullOrBlank() || snapshotStatus.isNullOrBlank() -> false
+        currentStatus == snapshotStatus -> false
+        currentStatus == "idle" && snapshotStatus in setOf("queued", "running") -> true
+        currentStatus in RESUMABLE_STATUSES && snapshotStatus !in RESUMABLE_STATUSES -> true
+        else -> false
+    }
 
 internal fun detailStatusColor(
     status: String,
@@ -388,17 +427,55 @@ internal fun approvalDecisionLabel(item: MessageItem.StatusChange): String =
 
 internal fun approvalInputText(approved: Boolean): String = if (approved) "approve" else "deny"
 
-internal fun findLatestPendingInteractiveToolCallId(messages: List<MessageItem>): String? =
-    messages
+internal fun findLatestPendingInteractiveToolCallId(
+    messages: List<MessageItem>,
+    sessionStatus: String?,
+): String? {
+    if (!canRespondToInteractiveRequest(sessionStatus)) {
+        return null
+    }
+
+    return messages
         .asReversed()
         .firstNotNullOfOrNull { item ->
             (item as? MessageItem.InteractiveToolCall)
                 ?.takeUnless { it.isAnswered }
                 ?.id
         }
+}
 
-internal fun findLatestPendingApprovalCallId(messages: List<MessageItem>): String? =
+internal fun hasPendingSessionInteraction(messages: List<MessageItem>): Boolean =
+    hasPendingInteractiveToolCall(messages) || hasPendingApprovalRequest(messages)
+
+private fun hasPendingInteractiveToolCall(messages: List<MessageItem>): Boolean =
+    messages.any { item ->
+        (item as? MessageItem.InteractiveToolCall)?.isAnswered == false
+    }
+
+private fun hasPendingApprovalRequest(messages: List<MessageItem>): Boolean {
+    val resolvedApprovalCallIds = mutableSetOf<String>()
     messages
+        .asReversed()
+        .forEach { item ->
+            val statusChange = item as? MessageItem.StatusChange ?: return@forEach
+            val callId = statusChange.callId?.takeIf(String::isNotBlank) ?: return@forEach
+            when (statusChange.eventType) {
+                "approval_resolved" -> resolvedApprovalCallIds += callId
+                "approval_required" -> if (callId !in resolvedApprovalCallIds) return true
+            }
+        }
+    return false
+}
+
+internal fun findLatestPendingApprovalCallId(
+    messages: List<MessageItem>,
+    sessionStatus: String?,
+): String? {
+    if (!canRespondToInteractiveRequest(sessionStatus)) {
+        return null
+    }
+
+    return messages
         .asReversed()
         .firstNotNullOfOrNull { item ->
             (item as? MessageItem.StatusChange)
@@ -406,11 +483,30 @@ internal fun findLatestPendingApprovalCallId(messages: List<MessageItem>): Strin
                 ?.callId
                 ?.takeIf(String::isNotBlank)
         }
+}
 
 internal fun isLatestPendingInteractiveToolCall(
     item: MessageItem.InteractiveToolCall,
     latestPendingCallId: String?,
 ): Boolean = item.isAnswered || item.id == latestPendingCallId
+
+internal fun resolvedInteractiveToolCall(
+    item: MessageItem.InteractiveToolCall,
+    sessionStatus: String?,
+): MessageItem.InteractiveToolCall =
+    if (
+        item.isAnswered ||
+        sessionStatus.isNullOrBlank() ||
+        canRespondToInteractiveRequest(sessionStatus) ||
+        (sessionStatus == "idle" && item.answer.isNullOrBlank())
+    ) {
+        item
+    } else {
+        item.copy(
+            isAnswered = true,
+            errorMessage = null,
+        )
+    }
 
 internal fun isLatestPendingApprovalRequest(
     item: MessageItem.StatusChange,

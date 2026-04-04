@@ -59,7 +59,6 @@ export interface ClaudeRuntimeAdapterOptions {
   readonly spawn?: SpawnFunction;
   readonly killGraceMs?: number;
   readonly idleTimeoutMs?: number;
-  readonly interactiveToolTimeoutMs?: number | null;
 }
 
 export class ClaudeRuntimeAdapter {
@@ -69,14 +68,12 @@ export class ClaudeRuntimeAdapter {
   private readonly activeByRelaySessionId = new Map<string, RuntimeSession>();
   private readonly killGraceMs: number;
   private readonly idleTimeoutMs: number;
-  private readonly interactiveToolTimeoutMs: number | null;
 
   constructor(private readonly options: ClaudeRuntimeAdapterOptions) {
     this.logger = options.logger ?? console;
     this.spawn = options.spawn ?? spawnChildProcess;
     this.killGraceMs = options.killGraceMs ?? 5000;
     this.idleTimeoutMs = options.idleTimeoutMs ?? 1800000;
-    this.interactiveToolTimeoutMs = options.interactiveToolTimeoutMs === undefined ? null : options.interactiveToolTimeoutMs;
   }
 
   async createSession(command: CreateSessionCommand): Promise<{ provider_session_id: string }> {
@@ -816,17 +813,6 @@ export class ClaudeRuntimeAdapter {
 
   private startPendingControlTimer(session: RuntimeSession): void {
     this.clearPendingControlTimer(session);
-    if (this.interactiveToolTimeoutMs == null) {
-      return;
-    }
-
-    session.pendingControlTimer = setTimeout(() => {
-      this.rejectPendingControlResponse(session, "Interactive tool answer timeout", {
-        writeControlResponse: true,
-        emitCompletion: true
-      });
-    }, this.interactiveToolTimeoutMs);
-    session.pendingControlTimer.unref?.();
   }
 
   private clearIdleTimer(session: RuntimeSession): void {

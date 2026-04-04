@@ -61,8 +61,7 @@ function createRuntimeConfig(tempDir) {
       }
     },
     sessionIndexPath: path.join(tempDir, "sessions.json"),
-    idleTimeoutMs: 1800000,
-    interactiveToolTimeoutMs: null
+    idleTimeoutMs: 1800000
   };
 }
 
@@ -99,7 +98,6 @@ test("loadCompanionConfig reads env overrides and validates configured providers
         token: "test-token",
         host_id: "macbook-1",
         idle_timeout_ms: 60000,
-        interactive_tool_timeout_ms: 45000,
         providers: {
           claude: {
             binary: "/usr/local/bin/claude"
@@ -125,7 +123,6 @@ test("loadCompanionConfig reads env overrides and validates configured providers
     assert.equal(config.providers.claude.binary, "/usr/local/bin/claude");
     assert.equal(config.sessionIndexPath, sessionIndexPath);
     assert.equal(config.idleTimeoutMs, 60000);
-    assert.equal(config.interactiveToolTimeoutMs, 45000);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -163,14 +160,12 @@ test("loadCompanionConfig resolves bare provider binaries from common user paths
     const config = companion.loadCompanionConfig({
       COMPANION_CONFIG: configPath,
       COMPANION_IDLE_TIMEOUT_MS: "90000",
-      COMPANION_INTERACTIVE_TOOL_TIMEOUT_MS: "0",
       HOME: homeDir,
       PATH: "/usr/bin:/bin"
     });
 
     assert.equal(config.providers.claude.binary, claudeBinary);
     assert.equal(config.idleTimeoutMs, 90000);
-    assert.equal(config.interactiveToolTimeoutMs, null);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -257,7 +252,6 @@ function createAdapterHarness(tempDir, isAllowedDirectory, harnessOptions = {}) 
     sessionIndex,
     logger: silentLogger,
     idleTimeoutMs: harnessOptions.idleTimeoutMs,
-    interactiveToolTimeoutMs: harnessOptions.interactiveToolTimeoutMs,
     sendEvent: (message) => {
       events.push(message);
     },

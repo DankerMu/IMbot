@@ -136,6 +136,40 @@ class EventProcessor(
         }
     }
 
+    internal fun reconcileInteractiveToolCalls(
+        sessionStatus: String?,
+        fallbackAnswers: Map<String, String> = emptyMap(),
+    ): Boolean {
+        if (canRespondToInteractiveRequest(sessionStatus)) {
+            return false
+        }
+
+        var mutated = false
+        messages.replaceAll { item ->
+            val interactive = item as? MessageItem.InteractiveToolCall ?: return@replaceAll item
+            val mergedAnswer = interactive.answer ?: fallbackAnswers[interactive.id]
+            val resolved =
+                if (
+                    interactive.isAnswered ||
+                    canRespondToInteractiveRequest(sessionStatus) ||
+                    mergedAnswer.isNullOrBlank()
+                ) {
+                    interactive
+                } else {
+                    interactive.copy(
+                        isAnswered = true,
+                        answer = mergedAnswer,
+                        errorMessage = null,
+                    )
+                }
+            if (resolved != interactive) {
+                mutated = true
+            }
+            resolved
+        }
+        return mutated
+    }
+
     private fun appendUserMessage(event: ServerMessage.Event) {
         val text = event.payload.stringValue("text").orEmpty().trim()
         if (text.isBlank()) {

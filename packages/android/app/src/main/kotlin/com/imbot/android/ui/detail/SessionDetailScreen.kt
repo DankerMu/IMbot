@@ -114,10 +114,11 @@ fun SessionDetailScreen(
     val messageMenuTarget = uiState.messageMenuTarget
     val selectionModeMessageId = uiState.selectionModeMessageId
     val selectionModeActive = selectionModeMessageId != null
+    val effectiveStatus = uiState.effectiveStatus ?: uiState.session?.status
     val messageActions = messageMenuTarget?.takeIf(::hasActions)?.let(::availableActions).orEmpty()
-    val sessionAllowsInteractiveInput = canSendToSession(uiState.session?.status)
-    val latestPendingInteractiveCallId = findLatestPendingInteractiveToolCallId(uiState.messages)
-    val latestPendingApprovalCallId = findLatestPendingApprovalCallId(uiState.messages)
+    val sessionAllowsInteractiveInput = canRespondToInteractiveRequest(effectiveStatus)
+    val latestPendingInteractiveCallId = findLatestPendingInteractiveToolCallId(uiState.messages, effectiveStatus)
+    val latestPendingApprovalCallId = findLatestPendingApprovalCallId(uiState.messages, effectiveStatus)
     val timelineMessages = remember(uiState.messages) { deduplicateStatusChanges(uiState.messages) }
     val displayedTimelineLastIndex by rememberUpdatedState(timelineMessages.lastIndex)
 
@@ -398,7 +399,7 @@ fun SessionDetailScreen(
                         },
                         actions = {
                             TopBarStatusBadge(
-                                status = uiState.session?.status.orEmpty(),
+                                status = effectiveStatus.orEmpty(),
                                 modifier = Modifier.padding(end = 8.dp),
                             )
                             IconButton(
@@ -417,7 +418,7 @@ fun SessionDetailScreen(
                                     menuExpanded = false
                                 },
                             ) {
-                                if (canCancelSession(uiState.session?.status)) {
+                                if (canCancelSession(effectiveStatus)) {
                                     DropdownMenuItem(
                                         text = {
                                             Text("取消会话")
@@ -435,7 +436,7 @@ fun SessionDetailScreen(
                                         },
                                     )
                                 }
-                                if (canResumeSession(uiState.session?.status)) {
+                                if (canResumeSession(effectiveStatus)) {
                                     DropdownMenuItem(
                                         text = {
                                             Text("恢复会话")
@@ -453,7 +454,7 @@ fun SessionDetailScreen(
                                         },
                                     )
                                 }
-                                if (canCompleteSession(uiState.session?.status)) {
+                                if (canCompleteSession(effectiveStatus)) {
                                     DropdownMenuItem(
                                         text = {
                                             Text("结束会话")
@@ -520,7 +521,7 @@ fun SessionDetailScreen(
             },
             bottomBar = {
                 InputBar(
-                    status = uiState.session?.status,
+                    status = effectiveStatus,
                     canSend = uiState.canSend,
                     isSending = uiState.isSending,
                     commandChip = uiState.commandChip,
@@ -613,6 +614,7 @@ fun SessionDetailScreen(
                                             is MessageItem.InteractiveToolCall ->
                                                 InteractiveToolCard(
                                                     item = item,
+                                                    sessionStatus = effectiveStatus,
                                                     isSessionActive = sessionAllowsInteractiveInput,
                                                     isLatestPending =
                                                         isLatestPendingInteractiveToolCall(

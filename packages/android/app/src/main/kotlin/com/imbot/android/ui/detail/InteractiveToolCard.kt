@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -61,6 +62,7 @@ private val OptionSelectedBorder = BorderStroke(1.5.dp, BrandBlue)
 @Composable
 internal fun InteractiveToolCard(
     item: MessageItem.InteractiveToolCall,
+    sessionStatus: String?,
     isSessionActive: Boolean,
     isLatestPending: Boolean,
     isSending: Boolean,
@@ -70,13 +72,14 @@ internal fun InteractiveToolCard(
     onExitSelectionMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
+    val renderedItem = remember(item, sessionStatus) { resolvedInteractiveToolCall(item, sessionStatus) }
     var answerDraft by rememberSaveable(item.id) { mutableStateOf(item.answer.orEmpty()) }
     var selectedSet by rememberSaveable(item.id) { mutableStateOf(emptySet<String>()) }
     val hapticFeedback = LocalHapticFeedback.current
     val canLongPress = onLongPress != null && hasActions(item)
-    val primaryQuestion = item.primaryQuestion
-    val isExpired = !item.isAnswered && !isLatestPending
-    val inputEnabled = isSessionActive && !item.isAnswered && isLatestPending && !isSending
+    val primaryQuestion = renderedItem.primaryQuestion
+    val isExpired = !renderedItem.isAnswered && (!canRespondToInteractiveRequest(sessionStatus) || !isLatestPending)
+    val inputEnabled = isSessionActive && !renderedItem.isAnswered && isLatestPending && !isSending
     val canSubmit =
         interactiveToolCanSubmit(
             primaryQuestion = primaryQuestion,
@@ -84,10 +87,10 @@ internal fun InteractiveToolCard(
             answerDraft = answerDraft,
             inputEnabled = inputEnabled,
         )
-    val dimmed = item.isAnswered || isExpired
+    val dimmed = renderedItem.isAnswered || isExpired
 
-    LaunchedEffect(item.isAnswered, item.answer) {
-        answeredInteractiveToolAnswer(item)?.let { answer -> answerDraft = answer }
+    LaunchedEffect(renderedItem.isAnswered, renderedItem.answer) {
+        answeredInteractiveToolAnswer(renderedItem)?.let { answer -> answerDraft = answer }
     }
 
     Card(
@@ -95,7 +98,7 @@ internal fun InteractiveToolCard(
             modifier
                 .fillMaxWidth()
                 .interactiveToolCardInteractions(
-                    item = item,
+                    item = renderedItem,
                     canLongPress = canLongPress,
                     selectionModeActive = selectionModeActive,
                     onExitSelectionMode = onExitSelectionMode,
@@ -115,9 +118,9 @@ internal fun InteractiveToolCard(
                     .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            InteractiveToolCardHeader(item = item, isExpired = isExpired, primaryQuestion = primaryQuestion)
+            InteractiveToolCardHeader(item = renderedItem, isExpired = isExpired, primaryQuestion = primaryQuestion)
             InteractiveToolOptionsFlowRow(
-                item = item,
+                item = renderedItem,
                 primaryQuestion = primaryQuestion,
                 inputEnabled = inputEnabled,
                 selectedSet = selectedSet,
@@ -127,9 +130,9 @@ internal fun InteractiveToolCard(
                 },
                 onSelectOption = { label -> answerDraft = label },
             )
-            InteractiveToolAnsweredBanner(item = item)
+            InteractiveToolAnsweredBanner(item = renderedItem)
             InteractiveToolInputRow(
-                item = item,
+                item = renderedItem,
                 primaryQuestion = primaryQuestion,
                 answerDraft = answerDraft,
                 inputEnabled = inputEnabled,

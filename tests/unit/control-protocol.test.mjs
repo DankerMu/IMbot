@@ -87,7 +87,6 @@ function createAdapterHarness(tempDir, harnessOptions = {}) {
     sessionIndex,
     logger: silentLogger,
     idleTimeoutMs: harnessOptions.idleTimeoutMs,
-    interactiveToolTimeoutMs: harnessOptions.interactiveToolTimeoutMs,
     sendEvent: (message) => {
       events.push(message);
     },
@@ -602,59 +601,6 @@ test("AskUserQuestion does not time out by default while waiting for an answer",
   assert.notEqual(getSession(adapter, "relay-control-1").pendingControlResponse, null);
   assert.equal(getSession(adapter, "relay-control-1").pendingControlTimer, null);
   assert.equal(children[0].getWrittenMessages().length, writtenCountBeforeAsk);
-});
-
-test("AskUserQuestion times out after interactiveToolTimeoutMs", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-timeout-"));
-  const cwd = path.join(tempDir, "project");
-  mkdirSync(cwd, { recursive: true });
-  const { adapter, children, events } = createAdapterHarness(tempDir, {
-    interactiveToolTimeoutMs: 50
-  });
-
-  t.after(async () => {
-    await adapter.shutdown().catch(() => {});
-    rmSync(tempDir, { recursive: true, force: true });
-  });
-
-  await createSession(adapter, cwd);
-  children[0].emitJson({
-    type: "control_request",
-    request_id: "req-ask-timeout",
-    request: {
-      subtype: "can_use_tool",
-      tool_use_id: "toolu_ask_timeout",
-      tool_name: "AskUserQuestion",
-      input: {
-        questions: [{ question: "Pick one" }]
-      }
-    }
-  });
-  await flushRuntime();
-  await delay(80);
-  await flushRuntime();
-
-  assert.equal(getSession(adapter, "relay-control-1").pendingControlResponse, null);
-  assert.equal(getSession(adapter, "relay-control-1").pendingControlTimer, null);
-  assert.deepEqual(children[0].getWrittenMessages().at(-1), {
-    type: "control_response",
-    response: {
-      subtype: "error",
-      request_id: "req-ask-timeout",
-      error: "Interactive tool answer timeout"
-    }
-  });
-  assert.deepEqual(events.at(-1), {
-    type: "event",
-    session_id: "relay-control-1",
-    event_type: "tool_call_completed",
-    payload: {
-      call_id: "toolu_ask_timeout",
-      tool: "AskUserQuestion",
-      result: null,
-      cancelled: true
-    }
-  });
 });
 
 test("rejectAllPendingControlResponses clears all pending sessions", async (t) => {

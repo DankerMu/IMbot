@@ -76,7 +76,6 @@ export async function createCompanionRuntime(options?: {
     logger,
     killGraceMs: options?.killGraceMs,
     idleTimeoutMs: config.idleTimeoutMs,
-    interactiveToolTimeoutMs: config.interactiveToolTimeoutMs,
     isAllowedDirectory: (provider, cwd) => {
       if (provider !== "book") {
         return true;

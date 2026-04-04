@@ -67,7 +67,7 @@ class DetailViewModelTest {
             val viewModel = createViewModel(relay = relay, ws = ws)
             advanceUntilIdle()
 
-            assertEquals(1, relay.getSessionCalls)
+            assertEquals(2, relay.getSessionCalls)
             assertEquals(1, relay.getSessionEventsCalls)
             assertEquals(listOf(TEST_SESSION.id), ws.subscriptions)
             assertEquals(TEST_SESSION, viewModel.uiState.value.session)
@@ -267,6 +267,73 @@ class DetailViewModelTest {
             assertTrue(interactive.isAnswered)
             assertEquals("Beta", interactive.answer)
             assertAgentMessage(messages.last(), "FINAL_ANSWER:Beta", isStreaming = true)
+        }
+
+    @Test
+    fun `submitToolAnswer marks interactive card resolved once session reaches idle even without tool completion event`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionHandler =
+                        { _, _, _ ->
+                            Result.success(
+                                if (getSessionCalls >= 2) {
+                                    TEST_SESSION.copy(status = "idle")
+                                } else {
+                                    TEST_SESSION
+                                },
+                            )
+                        }
+                    getSessionEventsHandler =
+                        { _, _, _, sinceSeq, _ ->
+                            when (sinceSeq) {
+                                0 -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                                1 ->
+                                    Result.success(
+                                        RelayEventPage(
+                                            events =
+                                                listOf(
+                                                    event(seq = 2, eventType = "session_idle"),
+                                                    event(
+                                                        seq = 3,
+                                                        eventType = "session_status_changed",
+                                                        payload = payload("status" to "idle"),
+                                                    ),
+                                                ),
+                                            hasMore = false,
+                                        ),
+                                    )
+
+                                else -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                            }
+                        }
+                }
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "tool_call_started",
+                    payload =
+                        payload(
+                            "call_id" to "tool-1",
+                            "tool_name" to "AskUserQuestion",
+                            "args" to """{"question":"选哪个?","options":["Alpha","Beta"]}""",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.submitToolAnswer("Beta")
+            advanceUntilIdle()
+
+            val interactive = viewModel.uiState.value.messages.filterIsInstance<MessageItem.InteractiveToolCall>().single()
+            assertEquals("idle", viewModel.uiState.value.effectiveStatus)
+            assertTrue(viewModel.uiState.value.canSend)
+            assertTrue(resolvedInteractiveToolCall(interactive, viewModel.uiState.value.effectiveStatus).isAnswered)
+            assertEquals("Beta", interactive.answer)
         }
 
     @Test
