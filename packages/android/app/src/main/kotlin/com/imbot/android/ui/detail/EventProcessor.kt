@@ -71,6 +71,11 @@ sealed class MessageItem {
 
 internal fun generateMessageItemId(): String = UUID.randomUUID().toString()
 
+internal data class EventProcessingResult(
+    val messages: List<MessageItem>,
+    val usageUpdate: SessionUsageState? = null,
+)
+
 @Suppress("TooManyFunctions")
 class EventProcessor(
     private val idGenerator: () -> String = ::generateMessageItemId,
@@ -78,11 +83,14 @@ class EventProcessor(
     private val messages = mutableListOf<MessageItem>()
     private var maxProcessedSeq = 0
 
-    fun process(event: ServerMessage.Event): List<MessageItem> {
+    fun process(event: ServerMessage.Event): List<MessageItem> = processWithMetadata(event).messages
+
+    internal fun processWithMetadata(event: ServerMessage.Event): EventProcessingResult {
         if (event.seq <= maxProcessedSeq) {
-            return snapshot()
+            return EventProcessingResult(messages = snapshot())
         }
         maxProcessedSeq = event.seq
+        var usageUpdate: SessionUsageState? = null
 
         when (event.eventType) {
             "user_message" -> appendUserMessage(event)
@@ -101,12 +109,16 @@ class EventProcessor(
                     message = event.payload.stringValue("message"),
                     seq = event.seq,
                 )
+            "session_usage" -> usageUpdate = event.payload.toSessionUsageState()
             "approval_required", "approval_resolved" -> appendApprovalEvent(event)
             "session_error" -> appendSessionError(event)
         }
 
         trimMessagesIfNeeded()
-        return snapshot()
+        return EventProcessingResult(
+            messages = snapshot(),
+            usageUpdate = usageUpdate,
+        )
     }
 
     internal fun reset() {
@@ -577,3 +589,46 @@ internal fun JSONObject?.compactValue(key: String): String? {
         else -> value.toString()
     }?.takeIf { it.isNotBlank() }
 }
+
+internal fun JSONObject?.intValue(key: String): Int? {
+    val payload = this ?: return null
+    val value = payload.opt(key)
+    return when (value) {
+        null,
+        JSONObject.NULL,
+        -> null
+        is Int -> value
+        is Long -> value.toInt()
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull()
+        else -> null
+    }
+}
+
+internal fun JSONObject?.doubleValue(key: String): Double? {
+    val payload = this ?: return null
+    val value = payload.opt(key)
+    return when (value) {
+        null,
+        JSONObject.NULL,
+        -> null
+        is Double -> value
+        is Float -> value.toDouble()
+        is Number -> value.toDouble()
+        is String -> value.toDoubleOrNull()
+        else -> null
+    }
+}
+
+private fun JSONObject?.toSessionUsageState(): SessionUsageState? =
+    this?.let { payload ->
+        SessionUsageState(
+            inputTokens = payload.intValue("input_tokens") ?: 0,
+            outputTokens = payload.intValue("output_tokens") ?: 0,
+            cacheCreationTokens = payload.intValue("cache_creation_input_tokens") ?: 0,
+            cacheReadTokens = payload.intValue("cache_read_input_tokens") ?: 0,
+            totalCostUsd = payload.doubleValue("total_cost_usd") ?: 0.0,
+            contextWindow = payload.intValue("context_window") ?: 0,
+            model = payload.stringValue("model"),
+        )
+    }

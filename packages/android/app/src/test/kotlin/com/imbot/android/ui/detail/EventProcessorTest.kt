@@ -17,6 +17,59 @@ class EventProcessorTest {
     private val processor = EventProcessor { "id-${++nextId}" }
 
     @Test
+    fun `session_usage event does not add to messages list`() {
+        val result =
+            processor.processWithMetadata(
+                event(
+                    seq = 1,
+                    eventType = "session_usage",
+                    payload =
+                        payload(
+                            "input_tokens" to 12,
+                            "output_tokens" to 34,
+                        ),
+                ),
+            )
+
+        assertTrue(result.messages.isEmpty())
+        assertNotNull(result.usageUpdate)
+    }
+
+    @Test
+    fun `session_usage event payload is extracted into usage state`() {
+        val result =
+            processor.processWithMetadata(
+                event(
+                    seq = 1,
+                    eventType = "session_usage",
+                    payload =
+                        payload(
+                            "input_tokens" to 12,
+                            "output_tokens" to 34,
+                            "cache_creation_input_tokens" to 56,
+                            "cache_read_input_tokens" to 78,
+                            "total_cost_usd" to 0.12,
+                            "context_window" to 200_000,
+                            "model" to "claude-sonnet-4-6",
+                        ),
+                ),
+            )
+
+        assertEquals(
+            SessionUsageState(
+                inputTokens = 12,
+                outputTokens = 34,
+                cacheCreationTokens = 56,
+                cacheReadTokens = 78,
+                totalCostUsd = 0.12,
+                contextWindow = 200_000,
+                model = "claude-sonnet-4-6",
+            ),
+            result.usageUpdate,
+        )
+    }
+
+    @Test
     fun `user_message event generates user message`() {
         val result =
             processor.process(

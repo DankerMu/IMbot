@@ -23,13 +23,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
@@ -47,6 +51,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarDuration
@@ -70,6 +75,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalDensity
@@ -117,6 +123,7 @@ fun SessionDetailScreen(
     val effectiveStatus = uiState.effectiveStatus ?: uiState.session?.status
     val messageActions = messageMenuTarget?.takeIf(::hasActions)?.let(::availableActions).orEmpty()
     val sessionAllowsInteractiveInput = canRespondToInteractiveRequest(effectiveStatus)
+    val showUsageIndicator = effectiveStatus == "running" || effectiveStatus == "idle"
     val latestPendingInteractiveCallId = findLatestPendingInteractiveToolCallId(uiState.messages, effectiveStatus)
     val latestPendingApprovalCallId = findLatestPendingApprovalCallId(uiState.messages, effectiveStatus)
     val timelineMessages = remember(uiState.messages) { deduplicateStatusChanges(uiState.messages) }
@@ -379,6 +386,8 @@ fun SessionDetailScreen(
                                 title = uiState.session?.let(::sessionTitle) ?: "会话详情",
                                 subtitle = uiState.session?.let(::sessionSubtitle),
                                 provider = uiState.session?.provider.orEmpty(),
+                                usage = uiState.usage,
+                                showUsageIndicator = showUsageIndicator,
                             )
                         },
                         navigationIcon = {
@@ -715,6 +724,8 @@ private fun DetailTopBarTitle(
     title: String,
     subtitle: String?,
     provider: String,
+    usage: SessionUsageState,
+    showUsageIndicator: Boolean,
 ) {
     Row(
         modifier = Modifier,
@@ -732,16 +743,64 @@ private fun DetailTopBarTitle(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            subtitle?.let { subtitleText ->
-                Text(
-                    text = subtitleText,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+            if (subtitle != null || (showUsageIndicator && usage.totalTokens > 0)) {
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    subtitle?.let { subtitleText ->
+                        Text(
+                            text = subtitleText,
+                            modifier = Modifier.widthIn(max = 140.dp),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    UsageIndicator(
+                        usage = usage,
+                        isActive = showUsageIndicator,
+                    )
+                }
             }
         }
+    }
+}
+
+@Composable
+private fun UsageIndicator(
+    usage: SessionUsageState,
+    isActive: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    if (!isActive || usage.totalTokens == 0) {
+        return
+    }
+
+    val color = usageColor(usage.usagePercent)
+
+    Row(
+        modifier = modifier,
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(
+            text = "${formatTokenCount(usage.totalTokens)} / ${formatTokenCount(usage.contextWindow)}",
+            style = MaterialTheme.typography.labelSmall,
+            color = color,
+            maxLines = 1,
+        )
+        LinearProgressIndicator(
+            progress = { usage.usagePercent.coerceIn(0f, 1f) },
+            modifier =
+                Modifier
+                    .width(40.dp)
+                    .height(3.dp)
+                    .clip(RoundedCornerShape(1.5.dp)),
+            color = color,
+            trackColor = MaterialTheme.colorScheme.surfaceVariant,
+        )
     }
 }
 

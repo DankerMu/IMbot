@@ -11,6 +11,7 @@ export const EVENT_TYPES = [
   "session_status_changed",
   "session_result",
   "session_idle",
+  "session_usage",
   "session_error",
   "user_message"
 ] as const;

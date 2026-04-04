@@ -17,6 +17,7 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 internal const val DEFAULT_ASK_USER_QUESTION_MESSAGE = "Agent is asking for input"
 internal const val MAX_ASK_USER_QUESTION_OPTIONS = 10
@@ -43,6 +44,22 @@ data class DetailScrollState(
     val newMsgCount: Int = 0,
     val fabVisible: Boolean = false,
 )
+
+internal data class SessionUsageState(
+    val inputTokens: Int = 0,
+    val outputTokens: Int = 0,
+    val cacheCreationTokens: Int = 0,
+    val cacheReadTokens: Int = 0,
+    val totalCostUsd: Double = 0.0,
+    val contextWindow: Int = 0,
+    val model: String? = null,
+) {
+    val totalTokens: Int
+        get() = inputTokens + outputTokens
+
+    val usagePercent: Float
+        get() = if (contextWindow > 0) totalTokens.toFloat() / contextWindow else 0f
+}
 
 internal data class ScrollMutation(
     val state: DetailScrollState,
@@ -202,6 +219,20 @@ internal fun statusBubbleDotColor(status: String): Color =
         "failed" -> DestructiveColor
         "cancelled" -> Color(0xFF6B7280)
         else -> Color(0xFF9CA3AF)
+    }
+
+internal fun formatTokenCount(count: Int): String =
+    when {
+        count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000f)
+        count >= 1_000 -> String.format(Locale.US, "%.1fk", count / 1_000f)
+        else -> count.toString()
+    }
+
+internal fun usageColor(percent: Float): Color =
+    when {
+        percent > 0.9f -> Color(0xFFE53935)
+        percent > 0.8f -> Color(0xFFFFA726)
+        else -> Color(0xFF66BB6A)
     }
 
 internal fun inputPlaceholderForStatus(status: String?): String =

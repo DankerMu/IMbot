@@ -38,6 +38,7 @@ internal data class DetailUiState(
     val session: RelaySession? = null,
     val effectiveStatus: String? = null,
     val messages: List<MessageItem> = emptyList(),
+    val usage: SessionUsageState = SessionUsageState(),
     val commandChip: SkillItem? = null,
     val showSlashSheet: Boolean = false,
     val messageMenuTarget: MessageItem? = null,
@@ -141,6 +142,7 @@ class DetailViewModel
                             messageMenuTarget = null,
                             selectionModeMessageId = null,
                             effectiveStatus = null,
+                            usage = SessionUsageState(),
                             scrollState = DetailScrollState(),
                         )
                     }
@@ -606,7 +608,8 @@ class DetailViewModel
                 removeOptimisticMessage(event.payload.stringValue("text").orEmpty())
             }
 
-            eventProcessor.process(event)
+            val processingResult = eventProcessor.processWithMetadata(event)
+            applyUsageUpdate(event, processingResult.usageUpdate)
             applyEventToSession(event)
             publishMessages(
                 newMessages = combinedMessages(),
@@ -761,9 +764,50 @@ class DetailViewModel
                     session = session,
                     effectiveStatus = effectiveStatus,
                     messages = newMessages,
+                    usage = usageStateForSession(current.usage, session),
                     canSend = canInputToSession(effectiveStatus) && !current.isSending,
                 )
             }
+        }
+
+        private fun applyUsageUpdate(
+            event: ServerMessage.Event,
+            usageUpdate: SessionUsageState?,
+        ) {
+            val update = usageUpdate ?: return
+            _uiState.update { current ->
+                val payload = event.payload
+                current.copy(
+                    usage =
+                        current.usage.copy(
+                            inputTokens = update.inputTokens,
+                            outputTokens = update.outputTokens,
+                            cacheCreationTokens = update.cacheCreationTokens,
+                            cacheReadTokens = update.cacheReadTokens,
+                            totalCostUsd =
+                                if (payload?.has("total_cost_usd") == true) {
+                                    update.totalCostUsd
+                                } else {
+                                    current.usage.totalCostUsd
+                                },
+                            contextWindow =
+                                if (payload?.has("context_window") == true) {
+                                    update.contextWindow
+                                } else {
+                                    current.usage.contextWindow
+                                },
+                            model = update.model ?: current.usage.model,
+                        ),
+                )
+            }
+        }
+
+        private fun usageStateForSession(
+            usage: SessionUsageState,
+            session: RelaySession,
+        ): SessionUsageState {
+            val model = usage.model ?: session.model?.takeIf(String::isNotBlank)
+            return if (model == usage.model) usage else usage.copy(model = model)
         }
 
         private fun applyEventToSession(event: ServerMessage.Event) {
@@ -771,8 +815,10 @@ class DetailViewModel
 
             when (event.eventType) {
                 "session_started" -> {
+                    val model = event.payload.stringValue("model") ?: currentSession.model
                     publishSession(
                         currentSession.copy(
+                            model = model,
                             status = "running",
                             errorMessage = currentSession.errorMessage,
                         ),

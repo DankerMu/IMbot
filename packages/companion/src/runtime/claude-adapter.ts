@@ -21,6 +21,7 @@ interface RuntimeSession {
   readonly cwd: string;
   readonly createdAt: string;
   initialPrompt: string | null;
+  model: string | null;
   readonly child: ChildProcessWithoutNullStreams;
   readonly stdout: ReadLineInterface;
   readonly providerSessionIdPromise: Promise<string>;
@@ -76,7 +77,7 @@ export class ClaudeRuntimeAdapter {
     this.idleTimeoutMs = options.idleTimeoutMs ?? 1800000;
   }
 
-  async createSession(command: CreateSessionCommand): Promise<{ provider_session_id: string }> {
+  async createSession(command: CreateSessionCommand): Promise<{ provider_session_id: string; model?: string }> {
     if (this.activeByRelaySessionId.has(command.session_id)) {
       throw new CompanionError("state_conflict", `Session ${command.session_id} is already active`);
     }
@@ -110,17 +111,23 @@ export class ClaudeRuntimeAdapter {
       cwd: command.cwd,
       binary: providerConfig.binary,
       args,
-      initialPrompt: command.prompt.slice(0, 200)
+      initialPrompt: command.prompt.slice(0, 200),
+      model: command.model ?? null
     });
 
     const providerSessionId = await session.providerSessionIdPromise;
     await this.writeUserMessage(session, command.prompt);
-    return {
-      provider_session_id: providerSessionId
-    };
+    return session.model
+      ? {
+          provider_session_id: providerSessionId,
+          model: session.model
+        }
+      : {
+          provider_session_id: providerSessionId
+        };
   }
 
-  async resumeSession(command: ResumeSessionCommand): Promise<{ provider_session_id: string }> {
+  async resumeSession(command: ResumeSessionCommand): Promise<{ provider_session_id: string; model?: string }> {
     const indexed = this.options.sessionIndex.get(command.session_id);
     if (!indexed || indexed.provider_session_id !== command.provider_session_id) {
       throw new CompanionError(
@@ -140,7 +147,7 @@ export class ClaudeRuntimeAdapter {
         `Directory ${command.cwd} is not allowed for provider ${indexed.provider}`
       );
     }
-    this.spawnSession({
+    const session = this.spawnSession({
       relaySessionId: command.session_id,
       provider: indexed.provider,
       cwd: command.cwd,
@@ -168,9 +175,14 @@ export class ClaudeRuntimeAdapter {
       }
     });
 
-    return {
-      provider_session_id: command.provider_session_id
-    };
+    return session.model
+      ? {
+          provider_session_id: command.provider_session_id,
+          model: session.model
+        }
+      : {
+          provider_session_id: command.provider_session_id
+        };
   }
 
   async sendMessage(relaySessionId: string, text: string): Promise<void> {
@@ -389,6 +401,7 @@ export class ClaudeRuntimeAdapter {
     readonly knownProviderSessionId?: string;
     readonly emitIdleOnReady?: boolean;
     readonly initialPrompt?: string | null;
+    readonly model?: string | null;
     readonly indexEntry?: SessionIndexEntry;
   }): RuntimeSession {
     const child = this.spawn(params.binary, params.args, {
@@ -419,6 +432,7 @@ export class ClaudeRuntimeAdapter {
       cwd: params.cwd,
       createdAt: params.indexEntry?.created_at ?? new Date().toISOString(),
       initialPrompt: params.initialPrompt ?? null,
+      model: params.model ?? null,
       child,
       stdout,
       providerSessionIdPromise,
@@ -503,6 +517,10 @@ export class ClaudeRuntimeAdapter {
     }
 
     if (mapped.kind === "provider_session_id") {
+      if (mapped.model) {
+        session.model = mapped.model;
+      }
+
       if (!session.providerSessionId) {
         this.registerProviderSessionId(session, mapped.providerSessionId);
       }
@@ -526,28 +544,23 @@ export class ClaudeRuntimeAdapter {
       return;
     }
 
-    if (mapped.eventType === "session_result") {
+    let eventType = mapped.eventType;
+    let payload = mapped.payload;
+
+    if (eventType === "session_result") {
       if (session.child.exitCode === null && !session.completing) {
         session.isIdle = true;
         session.resultEmitted = false;
         this.startIdleTimer(session);
-        await Promise.resolve(
-          this.options.sendEvent({
-            type: "event",
-            session_id: session.relaySessionId,
-            event_type: "session_idle",
-            payload: mapped.payload
-          })
-        );
-        return;
+        eventType = "session_idle";
+      } else {
+        session.resultEmitted = true;
       }
-
-      session.resultEmitted = true;
     }
 
-    if (mapped.eventType === "tool_call_started") {
-      const payload = asRecord(mapped.payload);
-      const callId = typeof payload?.call_id === "string" ? payload.call_id : null;
+    if (eventType === "tool_call_started") {
+      const toolPayload = asRecord(payload);
+      const callId = typeof toolPayload?.call_id === "string" ? toolPayload.call_id : null;
       if (callId) {
         if (session.emittedToolCallIds.has(callId)) {
           return;
@@ -556,14 +569,11 @@ export class ClaudeRuntimeAdapter {
       }
     }
 
-    await Promise.resolve(
-      this.options.sendEvent({
-        type: "event",
-        session_id: session.relaySessionId,
-        event_type: mapped.eventType,
-        payload: mapped.payload
-      })
-    );
+    await this.emitSessionEvent(session, eventType, payload);
+
+    if (type === "result" && record) {
+      await this.emitSessionUsage(session, record);
+    }
   }
 
   private async handleControlRequest(session: RuntimeSession, raw: unknown): Promise<void> {
@@ -771,6 +781,45 @@ export class ClaudeRuntimeAdapter {
     }
   }
 
+  private async emitSessionEvent(session: RuntimeSession, eventType: CompanionEventMessage["event_type"], payload: unknown) {
+    await Promise.resolve(
+      this.options.sendEvent({
+        type: "event",
+        session_id: session.relaySessionId,
+        event_type: eventType,
+        payload
+      })
+    );
+  }
+
+  private async emitSessionUsage(session: RuntimeSession, record: Record<string, unknown>): Promise<void> {
+    const usage = asRecord(record.usage);
+    if (!usage) {
+      return;
+    }
+
+    const [modelName, modelUsageEntry] = firstRecordEntry(record.modelUsage);
+    const modelUsage = asRecord(modelUsageEntry);
+    const model = modelName ?? getString(record.model) ?? session.model ?? undefined;
+    if (model) {
+      session.model = model;
+    }
+
+    await this.emitSessionEvent(session, "session_usage", {
+      input_tokens: getNumber(usage.input_tokens) ?? 0,
+      output_tokens: getNumber(usage.output_tokens) ?? 0,
+      ...(hasNumber(usage.cache_creation_input_tokens)
+        ? { cache_creation_input_tokens: getNumber(usage.cache_creation_input_tokens) }
+        : {}),
+      ...(hasNumber(usage.cache_read_input_tokens)
+        ? { cache_read_input_tokens: getNumber(usage.cache_read_input_tokens) }
+        : {}),
+      ...(hasNumber(record.total_cost_usd) ? { total_cost_usd: getNumber(record.total_cost_usd) } : {}),
+      ...(hasNumber(modelUsage?.contextWindow) ? { context_window: getNumber(modelUsage?.contextWindow) } : {}),
+      ...(model ? { model } : {})
+    });
+  }
+
   private requireActiveSession(relaySessionId: string): RuntimeSession {
     const active = this.activeByRelaySessionId.get(relaySessionId);
     if (active) {
@@ -959,6 +1008,32 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   }
 
   return value as Record<string, unknown>;
+}
+
+function getString(value: unknown): string | null {
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+function getNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function hasNumber(value: unknown): value is number {
+  return getNumber(value) != null;
+}
+
+function firstRecordEntry(value: unknown): [string | undefined, Record<string, unknown> | undefined] {
+  const record = asRecord(value);
+  if (!record) {
+    return [undefined, undefined];
+  }
+
+  const entry = Object.entries(record).find(([, entryValue]) => asRecord(entryValue));
+  if (!entry) {
+    return [undefined, undefined];
+  }
+
+  return [entry[0], asRecord(entry[1]) ?? undefined];
 }
 
 function buildUpdatedControlInput(

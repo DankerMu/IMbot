@@ -13,6 +13,59 @@ import java.time.Instant
 @Suppress("LargeClass")
 class DetailUtilsTest {
     @Test
+    fun `SessionUsageState computes totalTokens correctly`() {
+        val usage =
+            SessionUsageState(
+                inputTokens = 12_500,
+                outputTokens = 3_200,
+            )
+
+        assertEquals(15_700, usage.totalTokens)
+    }
+
+    @Test
+    fun `SessionUsageState computes usagePercent correctly`() {
+        val usage =
+            SessionUsageState(
+                inputTokens = 12_500,
+                outputTokens = 3_200,
+                contextWindow = 200_000,
+            )
+
+        assertEquals(0.0785f, usage.usagePercent, 0.0001f)
+    }
+
+    @Test
+    fun `formatTokenCount formats thousands`() {
+        assertEquals("12.5k", formatTokenCount(12_500))
+    }
+
+    @Test
+    fun `formatTokenCount formats millions`() {
+        assertEquals("1.5M", formatTokenCount(1_500_000))
+    }
+
+    @Test
+    fun `formatTokenCount formats small numbers`() {
+        assertEquals("500", formatTokenCount(500))
+    }
+
+    @Test
+    fun `usageColor returns green for normal usage`() {
+        assertEquals(Color(0xFF66BB6A), usageColor(0.5f))
+    }
+
+    @Test
+    fun `usageColor returns orange for warning`() {
+        assertEquals(Color(0xFFFFA726), usageColor(0.81f))
+    }
+
+    @Test
+    fun `usageColor returns red for critical`() {
+        assertEquals(Color(0xFFE53935), usageColor(0.91f))
+    }
+
+    @Test
     fun `filterSkills matches command and label case insensitively`() {
         assertEquals(
             listOf("commit", "compact"),
