@@ -90,9 +90,11 @@ class EventProcessor(
             "assistant_message" -> finalizeAssistantMessage(event)
             "tool_call_started" -> appendToolCallStarted(event)
             "tool_call_completed" -> appendToolCallCompleted(event)
-            "session_status_changed" -> appendStatusChangeIfSignificant(event)
-            "session_started" -> Unit // silent — top bar shows status
-            "session_idle" -> Unit // silent — top bar shows status
+            "session_status_changed" -> {
+                clearSupersededTerminalStatusChangesIfNeeded(event)
+                appendStatusChangeIfSignificant(event)
+            }
+            "session_started", "session_idle" -> clearSupersededTerminalStatusChanges()
             "session_result" ->
                 appendStatusChange(
                     status = event.payload.stringValue("status").orEmpty(),
@@ -168,6 +170,20 @@ class EventProcessor(
             resolved
         }
         return mutated
+    }
+
+    private fun clearSupersededTerminalStatusChangesIfNeeded(event: ServerMessage.Event) {
+        val status = event.payload.stringValue("status").orEmpty()
+        if (status.isNotBlank() && status !in terminalStatuses) {
+            clearSupersededTerminalStatusChanges()
+        }
+    }
+
+    private fun clearSupersededTerminalStatusChanges() {
+        messages.removeAll { item ->
+            val statusChange = item as? MessageItem.StatusChange ?: return@removeAll false
+            statusChange.eventType == null && statusChange.status in terminalStatuses
+        }
     }
 
     private fun appendUserMessage(event: ServerMessage.Event) {

@@ -270,6 +270,74 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `loadSession drops superseded terminal status bubbles after a later resumed run`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "idle"))
+                    getSessionEventsHandler =
+                        { _, _, _, sinceSeq, _ ->
+                            when (sinceSeq) {
+                                0 ->
+                                    Result.success(
+                                        RelayEventPage(
+                                            events =
+                                                listOf(
+                                                    event(
+                                                        seq = 1,
+                                                        eventType = "session_error",
+                                                        payload = payload("message" to "Companion shutting down; session process will be lost"),
+                                                    ),
+                                                    event(
+                                                        seq = 2,
+                                                        eventType = "session_status_changed",
+                                                        payload = payload("status" to "failed"),
+                                                    ),
+                                                    event(
+                                                        seq = 3,
+                                                        eventType = "session_result",
+                                                        payload = payload("status" to "failed"),
+                                                    ),
+                                                    event(seq = 4, eventType = "session_started"),
+                                                    event(
+                                                        seq = 5,
+                                                        eventType = "session_status_changed",
+                                                        payload = payload("status" to "running"),
+                                                    ),
+                                                    event(seq = 6, eventType = "user_message", payload = payload("text" to "继续")),
+                                                    event(
+                                                        seq = 7,
+                                                        eventType = "assistant_message",
+                                                        payload = payload("text" to "新的回复"),
+                                                    ),
+                                                    event(seq = 8, eventType = "session_idle"),
+                                                    event(
+                                                        seq = 9,
+                                                        eventType = "session_status_changed",
+                                                        payload = payload("status" to "idle"),
+                                                    ),
+                                                ),
+                                            hasMore = false,
+                                        ),
+                                    )
+
+                                else -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                            }
+                        }
+                }
+
+            val viewModel = createViewModel(relay = relay)
+            advanceUntilIdle()
+
+            assertEquals("idle", viewModel.uiState.value.effectiveStatus)
+            assertTrue(viewModel.uiState.value.canSend)
+            assertEquals(2, viewModel.uiState.value.messages.size)
+            assertUserMessage(viewModel.uiState.value.messages[0], "继续")
+            assertAgentMessage(viewModel.uiState.value.messages[1], "新的回复", isStreaming = false)
+            assertTrue(viewModel.uiState.value.messages.none { it is MessageItem.StatusChange })
+        }
+
+    @Test
     fun `submitToolAnswer marks interactive card resolved once session reaches idle even without tool completion event`() =
         runTest(mainDispatcherRule.dispatcher) {
             val relay =

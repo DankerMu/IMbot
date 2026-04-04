@@ -555,11 +555,47 @@ class EventProcessorTest {
     }
 
     @Test
-    fun `session_status_changed to running stays in top bar only`() {
+    fun `session_started clears stale terminal status bubbles from previous runs`() {
+        processor.process(
+            event(
+                seq = 1,
+                eventType = "session_result",
+                payload = payload("status" to "completed", "message" to "任务结束"),
+            ),
+        )
+        processor.process(
+            event(
+                seq = 2,
+                eventType = "session_error",
+                payload = payload("message" to "provider timeout"),
+            ),
+        )
+
         val result =
             processor.process(
                 event(
-                    seq = 1,
+                    seq = 3,
+                    eventType = "session_started",
+                ),
+            )
+
+        assertTrue(result.isEmpty())
+    }
+
+    @Test
+    fun `session_status_changed to running stays in top bar only`() {
+        processor.process(
+            event(
+                seq = 1,
+                eventType = "session_result",
+                payload = payload("status" to "completed", "message" to "任务结束"),
+            ),
+        )
+
+        val result =
+            processor.process(
+                event(
+                    seq = 2,
                     eventType = "session_status_changed",
                     payload = payload("status" to "running"),
                 ),
