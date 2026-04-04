@@ -66,8 +66,17 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 
 - `persistent-interactive-sessions` — stream-json bidirectional protocol, `idle` session state, viewer CLI, Android idle UX ✅
 
+### `p1` Active
+
+- `p1-dual-session-sync` — 双端 session 同步：修复 cwd 过滤过严导致 Android 创建的 session 在 native CLI resume 中不可见
+
+### `p2` Active
+
+- `p2-empty-session-creation` — 空 session 创建：允许选完 provider + 目录后直接创建 session，无需首条 prompt
+
 ### `p3` Hardening / Future
 
+- `p3-context-usage-display` — session 上下文用量实时展示：在 Android detail 顶部状态栏显示 token 计数和上下文窗口使用进度
 - `p3-theme-and-animations` — theme system, transitions, motion, code theme
 - `p3-error-ux-and-cleanup` — three-layer error UX, purge job, connection stability
 - `p3-approval-path-reserved` — reserved non-bypass permission mode and approval event plumbing

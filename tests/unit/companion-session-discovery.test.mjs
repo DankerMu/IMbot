@@ -317,3 +317,247 @@ test("discoverSessions marks empty session files as unknown", async () => {
     rmSync(projectsDir, { recursive: true, force: true });
   }
 });
+
+test("discoverAllSessions returns sessions across all project directories without cwd filtering", async () => {
+  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-all-"));
+  const firstCwd = "/a/b";
+  const secondCwd = "/x/y";
+
+  try {
+    createSessionFile(projectsDir, firstCwd, "session-a", "2026-03-30T01:00:00.000Z");
+    createSessionFile(projectsDir, secondCwd, "session-b", "2026-03-30T02:00:00.000Z");
+
+    const results = await companion.discoverAllSessions("claude", {
+      claudeProjectsDir: projectsDir,
+      logger: silentLogger
+    });
+
+    assert.deepEqual(
+      results.map((entry) => ({
+        provider_session_id: entry.provider_session_id,
+        cwd: entry.cwd
+      })),
+      [
+        {
+          provider_session_id: "session-b",
+          cwd: secondCwd
+        },
+        {
+          provider_session_id: "session-a",
+          cwd: firstCwd
+        }
+      ]
+    );
+  } finally {
+    rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
+test("discoverAllSessions returns empty array for missing or non-directory projects paths", async () => {
+  const projectsRoot = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-all-missing-"));
+  const nonDirectoryPath = path.join(projectsRoot, "not-a-directory");
+
+  try {
+    writeFileSync(nonDirectoryPath, "not a directory", "utf8");
+
+    assert.deepEqual(
+      await companion.discoverAllSessions("claude", {
+        claudeProjectsDir: path.join(projectsRoot, "missing"),
+        logger: silentLogger
+      }),
+      []
+    );
+    assert.deepEqual(
+      await companion.discoverAllSessions("claude", {
+        claudeProjectsDir: nonDirectoryPath,
+        logger: silentLogger
+      }),
+      []
+    );
+  } finally {
+    rmSync(projectsRoot, { recursive: true, force: true });
+  }
+});
+
+test("discoverAllSessions recovers cwd via decode for each project dir", async () => {
+  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-all-decode-"));
+  const cwd = "/Users/danker/Desktop/AIvault/IMbot";
+
+  try {
+    createSessionFile(projectsDir, cwd, "session-decode", "2026-03-30T03:00:00.000Z");
+
+    const results = await companion.discoverAllSessions("book", {
+      claudeProjectsDir: projectsDir,
+      logger: silentLogger
+    });
+
+    assert.equal(results.length, 1);
+    assert.equal(results[0].cwd, cwd);
+  } finally {
+    rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
+test("discoverAllSessions respects limit parameter", async () => {
+  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-all-limit-"));
+  const cwd = "/Users/danker/Desktop/AIvault";
+
+  try {
+    createSessionFile(projectsDir, cwd, "session-1", "2026-03-30T01:00:00.000Z");
+    createSessionFile(projectsDir, cwd, "session-2", "2026-03-30T02:00:00.000Z");
+    createSessionFile(projectsDir, cwd, "session-3", "2026-03-30T03:00:00.000Z");
+    createSessionFile(projectsDir, cwd, "session-4", "2026-03-30T04:00:00.000Z");
+    createSessionFile(projectsDir, cwd, "session-5", "2026-03-30T05:00:00.000Z");
+
+    const results = await companion.discoverAllSessions("claude", {
+      claudeProjectsDir: projectsDir,
+      logger: silentLogger,
+      limit: 2
+    });
+
+    assert.deepEqual(
+      results.map((entry) => entry.provider_session_id),
+      ["session-5", "session-4"]
+    );
+  } finally {
+    rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
+test("discoverAllSessions marks empty files as unknown", async () => {
+  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-all-empty-file-"));
+  const cwd = "/Users/danker/Desktop/AIvault";
+
+  try {
+    createSessionFile(projectsDir, cwd, "session-empty", "2026-03-30T05:00:00.000Z", "");
+
+    const results = await companion.discoverAllSessions("claude", {
+      claudeProjectsDir: projectsDir,
+      logger: silentLogger
+    });
+
+    assert.deepEqual(results, [
+      {
+        provider_session_id: "session-empty",
+        cwd,
+        created_at: "2026-03-30T05:00:00.000Z",
+        status: "unknown"
+      }
+    ]);
+  } finally {
+    rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
+test("discoverAllSessions does not affect discoverSessions behavior", async () => {
+  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-all-vs-filtered-"));
+  const matchingCwd = "/Users/danker/Desktop/AIvault";
+  const otherCwd = "/Users/danker/Desktop/other";
+
+  try {
+    createSessionFile(projectsDir, matchingCwd, "session-match", "2026-03-30T05:00:00.000Z");
+    createSessionFile(projectsDir, otherCwd, "session-other", "2026-03-30T06:00:00.000Z");
+
+    const allResults = await companion.discoverAllSessions("claude", {
+      claudeProjectsDir: projectsDir,
+      logger: silentLogger
+    });
+    const filteredResults = await companion.discoverSessions(matchingCwd, "claude", {
+      claudeProjectsDir: projectsDir,
+      logger: silentLogger
+    });
+
+    assert.equal(allResults.length, 2);
+    assert.deepEqual(
+      filteredResults.map((entry) => entry.provider_session_id),
+      ["session-match"]
+    );
+  } finally {
+    rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
+test("discoverAllSessions skips unreadable project directories and keeps remaining sessions", async () => {
+  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-all-unreadable-"));
+  const readableCwd = "/Users/danker/Desktop/AIvault";
+  const unreadableCwd = "/Users/danker/Desktop/OtherProject";
+  const unreadableProjectDir = path.join(projectsDir, encodeProjectPath(unreadableCwd));
+  const warnings = [];
+  const originalReaddir = nodeFs.promises.readdir;
+
+  try {
+    createSessionFile(projectsDir, readableCwd, "session-good", "2026-03-30T09:00:00.000Z");
+    createSessionFile(projectsDir, unreadableCwd, "session-bad", "2026-03-30T08:00:00.000Z");
+
+    nodeFs.promises.readdir = async function patchedReaddir(targetPath, options) {
+      if (String(targetPath) === unreadableProjectDir) {
+        const error = new Error("permission denied");
+        error.code = "EACCES";
+        throw error;
+      }
+
+      return await originalReaddir.call(this, targetPath, options);
+    };
+
+    const results = await companion.discoverAllSessions("claude", {
+      claudeProjectsDir: projectsDir,
+      logger: {
+        ...silentLogger,
+        warn(message) {
+          warnings.push(String(message));
+        }
+      }
+    });
+
+    assert.deepEqual(
+      results.map((entry) => entry.provider_session_id),
+      ["session-good"]
+    );
+    assert.equal(warnings.length > 0, true);
+  } finally {
+    nodeFs.promises.readdir = originalReaddir;
+    rmSync(projectsDir, { recursive: true, force: true });
+  }
+});
+
+test("discoverAllSessions skips session files when stat fails", async () => {
+  const projectsDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-discovery-all-stat-fail-"));
+  const cwd = "/Users/danker/Desktop/AIvault";
+  const warnings = [];
+  const originalLstat = nodeFs.promises.lstat;
+  let brokenSessionFile;
+
+  try {
+    brokenSessionFile = createSessionFile(projectsDir, cwd, "session-bad", "2026-03-30T07:00:00.000Z");
+    createSessionFile(projectsDir, cwd, "session-good", "2026-03-30T08:00:00.000Z");
+
+    nodeFs.promises.lstat = async function patchedLstat(targetPath, ...rest) {
+      if (String(targetPath) === brokenSessionFile) {
+        const error = new Error("stat failed");
+        error.code = "EACCES";
+        throw error;
+      }
+
+      return await originalLstat.call(this, targetPath, ...rest);
+    };
+
+    const results = await companion.discoverAllSessions("claude", {
+      claudeProjectsDir: projectsDir,
+      logger: {
+        ...silentLogger,
+        warn(message) {
+          warnings.push(String(message));
+        }
+      }
+    });
+
+    assert.deepEqual(
+      results.map((entry) => entry.provider_session_id),
+      ["session-good"]
+    );
+    assert.equal(warnings.length > 0, true);
+  } finally {
+    nodeFs.promises.lstat = originalLstat;
+    rmSync(projectsDir, { recursive: true, force: true });
+  }
+});

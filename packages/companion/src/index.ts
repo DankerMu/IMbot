@@ -10,7 +10,7 @@ import { EventBuffer } from "./event-buffer";
 import { HeartbeatTimer } from "./heartbeat";
 import { RelayClient, type RelayClientBackoffOptions } from "./relay-client";
 import { ClaudeRuntimeAdapter } from "./runtime/claude-adapter";
-import { discoverSessions } from "./runtime/session-discovery";
+import { discoverAllSessions, discoverSessions } from "./runtime/session-discovery";
 import { SessionIndex } from "./runtime/session-index";
 import { SessionReconciler } from "./runtime/session-reconciler";
 import { CompanionError, type LoggerLike } from "./types";
@@ -127,6 +127,13 @@ export async function createCompanionRuntime(options?: {
       );
     }
 
+    if (!command.cwd || command.cwd === "*") {
+      return await discoverAllSessions(command.provider, {
+        logger,
+        claudeProjectsDir: providerConfig.projectsDir
+      });
+    }
+
     return await discoverSessions(command.cwd, command.provider, {
       logger,
       claudeProjectsDir: providerConfig.projectsDir
@@ -236,6 +243,7 @@ export {
   SessionReconciler,
   browseDirectory,
   ConfigManager,
+  discoverAllSessions,
   discoverSessions
 };
 
