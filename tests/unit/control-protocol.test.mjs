@@ -400,7 +400,7 @@ test("AskUserQuestion control_request emits tool_call_started and blocks", async
   assert.equal(children[0].getWrittenMessages().length, 1);
   assert.equal(getSession(adapter, "relay-control-1").pendingControlResponse.requestId, "req-ask-1");
   assert.equal(getSession(adapter, "relay-control-1").pendingControlResponse.callId, "toolu_ask_1");
-  assert.equal(getSession(adapter, "relay-control-1").pendingControlTimer, null);
+  assert.notEqual(getSession(adapter, "relay-control-1").pendingControlTimer, null);
 });
 
 test("tool_call_started uses tool_use_id not request_id", async (t) => {
@@ -701,11 +701,11 @@ test("process exit cleans up pending", async (t) => {
   assert.equal(getSession(adapter, "relay-control-1"), undefined);
 });
 
-test("AskUserQuestion does not time out by default while waiting for an answer", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-no-timeout-"));
+test("AskUserQuestion times out and auto-rejects after idleTimeoutMs", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-auto-reject-"));
   const cwd = path.join(tempDir, "project");
   mkdirSync(cwd, { recursive: true });
-  const { adapter, children } = createAdapterHarness(tempDir, {
+  const { adapter, children, events } = createAdapterHarness(tempDir, {
     idleTimeoutMs: 50
   });
 
@@ -715,13 +715,12 @@ test("AskUserQuestion does not time out by default while waiting for an answer",
   });
 
   await createSession(adapter, cwd);
-  const writtenCountBeforeAsk = children[0].getWrittenMessages().length;
   children[0].emitJson({
     type: "control_request",
-    request_id: "req-ask-stays-pending",
+    request_id: "req-ask-will-timeout",
     request: {
       subtype: "can_use_tool",
-      tool_use_id: "toolu_ask_stays_pending",
+      tool_use_id: "toolu_ask_will_timeout",
       tool_name: "AskUserQuestion",
       input: {
         questions: [{ question: "Pick one" }]
@@ -729,12 +728,21 @@ test("AskUserQuestion does not time out by default while waiting for an answer",
     }
   });
   await flushRuntime();
+
+  assert.notEqual(getSession(adapter, "relay-control-1").pendingControlResponse, null);
+  assert.notEqual(getSession(adapter, "relay-control-1").pendingControlTimer, null);
+
   await delay(80);
   await flushRuntime();
 
-  assert.notEqual(getSession(adapter, "relay-control-1").pendingControlResponse, null);
+  assert.equal(getSession(adapter, "relay-control-1").pendingControlResponse, null);
   assert.equal(getSession(adapter, "relay-control-1").pendingControlTimer, null);
-  assert.equal(children[0].getWrittenMessages().length, writtenCountBeforeAsk);
+
+  const completionEvent = events.find(
+    (event) => event.event_type === "tool_call_completed" && event.payload?.call_id === "toolu_ask_will_timeout"
+  );
+  assert.ok(completionEvent, "expected tool_call_completed after timeout");
+  assert.equal(completionEvent.payload.cancelled, true);
 });
 
 test("rejectAllPendingControlResponses clears all pending sessions", async (t) => {
@@ -1027,4 +1035,53 @@ test("answer_interactive_tool dispatches no_pending_control_request ack through 
   assert.equal(acks[0].status, "error");
   assert.equal(acks[0].error_code, "no_pending_control_request");
   assert.equal(acks[0].req_id, "req-dispatch-no-pending");
+});
+
+test("pending control timer auto-rejects AskUserQuestion after idleTimeoutMs", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-timer-"));
+  const cwd = path.join(tempDir, "project");
+  mkdirSync(cwd, { recursive: true });
+  const { adapter, children, events } = createAdapterHarness(tempDir, {
+    idleTimeoutMs: 150
+  });
+
+  t.after(async () => {
+    await adapter.shutdown().catch(() => {});
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  await createSession(adapter, cwd);
+  children[0].emitJson({
+    type: "control_request",
+    request_id: "req-ask-timeout",
+    request: {
+      subtype: "can_use_tool",
+      tool_use_id: "toolu_timeout_1",
+      tool_name: "AskUserQuestion",
+      input: {
+        questions: [{ question: "Will you answer?", options: [{ label: "yes" }, { label: "no" }] }]
+      }
+    }
+  });
+  await flushRuntime();
+
+  const session = getSession(adapter, "relay-control-1");
+  assert.notEqual(session.pendingControlResponse, null);
+  assert.notEqual(session.pendingControlTimer, null);
+
+  await delay(250);
+
+  assert.equal(session.pendingControlResponse, null);
+  assert.equal(session.pendingControlTimer, null);
+
+  const errorResponse = children[0].getWrittenMessages().find(
+    (msg) => msg.type === "control_response" && msg.response?.subtype === "error"
+  );
+  assert.ok(errorResponse, "expected an error control_response to be written");
+
+  const completionEvent = events.find(
+    (event) => event.event_type === "tool_call_completed" && event.payload?.call_id === "toolu_timeout_1"
+  );
+  assert.ok(completionEvent, "expected a tool_call_completed event");
+  assert.equal(completionEvent.payload.cancelled, true);
 });

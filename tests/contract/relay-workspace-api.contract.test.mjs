@@ -340,6 +340,55 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
   assert.deepEqual(macbookHost.providers, ["claude", "book"]);
   assert.equal(typeof macbookHost.last_heartbeat_at, "string");
 
+  const listSessionsPromise = fetch(`${baseUrl}/v1/hosts/macbook-1/sessions?provider=book`, {
+    headers: authHeaders(config.staticToken)
+  });
+  const listSessionsCommand = await waitForJsonMessage(
+    companion,
+    (message) => message.cmd === "list_sessions" && message.provider === "book",
+    "macbook list sessions"
+  );
+  assert.equal(listSessionsCommand.cwd, undefined);
+  companion.send(
+    JSON.stringify({
+      type: "ack",
+      req_id: listSessionsCommand.req_id,
+      status: "ok",
+      data: [
+        {
+          provider_session_id: "book-session-newer",
+          cwd: "/Users/danker/Desktop/novel/project-b",
+          created_at: "2026-04-04T10:00:00.000Z",
+          status: "completed"
+        },
+        {
+          provider_session_id: "book-session-older",
+          cwd: "/Users/danker/Desktop/novel/project-a",
+          created_at: "2026-04-03T10:00:00.000Z",
+          status: "completed"
+        }
+      ]
+    })
+  );
+  const listSessionsResponse = await listSessionsPromise;
+  assert.equal(listSessionsResponse.status, 200);
+  assert.deepEqual(await listSessionsResponse.json(), {
+    sessions: [
+      {
+        provider_session_id: "book-session-newer",
+        cwd: "/Users/danker/Desktop/novel/project-b",
+        created_at: "2026-04-04T10:00:00.000Z",
+        status: "completed"
+      },
+      {
+        provider_session_id: "book-session-older",
+        cwd: "/Users/danker/Desktop/novel/project-a",
+        created_at: "2026-04-03T10:00:00.000Z",
+        status: "completed"
+      }
+    ]
+  });
+
   const macbookRootPath = "/Users/example/Projects";
   const addMacbookRootPromise = fetch(`${baseUrl}/v1/hosts/macbook-1/roots`, {
     method: "POST",

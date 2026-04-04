@@ -2,7 +2,14 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-import { PROVIDERS, type Host, type InteractiveProvider, type Provider, type WorkspaceRoot } from "@imbot/wire";
+import {
+  PROVIDERS,
+  type Host,
+  type InteractiveProvider,
+  type LocalSessionInfo,
+  type Provider,
+  type WorkspaceRoot
+} from "@imbot/wire";
 import type { FastifyInstance } from "fastify";
 
 import { AuditLogger } from "../audit/logger";
@@ -57,6 +64,16 @@ const browseQuerySchema = {
   }
 } as const;
 
+const hostSessionsQuerySchema = {
+  type: "object",
+  required: ["provider"],
+  additionalProperties: false,
+  properties: {
+    provider: { type: "string" },
+    cwd: { type: "string" }
+  }
+} as const;
+
 export function registerHostRoutes(
   app: FastifyInstance,
   deps: {
@@ -87,6 +104,38 @@ export function registerHostRoutes(
 
     return { roots };
   });
+
+  app.get(
+    "/hosts/:hostId/sessions",
+    {
+      schema: {
+        params: hostIdParamsSchema,
+        querystring: hostSessionsQuerySchema
+      }
+    },
+    async (request) => {
+      const { hostId } = request.params as { hostId: string };
+      const host = requireHost(deps.db, hostId);
+      const query = request.query as Record<string, unknown>;
+      const provider = parseInteractiveProvider(query.provider);
+
+      if (host.type !== "macbook") {
+        throw new RelayError("invalid_request", "Host session listing only supports macbook hosts");
+      }
+
+      assertProviderMatchesHost(host, provider);
+
+      const sessions = await deps.companionManager.listSessions(
+        hostId,
+        provider,
+        typeof query.cwd === "string" && query.cwd.trim() ? query.cwd.trim() : undefined
+      );
+
+      return {
+        sessions: sortLocalSessions(sessions)
+      };
+    }
+  );
 
   app.post(
     "/hosts/:hostId/roots",
@@ -334,6 +383,15 @@ function parseProvider(value: unknown): Provider {
   return value as Provider;
 }
 
+function parseInteractiveProvider(value: unknown): InteractiveProvider {
+  const provider = parseProvider(value);
+  if (provider === "openclaw") {
+    throw new RelayError("invalid_request", "provider must be claude or book");
+  }
+
+  return provider;
+}
+
 function normalizeAbsolutePath(value: unknown): string {
   if (typeof value !== "string") {
     throw new RelayError("invalid_request", "path is required");
@@ -368,6 +426,10 @@ function assertProviderMatchesHost(host: Host, provider: Provider): void {
   if (host.type === "macbook" && provider === "openclaw") {
     throw new RelayError("invalid_request", "macbook roots only support claude or book");
   }
+}
+
+function sortLocalSessions(sessions: readonly LocalSessionInfo[]): LocalSessionInfo[] {
+  return [...sessions].sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
 }
 
 async function assertRootTargetExists(

@@ -297,7 +297,7 @@ function setMockCliEnv(overrides) {
 }
 
 test("companion completes AskUserQuestion control flow end to end", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-control-protocol-runtime-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_control_protocol_runtime_"));
   const server = new WebSocketServer({
     port: 0,
     host: "127.0.0.1"

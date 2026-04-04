@@ -196,6 +196,8 @@
 }
 ```
 
+`prompt` 为 optional。省略或传空白字符串时，relay 会创建 `idle` session，并等待首条 `POST /sessions/:id/message` 再启动 provider 进程。
+
 **Response 201**:
 ```json
 {
@@ -214,6 +216,8 @@
 ```
 
 **Side effects**: 先以 `queued` 插入 session 记录，再立即向 companion（或 OpenClaw bridge）发送 `create_session` 命令；成功 ack 后会话转为 `running`，响应返回更新后的 session。
+
+当 `prompt` 缺失或为空白时：session 仍先以 `queued` 写入，再立即转为 `idle`，广播 `session_idle { reason: "awaiting_first_message" }`，且不发送 `create_session` 命令。
 
 **Errors**:
 - `400 invalid_request`: 缺少必填字段。
@@ -280,10 +284,10 @@
 
 归档/删除会话及其所有 events。
 
-**Response 204**: 无 body。
+**Response 204**: 无 body。若 session 处于 `running` 或 `idle` 且已有关联的 `provider_session_id`，relay 会先尝试向 provider/companion 发送取消，再删除 session 记录。
 **Errors**:
 - `404`。
-- `409 state_conflict`: session 仍处于 `queued`、`running` 或 `idle`，必须先进入终态后再删除。
+- `409 state_conflict`: session 处于 `queued`，或当前存在并发 lifecycle mutation（例如正在 resume/create/delete）。
 
 ### GET /v1/sessions/:id/events
 

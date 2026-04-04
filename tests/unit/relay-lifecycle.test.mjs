@@ -418,6 +418,35 @@ test("orchestrator.complete skips provider commands for empty idle sessions", as
   assert.equal(sendCommandCalls, 0);
 });
 
+test("orchestrator.delete auto-cancels idle interactive sessions before deleting them", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-idle-session-delete-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  insertSession(runtime.db, "sess-idle-delete", "idle");
+
+  const sentCommands = [];
+  runtime.companionManager.sendCommand = async (_hostId, command) => {
+    sentCommands.push(command);
+    return {
+      type: "ack",
+      status: "ok",
+      req_id: command.req_id
+    };
+  };
+
+  await runtime.orchestrator.delete("sess-idle-delete");
+
+  const deletedSession = runtime.db.prepare("SELECT id FROM sessions WHERE id = ?").get("sess-idle-delete");
+  assert.equal(deletedSession, undefined);
+  assert.deepEqual(sentCommands.map((command) => command.cmd), ["cancel_session"]);
+  assert.equal(sentCommands[0].session_id, "sess-idle-delete");
+});
+
 test("fresh database includes local_available in the sessions table schema", (t) => {
   const { db, cleanup } = createTestDatabase("imbot-relay-local-available-schema-");
   t.after(cleanup);
@@ -859,6 +888,77 @@ test("handleEvent ignores late provider events after a session reaches a termina
       .prepare("SELECT COUNT(*) AS count FROM session_events WHERE session_id = ?")
       .get(`sess-${status}`);
     assert.deepEqual(eventCount, { count: 0 });
+  }
+});
+
+test("handleEvent accepts transcript_sync message events after a session reaches a terminal state", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-late-transcript-events-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const now = new Date().toISOString();
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+
+  for (const status of ["completed", "failed", "cancelled"]) {
+    insertSession(runtime.db, `sess-sync-${status}`, status);
+  }
+
+  for (const status of ["completed", "failed", "cancelled"]) {
+    await runtime.orchestrator.handleEvent({
+      type: "event",
+      session_id: `sess-sync-${status}`,
+      event_type: "assistant_message",
+      payload: {
+        text: `late-${status}`
+      },
+      source: "transcript_sync"
+    });
+    await runtime.orchestrator.handleEvent({
+      type: "event",
+      session_id: `sess-sync-${status}`,
+      event_type: "session_usage",
+      payload: {
+        input_tokens: 1,
+        output_tokens: 2
+      },
+      source: "transcript_sync"
+    });
+  }
+
+  for (const status of ["completed", "failed", "cancelled"]) {
+    const eventTypes = runtime.db
+      .prepare("SELECT type FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+      .all(`sess-sync-${status}`)
+      .map((row) => row.type);
+    assert.deepEqual(eventTypes, ["assistant_message", "session_usage"]);
+
+    const row = runtime.db
+      .prepare("SELECT status FROM sessions WHERE id = ?")
+      .get(`sess-sync-${status}`);
+    assert.deepEqual(row, {
+      status
+    });
   }
 });
 
@@ -1498,4 +1598,29 @@ test("transition rejects a raced same-target update without emitting a duplicate
     .prepare("SELECT COUNT(*) AS count FROM session_events WHERE session_id = ? AND type = 'session_status_changed'")
     .get("sess-race");
   assert.deepEqual(statusEvents, { count: 1 });
+});
+
+test("orchestrator normalizes invalid permission_mode to bypassPermissions", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-perm-mode-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  runtime.companionManager.isOnline = () => true;
+
+  const session = await runtime.orchestrator.create({
+    provider: "claude",
+    host_id: "macbook-1",
+    cwd: "/tmp/test-perm",
+    permission_mode: "--inject-flag"
+  });
+
+  assert.equal(session.status, "idle");
+  const row = runtime.db
+    .prepare("SELECT permission_mode FROM sessions WHERE id = ?")
+    .get(session.id);
+  assert.equal(row.permission_mode, "bypassPermissions");
 });

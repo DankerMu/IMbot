@@ -152,7 +152,7 @@ function parseProviders(
     const binary = rawProviderRecord.binary;
     const configuredBinary = typeof binary === "string" && binary.trim() !== "" ? binary.trim() : provider;
     const resolvedBinaryPath = resolveProviderBinary(configuredBinary, env);
-    const configDir = resolveProviderConfigDir(rawProviderRecord, resolvedBinaryPath, env);
+    const configDir = resolveProviderConfigDir(provider, rawProviderRecord, resolvedBinaryPath, env);
     providers[provider] = {
       binary: resolvedBinaryPath,
       configDir,
@@ -164,6 +164,7 @@ function parseProviders(
 }
 
 function resolveProviderConfigDir(
+  provider: InteractiveProvider,
   rawProviderConfig: Record<string, unknown>,
   resolvedBinaryPath: string,
   env: NodeJS.ProcessEnv
@@ -174,10 +175,10 @@ function resolveProviderConfigDir(
   }
 
   if (path.isAbsolute(resolvedBinaryPath)) {
-    return detectConfigDir(resolvedBinaryPath, env);
+    return detectConfigDir(provider, resolvedBinaryPath, env);
   }
 
-  return getDefaultProviderConfigDir(env);
+  return getDefaultProviderConfigDir(provider, env);
 }
 
 function resolveProviderBinary(binary: string, env: NodeJS.ProcessEnv): string {
@@ -196,8 +197,12 @@ function resolveProviderBinary(binary: string, env: NodeJS.ProcessEnv): string {
   return expandedBinary;
 }
 
-function detectConfigDir(resolvedBinaryPath: string, env: NodeJS.ProcessEnv): string {
-  const defaultDir = getDefaultProviderConfigDir(env);
+function detectConfigDir(
+  provider: InteractiveProvider,
+  resolvedBinaryPath: string,
+  env: NodeJS.ProcessEnv
+): string {
+  const defaultDir = getDefaultProviderConfigDir(provider, env);
 
   try {
     const stat = fs.statSync(resolvedBinaryPath);
@@ -226,8 +231,9 @@ function detectConfigDir(resolvedBinaryPath: string, env: NodeJS.ProcessEnv): st
   return defaultDir;
 }
 
-function getDefaultProviderConfigDir(env: NodeJS.ProcessEnv): string {
-  return path.join(env.HOME?.trim() || os.homedir(), ".claude");
+function getDefaultProviderConfigDir(provider: InteractiveProvider, env: NodeJS.ProcessEnv): string {
+  const defaultConfigDirName = provider === "book" ? ".claudebook" : ".claude";
+  return path.join(env.HOME?.trim() || os.homedir(), defaultConfigDirName);
 }
 
 function collectBinarySearchPaths(env: NodeJS.ProcessEnv): string[] {

@@ -543,6 +543,7 @@ private fun MarkdownInlineText(
         remember(annotated, useRoundedInlineCodeBackgrounds) {
             mutableStateOf(emptyList<Rect>())
         }
+    val hasLinks = remember(annotated) { hasUrlAnnotations(annotated) }
     val inlineCodeBackgroundModifier =
         if (useRoundedInlineCodeBackgrounds) {
             Modifier.drawBehind {
@@ -555,21 +556,34 @@ private fun MarkdownInlineText(
             Modifier
         }
 
+    val textLayoutHandler: (TextLayoutResult) -> Unit = { layoutResult ->
+        inlineCodeBackgroundRects =
+            if (useRoundedInlineCodeBackgrounds) {
+                buildInlineCodeBackgroundRects(
+                    annotated = annotated,
+                    textLayoutResult = layoutResult,
+                )
+            } else {
+                emptyList()
+            }
+    }
+
+    if (!hasLinks) {
+        // Plain markdown should stay a regular Text so parent containers can own long-press gestures.
+        Text(
+            text = annotated,
+            modifier = modifier.then(inlineCodeBackgroundModifier),
+            style = style,
+            onTextLayout = textLayoutHandler,
+        )
+        return
+    }
+
     ClickableText(
         text = annotated,
         modifier = modifier.then(inlineCodeBackgroundModifier),
         style = style,
-        onTextLayout = { layoutResult ->
-            inlineCodeBackgroundRects =
-                if (useRoundedInlineCodeBackgrounds) {
-                    buildInlineCodeBackgroundRects(
-                        annotated = annotated,
-                        textLayoutResult = layoutResult,
-                    )
-                } else {
-                    emptyList()
-                }
-        },
+        onTextLayout = textLayoutHandler,
         onClick = { offset ->
             annotated.getStringAnnotations(tag = URL_ANNOTATION_TAG, start = offset, end = offset)
                 .firstOrNull()
@@ -581,6 +595,9 @@ private fun MarkdownInlineText(
         },
     )
 }
+
+private fun hasUrlAnnotations(annotated: AnnotatedString): Boolean =
+    annotated.getStringAnnotations(tag = URL_ANNOTATION_TAG, start = 0, end = annotated.length).isNotEmpty()
 
 internal sealed interface MarkdownBlock {
     data class Paragraph(

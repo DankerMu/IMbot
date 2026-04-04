@@ -17,7 +17,7 @@ const silentLogger = {
 };
 
 function encodeProjectPath(projectPath) {
-  return projectPath.replace(/^\/+/, "").replace(/\//g, "-");
+  return path.resolve(projectPath).replace(/\//g, "-");
 }
 
 function createSessionFile(projectsDir, cwd, sessionId, createdAt, contents = '{"ok":true}\n') {

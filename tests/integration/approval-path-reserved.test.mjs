@@ -170,7 +170,7 @@ function setMockCliEnv(overrides) {
 }
 
 async function createApprovalHarness(t, options = {}) {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-approval-path-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_approval_path_"));
   const binaryPath = createMockCliBinary(tempDir);
   const workspaceDir = path.join(tempDir, "workspace");
   mkdirSync(workspaceDir, { recursive: true });

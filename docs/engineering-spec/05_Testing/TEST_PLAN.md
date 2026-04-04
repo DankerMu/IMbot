@@ -128,7 +128,7 @@ These are intentionally separated from per-PR blockers because they are slower a
 
 | ID     | Test           | Description                                                             |
 | ------ | -------------- | ----------------------------------------------------------------------- |
-| E2E-01 | 完整创建流程   | Android → 选 provider → 选目录 → 输 prompt → 创建 → 看到流式输出 → 完成 |
+| E2E-01 | 完整创建流程   | Android → 选 provider → 选目录 → 可选输 prompt → 创建 → 看到流式输出 → 完成 |
 | E2E-02 | 恢复旧 session | Android → 浏览目录 → 选旧 session → 恢复 → 继续对话                     |
 | E2E-03 | 断线恢复       | 断开网络 60s → 恢复 → events 自动补拉 → UI 一致                         |
 | E2E-04 | Host offline   | 断开 companion → Android 看到 "MacBook offline" → 重连后恢复            |

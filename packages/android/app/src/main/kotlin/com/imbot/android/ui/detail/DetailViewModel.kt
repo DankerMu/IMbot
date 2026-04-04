@@ -777,6 +777,13 @@ class DetailViewModel
             val update = usageUpdate ?: return
             _uiState.update { current ->
                 val payload = event.payload
+                val resolvedModel = update.model ?: current.usage.model ?: current.session?.model
+                val resolvedContextWindow =
+                    if (payload?.has("context_window") == true) {
+                        update.contextWindow
+                    } else {
+                        current.usage.contextWindow.takeIf { it > 0 } ?: modelContextWindow(resolvedModel)
+                    }
                 current.copy(
                     usage =
                         current.usage.copy(
@@ -790,13 +797,8 @@ class DetailViewModel
                                 } else {
                                     current.usage.totalCostUsd
                                 },
-                            contextWindow =
-                                if (payload?.has("context_window") == true) {
-                                    update.contextWindow
-                                } else {
-                                    current.usage.contextWindow
-                                },
-                            model = update.model ?: current.usage.model,
+                            contextWindow = resolvedContextWindow,
+                            model = resolvedModel,
                         ),
                 )
             }
@@ -807,7 +809,17 @@ class DetailViewModel
             session: RelaySession,
         ): SessionUsageState {
             val model = usage.model ?: session.model?.takeIf(String::isNotBlank)
-            return if (model == usage.model) usage else usage.copy(model = model)
+            val contextWindow =
+                usage.contextWindow.takeIf { it > 0 }
+                    ?: modelContextWindow(model)
+            return if (model == usage.model && contextWindow == usage.contextWindow) {
+                usage
+            } else {
+                usage.copy(
+                    model = model,
+                    contextWindow = contextWindow,
+                )
+            }
         }
 
         private fun applyEventToSession(event: ServerMessage.Event) {

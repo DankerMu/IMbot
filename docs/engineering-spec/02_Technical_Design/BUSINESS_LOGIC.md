@@ -231,6 +231,10 @@ Android                    Relay                     Companion              CLI 
   │ ◄──── FCM push          │                          │                      │
 ```
 
+补充规则：
+- `POST /sessions` 若未提供 `prompt`，relay 会创建 `idle` session 并广播 `session_idle { reason: "awaiting_first_message" }`，不会立即启动 companion / provider。
+- 这类空 session 的首条 `POST /message` 会改走 `create_session` 启动路径，并把该消息写入 `initial_prompt`。
+
 ### OpenClaw via Bridge
 
 ```

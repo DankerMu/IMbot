@@ -1,5 +1,7 @@
 import type { ErrorCode, EventType, SessionStatus } from "./enums";
 
+export type CompanionEventSource = "runtime" | "transcript_sync";
+
 export type CompanionAckOk = {
   type: "ack";
   req_id: string;
@@ -20,6 +22,7 @@ export type CompanionEventMessage = {
   session_id: string;
   event_type: EventType;
   payload: unknown;
+  source?: CompanionEventSource;
 };
 
 export type CompanionHeartbeatMessage = {

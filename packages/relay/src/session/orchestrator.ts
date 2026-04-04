@@ -26,6 +26,7 @@ type LoggerLike = {
 };
 
 const MAX_REPORT_LOCAL_SESSIONS_BATCH_SIZE = 200;
+const VALID_PERMISSION_MODES = new Set(["bypassPermissions", "default", "plan", "acceptEdits", "auto"]);
 
 export type CreateSessionInput = {
   provider?: string;
@@ -109,9 +110,9 @@ export class SessionOrchestrator {
       workspace_cwd: input.cwd,
       initial_prompt: hasPrompt ? input.prompt ?? null : null,
       model: input.model ?? null,
-      // FR-10 stays default-off: sessions still default to bypassPermissions, but callers may
-      // opt into a non-default mode and that value must survive intact for the reserved path.
-      permission_mode: input.permission_mode ?? "bypassPermissions",
+      permission_mode: VALID_PERMISSION_MODES.has(input.permission_mode ?? "bypassPermissions")
+        ? (input.permission_mode ?? "bypassPermissions")
+        : "bypassPermissions",
       status: "queued",
       error_message: null,
       error_code: null,
@@ -381,11 +382,17 @@ export class SessionOrchestrator {
       const session = this.requireSession(sessionId);
       const previousStatus = session.status;
 
+      if (session.status === "queued") {
+        throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
+      }
+
       if ((session.status === "running" || session.status === "idle") && Boolean(session.provider_session_id)) {
         try {
           await this.dispatchCancel(session);
-        } catch {
-          // companion may be offline; proceed with forced cleanup
+        } catch (cancelError) {
+          // Companion may be offline or may no longer have an active process for an idle session.
+          // Deletion still proceeds so the relay-side record can be removed.
+          this.logger.warn(`Session ${sessionId} pre-delete cancel failed (proceeding): ${cancelError}`);
         }
         await this.transitionWithConflictTolerance(session.id, "cancelled");
       }
@@ -436,11 +443,18 @@ export class SessionOrchestrator {
     }
 
     const activeMutation = this.activeLifecycleMutations.get(message.session_id);
+    const acceptsTranscriptSyncLateMessage =
+      message.source === "transcript_sync" &&
+      (message.event_type === "user_message" ||
+        message.event_type === "assistant_message" ||
+        message.event_type === "session_usage") &&
+      (session.status === "completed" || session.status === "failed" || session.status === "cancelled");
     const acceptsEvents =
       session.status === "running" ||
       session.status === "idle" ||
       activeMutation === "create" ||
-      activeMutation === "resume";
+      activeMutation === "resume" ||
+      acceptsTranscriptSyncLateMessage;
     if (!acceptsEvents) {
       this.logger.warn(
         `Dropping ${message.event_type} for non-active session ${message.session_id} (${session.status})`

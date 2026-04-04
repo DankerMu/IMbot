@@ -1,4 +1,4 @@
-# IMbot 端到端测试方案 v3
+# IMbot 端到端测试方案 v5
 
 > **Provider**: 全部使用 `book`（Claude Code 同源二进制，支持 stream-json 协议、tool call、skill 调用，行为一致）。
 >
@@ -7,6 +7,8 @@
 > **v3 增量说明**: 在 v2 基础上新增 Section 14-19，覆盖 PR #96-99 引入的全部新功能（消息复制、Slash Command、AskUserQuestion、Approval、Markdown 渲染增强、Apple 美学视觉重设计）。v2 的 Section 1-13 保持不变。
 >
 > **v4 增量说明**: 新增 Section 21，覆盖 PR #111 (Issue #106) 引入的 UI 美化第二轮功能（去气泡、深色反转、间距系统、代码块折叠/终端样式、状态合并、输入栏 Pill 化、FAB 缩小）。
+>
+> **v5 增量说明**: 新增 Section 22-24，覆盖 PR #160 (双端 Session 同步)、PR #161 (空 Session 创建)、PR #162 (上下文用量展示)。
 
 ---
 
@@ -769,43 +771,6 @@ test.skip("approval card rendering requires non-bypass mode or event injection",
 
 ---
 
-## 测试执行顺序
-
-### Node E2E（自动化）
-
-文件: `tests/e2e/e2e-infra.test.mjs` — E2E-01, E2E-02
-文件: `tests/e2e/e2e-hosts.test.mjs` — E2E-03 ~ E2E-09
-文件: `tests/e2e/e2e-session-lifecycle.test.mjs` — E2E-10 ~ E2E-18
-文件: `tests/e2e/e2e-session-api.test.mjs` — E2E-19 ~ E2E-20
-文件: `tests/e2e/e2e-session-edges.test.mjs` — E2E-21 ~ E2E-25
-文件: `tests/e2e/e2e-events.test.mjs` — E2E-26 ~ E2E-28
-文件: `tests/e2e/e2e-websocket.test.mjs` — E2E-29 ~ E2E-32
-文件: `tests/e2e/e2e-multiturn.test.mjs` — E2E-33, E2E-34
-文件: `tests/e2e/e2e-push.test.mjs` — E2E-35, E2E-36
-文件: `tests/e2e/e2e-viewer.test.mjs` — E2E-37
-文件: `tests/e2e/e2e-smoke.test.mjs` — E2E-SMOKE, E2E-SMOKE-V3
-文件: `tests/e2e/e2e-visual-polish-v2.test.mjs` — E2E-A38 ~ E2E-A46
-
-执行: `npm run build && node --test tests/e2e/*.test.mjs`
-
-### Android E2E（adb 半自动）
-
-**v2 用例（保持不变）**:
-A01 → A02 → A03 → A04 → A05 → A06 → A07 → A08 → A09 → A10
-
-**v3 新增用例**:
-A11 → A12 → A13 → A14 → A15（消息复制/选择）
-A16 → A17 → A18 → A19 → A20（Slash Command）
-A21 → A22 → A23（AskUserQuestion）
-A24 → A25（Approval）
-A26 → A27 → A28 → A29 → A30 → A31（Markdown 渲染）
-A32 → A33 → A34 → A35 → A36 → A37（视觉回归）
-A38 → A39 → A40 → A41（UI 美化 v2：气泡 + 间距 + 状态）
-A42 → A43 → A44（代码块折叠/终端/小块）
-A45 → A46（输入栏 + FAB）
-
----
-
 ## 注意事项
 
 1. **book CLI 依赖**: book 必须在 companion 机器上可用且已配置 root。测试前 `GET /v1/hosts/macbook-1/roots` 确认有 book root。
@@ -983,11 +948,218 @@ A45 → A46（输入栏 + FAB）
 
 ---
 
-### Android E2E v4 新增用例
+---
 
+## 22. 双端 Session 同步（PR #160, Issue #157）
+
+> 验证 Android 创建的 session 在 Mac 本地 `book resume` 可见，以及 Mac 本地 `book` 创建的 session 在 Android session list 可见。
+
+### E2E-A47: Android → Mac session 可见性
+
+**前置**: companion 在线，macbook-1 已配置 book workspace root
+
+**步骤**:
+1. Android 创建 book session（选择 provider=book, 选目录, 输入 prompt "hello from android"）
+2. 等待 session 转为 running 或 idle
+3. 在 Mac 终端同目录运行 `book resume` 并捕获输出
+4. 截图 `book resume` 输出
+
+**断言**:
+- `book resume` 输出列表中包含该 session（匹配 provider_session_id 或 session 内容）
+- session 可以被 resume（选择后进入交互）
+
+### E2E-A48: Mac → Android session 可见性
+
+**前置**: companion 在线
+
+**步骤**:
+1. Mac 终端直接运行 `book` 创建一个 session，发送 "hello from mac"，等待回复后 Ctrl+C 退出
+2. 等待 30s 让 reconciler 上报
+3. Android 刷新 session list（下拉或重进 Home 页）
+4. 截图 session list
+
+**断言**:
+- Android session list 中出现该 Mac 创建的 session
+- 点击可进入 detail 页面
+- detail 页面显示历史消息
+
+### E2E-A49: list_sessions 全量模式
+
+**前置**: 至少在两个不同 cwd 下各有一个 book session
+
+**步骤**:
+1. `GET /v1/hosts/macbook-1/sessions?provider=book` （relay 转发 list_sessions）
+2. 对比返回的 session 列表
+
+**断言**:
+- 返回结果包含来自不同 cwd 的 session
+- 每个 session 的 `cwd` 字段正确反映创建时的目录
+- 结果按 created_at 降序排列
+
+---
+
+## 23. 空 Session 创建（PR #161, Issue #158）
+
+> 验证选完 provider + 目录后可以直接创建 session（不输入 prompt），session 以 idle 状态开始。
+
+### E2E-A50: 不输入 prompt 直接创建 session
+
+**前置**: companion 在线
+
+**步骤**:
+1. Android 点击 FAB 进入新建 session 页面
+2. Step 0: 选择 provider "book"
+3. Step 1: 选择目录
+4. 此时"开始"按钮应已启用 — 直接点击"开始"（不进入 Step 2）
+5. 截图 detail 页面
+
+**断言**:
+- session 创建成功，导航到 detail 页面
+- 状态 badge 显示 "空闲"
+- 输入框可用（placeholder: "发送消息..."）
+- timeline 为空或仅显示 session_idle 状态
+
+### E2E-A51: 空 session 发送第一条消息
+
+**前置**: E2E-A50 创建的空 session
+
+**步骤**:
+1. 在空 session 的 detail 页面输入 "say hi"
+2. 点击发送
+3. 等待 session 转为 running
+4. 等待 agent 回复
+5. 截图 detail 页面
+
+**断言**:
+- 发送后状态从 "空闲" 变为 "运行中"
+- agent 回复出现在 timeline 中
+- session 正常交互（后续消息可继续发送）
+
+### E2E-A52: 空 session 取消
+
+**步骤**:
+1. 创建一个空 session（不输入 prompt）
+2. 在 detail 页面点击溢出菜单 → 取消
+3. 截图
+
+**断言**:
+- session 状态变为 "已取消"
+- 无 companion 错误（没有进程需要取消）
+
+### E2E-A53: 带 prompt 创建仍正常（回归）
+
+**步骤**:
+1. 新建 session → 选 provider → 选目录 → 进 Step 2 输入 "hello"
+2. 点击"开始"
+3. 等待回复
+
+**断言**:
+- session 创建后直接 running（非 idle）
+- agent 回复正常出现
+- 与现有行为一致
+
+---
+
+## 24. 上下文用量展示（PR #162, Issue #159）
+
+> 验证活跃 session 的 detail 页面顶部显示 token 用量和进度条。
+
+### E2E-A54: Usage 指示器出现
+
+**前置**: companion 在线
+
+**步骤**:
+1. 创建 book session 并发送 "explain what IMbot is in 3 sentences"
+2. 等待 agent 回复完成（session 转 idle）
+3. 截图 detail 页面顶部区域
+
+**断言**:
+- 顶部状态栏出现 token 计数文字（格式如 "29.1k / 1.0M"）
+- 出现微型进度条
+- 进度条颜色为绿色（使用量应 < 80%）
+
+### E2E-A55: Usage 多轮更新
+
+**前置**: E2E-A54 的 session（已 idle）
+
+**步骤**:
+1. 发送第二条消息 "now list the main components"
+2. 等待回复完成
+3. 截图顶部
+
+**断言**:
+- token 计数比第一轮更大
+- 进度条宽度相应增长
+
+### E2E-A56: 非活跃 session 不显示 Usage
+
+**步骤**:
+1. 取消或完成一个 session
+2. 进入该 session 的 detail 页面
+3. 截图顶部
+
+**断言**:
+- 无 token 计数文字
+- 无进度条
+
+### E2E-A57: session_usage 事件流
+
+**步骤**:
+1. 通过 WS 订阅一个活跃 session
+2. 发送消息并等待回复
+3. 收集 WS 事件
+
+**断言**:
+- 收到 `type: "session_usage"` 事件
+- payload 包含 `input_tokens`（> 0）、`output_tokens`（> 0）
+- payload 包含 `context_window`（> 0）
+- payload 包含 `model`（非空字符串）
+- `session_usage` 出现在 `session_idle`/`session_result` 之后
+
+---
+
+## 测试执行顺序 (v5 更新)
+
+### Node E2E（自动化）
+
+文件: `tests/e2e/e2e-infra.test.mjs` — E2E-01, E2E-02
+文件: `tests/e2e/e2e-hosts.test.mjs` — E2E-03 ~ E2E-09
+文件: `tests/e2e/e2e-session-lifecycle.test.mjs` — E2E-10 ~ E2E-18
+文件: `tests/e2e/e2e-session-api.test.mjs` — E2E-19 ~ E2E-20
+文件: `tests/e2e/e2e-session-edges.test.mjs` — E2E-21 ~ E2E-25
+文件: `tests/e2e/e2e-events.test.mjs` — E2E-26 ~ E2E-28
+文件: `tests/e2e/e2e-websocket.test.mjs` — E2E-29 ~ E2E-32
+文件: `tests/e2e/e2e-multiturn.test.mjs` — E2E-33, E2E-34
+文件: `tests/e2e/e2e-push.test.mjs` — E2E-35, E2E-36
+文件: `tests/e2e/e2e-viewer.test.mjs` — E2E-37
+文件: `tests/e2e/e2e-smoke.test.mjs` — E2E-SMOKE, E2E-SMOKE-V3
+文件: `tests/e2e/e2e-visual-polish-v2.test.mjs` — E2E-A38 ~ E2E-A46
+文件: `tests/e2e/e2e-session-sync.test.mjs` — E2E-A49, E2E-A57
+
+执行: `npm run build && node --test tests/e2e/*.test.mjs`
+
+### Android E2E（adb 半自动）
+
+**v2 用例（保持不变）**:
+A01 → A02 → A03 → A04 → A05 → A06 → A07 → A08 → A09 → A10
+
+**v3 新增用例**:
+A11 → A12 → A13 → A14 → A15（消息复制/选择）
+A16 → A17 → A18 → A19 → A20（Slash Command）
+A21 → A22 → A23（AskUserQuestion）
+A24 → A25（Approval）
+A26 → A27 → A28 → A29 → A30 → A31（Markdown 渲染）
+A32 → A33 → A34 → A35 → A36 → A37（视觉回归）
+
+**v4 新增用例**:
 A38 → A39 → A40 → A41（气泡 + 间距 + 状态）
 A42 → A43 → A44（代码块折叠/终端/小块）
 A45 → A46（输入栏 + FAB）
+
+**v5 新增用例**:
+A47 → A48 → A49（双端 Session 同步）
+A50 → A51 → A52 → A53（空 Session 创建）
+A54 → A55 → A56 → A57（上下文用量展示）
 
 ---
 
@@ -998,12 +1170,15 @@ A45 → A46（输入栏 + FAB）
 | 1-11 (v2) | 后端 API + WebSocket + Viewer | 37 | Node 自动化 |
 | 12 (v2) | Android 基础功能 | 10 | adb 半自动 |
 | 13 (v2) | Smoke Test | 1 | Node 自动化 |
-| **14** (v3 新增) | **消息复制/选择** | **5** | **adb 半自动** |
-| **15** (v3 新增) | **Slash Command** | **5** | **adb 半自动** |
-| **16** (v3 新增) | **AskUserQuestion** | **3** | **adb 半自动** |
-| **17** (v3 新增) | **Approval** | **2** | **adb 半自动** |
-| **18** (v3 新增) | **Markdown 渲染** | **6** | **adb 半自动** |
-| **19** (v3 新增) | **视觉回归** | **6** | **adb 半自动** |
-| **20** (v3 新增) | **Smoke Test v3** | **1** | **Node 自动化** |
-| **21** (v4 新增) | **UI 美化第二轮** | **9** | **adb 半自动** |
-| **总计** | | **85** | |
+| 14 (v3) | 消息复制/选择 | 5 | adb 半自动 |
+| 15 (v3) | Slash Command | 5 | adb 半自动 |
+| 16 (v3) | AskUserQuestion | 3 | adb 半自动 |
+| 17 (v3) | Approval | 2 | adb 半自动 |
+| 18 (v3) | Markdown 渲染 | 6 | adb 半自动 |
+| 19 (v3) | 视觉回归 | 6 | adb 半自动 |
+| 20 (v3) | Smoke Test v3 | 1 | Node 自动化 |
+| 21 (v4) | UI 美化第二轮 | 9 | adb 半自动 |
+| **22** (v5 新增) | **双端 Session 同步** | **3** | **混合** |
+| **23** (v5 新增) | **空 Session 创建** | **4** | **adb 半自动** |
+| **24** (v5 新增) | **上下文用量展示** | **4** | **混合** |
+| **总计** | | **96** | |

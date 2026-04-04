@@ -28,6 +28,7 @@ internal val MESSAGE_HORIZONTAL_PADDING = 16.dp
 internal val MESSAGE_VERTICAL_PADDING = 24.dp
 private const val MAX_ASK_USER_QUESTIONS = 5
 private const val TOOL_CALL_COPY_SUMMARY_LIMIT = 200
+private const val DEFAULT_CONTEXT_WINDOW = 200_000
 
 private val DefaultDetailStatusColors =
     StatusColors(
@@ -58,7 +59,22 @@ internal data class SessionUsageState(
         get() = inputTokens + outputTokens
 
     val usagePercent: Float
-        get() = if (contextWindow > 0) totalTokens.toFloat() / contextWindow else 0f
+        get() = if (contextWindow > 0) (totalTokens.toFloat() / contextWindow).coerceIn(0f, 1f) else 0f
+}
+
+internal fun modelContextWindow(model: String?): Int {
+    val normalized = model.orEmpty().trim().lowercase(Locale.US).substringBefore("[")
+    if (normalized.isBlank()) {
+        return DEFAULT_CONTEXT_WINDOW
+    }
+
+    return when {
+        normalized.contains("opus") -> DEFAULT_CONTEXT_WINDOW
+        normalized.contains("sonnet") -> DEFAULT_CONTEXT_WINDOW
+        normalized.contains("haiku") -> DEFAULT_CONTEXT_WINDOW
+        normalized.contains("claude") -> DEFAULT_CONTEXT_WINDOW
+        else -> DEFAULT_CONTEXT_WINDOW
+    }
 }
 
 internal data class ScrollMutation(

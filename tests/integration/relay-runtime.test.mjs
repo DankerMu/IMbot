@@ -110,7 +110,7 @@ function sendHeartbeat(ws, hostId = "macbook-1", providers = ["claude"]) {
 }
 
 test("relay converts companion ack timeout into a failed session", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-timeout-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_relay_timeout_"));
   const config = relay.loadConfig({
     RELAY_STATIC_TOKEN: "t".repeat(64),
     RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
@@ -209,7 +209,7 @@ test("relay converts companion ack timeout into a failed session", async (t) => 
 });
 
 test("relay shutdown closes active websockets with going-away semantics", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-shutdown-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_relay_shutdown_"));
   const config = relay.loadConfig({
     RELAY_STATIC_TOKEN: "t".repeat(64),
     RELAY_DB_PATH: path.join(tempDir, "imbot.db"),

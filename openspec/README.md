@@ -65,10 +65,14 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 ### Cross-Cutting (Completed)
 
 - `persistent-interactive-sessions` — stream-json bidirectional protocol, `idle` session state, viewer CLI, Android idle UX ✅
+- `dual-session-persistence` — 双端 session 持久化：per-provider configDir/projectsDir，SessionIndex 元数据增强，discovery/reconciler 补强
+- `stream-json-control-protocol` — stream-json 控制协议：AskUserQuestion 双向 control_request/control_response，relay answer_interactive_tool 通道
+- `visual-polish-v4` — 详情页 UI 润色 v4：CommandChip inline variant、InputBar 状态驱动、MarkdownText 表格/公式、DetailUtils 重构
 
 ### `p1` Active
 
 - `p1-dual-session-sync` — 双端 session 同步：修复 cwd 过滤过严导致 Android 创建的 session 在 native CLI resume 中不可见
+- `p1-session-transcript-sync` — 远端 transcript 增量同步：让 Mac 原生 CLI 追加的消息增量回灌 relay，并在 Android 详情页同步显示
 
 ### `p2` Active
 
@@ -76,6 +80,8 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 
 ### `p3` Hardening / Future
 
+- `p3-idle-session-delete` — idle interactive session delete: allow deleting `idle` Claude/Book sessions without `state_conflict` by reusing the existing cancel-then-delete path
+- `p3-session-list-multi-select` — Android 会话列表长按进入多选模式，支持批量删除多个会话
 - `p3-context-usage-display` — session 上下文用量实时展示：在 Android detail 顶部状态栏显示 token 计数和上下文窗口使用进度
 - `p3-theme-and-animations` — theme system, transitions, motion, code theme
 - `p3-error-ux-and-cleanup` — three-layer error UX, purge job, connection stability

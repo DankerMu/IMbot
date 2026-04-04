@@ -294,7 +294,7 @@ async function closeServer(server) {
 }
 
 async function createConnectedRuntime(t, options = {}) {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-persistence-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_session_persistence_"));
   const projectsDir = path.join(tempDir, "projects");
   const sessionIndexPath = path.join(tempDir, "sessions.json");
   let runtime = null;

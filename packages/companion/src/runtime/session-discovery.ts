@@ -280,7 +280,7 @@ function decodeProjectDirectory(projectDirName: string): string | null {
 }
 
 function encodeProjectDirectory(projectPath: string): string {
-  return normalizeComparablePath(projectPath).replace(/^\/+/, "").replace(/\//g, "-");
+  return normalizeComparablePath(projectPath).replace(/\//g, "-");
 }
 
 function isSameOrNestedPath(candidate: string, root: string): boolean {

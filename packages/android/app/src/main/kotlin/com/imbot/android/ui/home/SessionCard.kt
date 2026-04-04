@@ -2,6 +2,7 @@
 
 package com.imbot.android.ui.home
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
@@ -15,10 +16,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -31,7 +31,6 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,11 +53,13 @@ import com.imbot.android.ui.theme.providerColorFor
 fun SessionCard(
     session: SessionEntity,
     onClick: () -> Unit,
+    onLongPress: () -> Unit,
     onDelete: () -> Unit,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
     allowDelete: Boolean = true,
     modifier: Modifier = Modifier,
 ) {
-    var showContextMenu by remember { mutableStateOf(false) }
     var showDeleteDialog by rememberSaveable(session.id) { mutableStateOf(false) }
     val componentShapes = LocalIMbotComponentShapes.current
     val isDarkTheme = LocalUseDarkTheme.current
@@ -117,71 +118,89 @@ fun SessionCard(
         },
         modifier = modifier,
     ) {
-        Box {
-            Surface(
+        Surface(
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .appleChrome(
+                        shape = componentShapes.card,
+                        isDarkTheme = isDarkTheme,
+                        outlineColor =
+                            if (selected) {
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
+                            } else {
+                                MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)
+                            },
+                        shadowTokens = shadowTokens,
+                    )
+                    .combinedClickable(
+                        onClick = onClick,
+                        onLongClick = onLongPress,
+                    ),
+            shape = componentShapes.card,
+            color =
+                if (selected) {
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.32f)
+                } else {
+                    MaterialTheme.colorScheme.surface
+                },
+            border =
+                if (selected) {
+                    BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f))
+                } else {
+                    null
+                },
+        ) {
+            Column(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .appleChrome(
-                            shape = componentShapes.card,
-                            isDarkTheme = isDarkTheme,
-                            outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f),
-                            shadowTokens = shadowTokens,
-                        )
-                        .combinedClickable(
-                            onClick = onClick,
-                            onLongClick = {
-                                if (allowDelete) {
-                                    showContextMenu = true
-                                }
-                            },
-                        ),
-                shape = componentShapes.card,
-                color = MaterialTheme.colorScheme.surface,
+                        .padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Column(
-                    modifier =
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Top,
                 ) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier.weight(1f),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(
-                            modifier = Modifier.weight(1f),
-                            horizontalArrangement = Arrangement.spacedBy(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
+                        ProviderBadge(provider = session.provider)
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            ProviderBadge(provider = session.provider)
-                            Column(
-                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                Row(
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                ) {
-                                    Text(
-                                        text = providerDisplayName(session.provider),
-                                        style = MaterialTheme.typography.titleLarge,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                    StatusIndicator(
-                                        status = session.status,
-                                        variant = StatusIndicatorVariant.Dot,
-                                    )
-                                }
                                 Text(
-                                    text = summarizeWorkspacePath(session.workspaceCwd),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    text = providerDisplayName(session.provider),
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                StatusIndicator(
+                                    status = session.status,
+                                    variant = StatusIndicatorVariant.Dot,
                                 )
                             }
+                            Text(
+                                text = summarizeWorkspacePath(session.workspaceCwd),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (selectionMode) {
+                            SelectionIndicator(selected = selected)
                         }
                         Text(
                             text = formatRelativeTime(session.lastActiveAt),
@@ -189,43 +208,15 @@ fun SessionCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-
-                    Text(
-                        text = summarizePrompt(session.initialPrompt),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
                 }
-            }
 
-            DropdownMenu(
-                expanded = showContextMenu,
-                onDismissRequest = {
-                    showContextMenu = false
-                },
-            ) {
-                if (allowDelete) {
-                    DropdownMenuItem(
-                        text = {
-                            Text("归档")
-                        },
-                        onClick = {
-                            showContextMenu = false
-                            showDeleteDialog = true
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = {
-                            Text("删除")
-                        },
-                        onClick = {
-                            showContextMenu = false
-                            showDeleteDialog = true
-                        },
-                    )
-                }
+                Text(
+                    text = summarizePrompt(session.initialPrompt),
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
         }
     }
@@ -247,6 +238,40 @@ private fun DeleteBackground() {
             contentDescription = null,
             tint = MaterialTheme.colorScheme.onError,
         )
+    }
+}
+
+@Composable
+private fun SelectionIndicator(selected: Boolean) {
+    Surface(
+        modifier = Modifier.size(20.dp),
+        shape = CircleShape,
+        color =
+            if (selected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
+        border =
+            if (selected) {
+                null
+            } else {
+                BorderStroke(1.dp, MaterialTheme.colorScheme.outline)
+            },
+    ) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Filled.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+        }
     }
 }
 

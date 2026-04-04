@@ -26,8 +26,17 @@ data class HomeUiState(
     val error: String? = null,
     val isConnected: Boolean = false,
     val runningSessionCount: Int = 0,
-)
+    val selectedSessionIds: Set<String> = emptySet(),
+    val isDeletingSelection: Boolean = false,
+) {
+    val isSelectionMode: Boolean
+        get() = selectedSessionIds.isNotEmpty()
 
+    val allVisibleSelected: Boolean
+        get() = sessions.isNotEmpty() && sessions.all { session -> session.id in selectedSessionIds }
+}
+
+@Suppress("TooManyFunctions")
 @HiltViewModel
 class HomeViewModel
     @Inject
@@ -58,16 +67,58 @@ class HomeViewModel
 
         fun applyFilter(provider: String?) {
             settingsRepository.saveSessionProviderFilter(provider)
+            val filteredSessions = applyFilterAndSort(allSessions, provider)
             _uiState.update { current ->
+                val selectedSessionIds = reconcileSelection(filteredSessions, current.selectedSessionIds)
                 current.copy(
                     filter = provider,
-                    sessions = applyFilterAndSort(allSessions, provider),
+                    sessions = filteredSessions,
+                    selectedSessionIds = selectedSessionIds,
+                    isDeletingSelection = current.isDeletingSelection && selectedSessionIds.isNotEmpty(),
                 )
             }
         }
 
         fun refresh() {
             refresh(initialLoad = false)
+        }
+
+        fun enterSelectionMode(sessionId: String) {
+            _uiState.update { current ->
+                current.copy(
+                    selectedSessionIds = current.selectedSessionIds + sessionId,
+                )
+            }
+        }
+
+        fun toggleSessionSelection(sessionId: String) {
+            _uiState.update { current ->
+                current.copy(
+                    selectedSessionIds = toggleSelectedSessionIds(current.selectedSessionIds, sessionId),
+                )
+            }
+        }
+
+        fun clearSelection() {
+            _uiState.update { current ->
+                current.copy(
+                    selectedSessionIds = emptySet(),
+                    isDeletingSelection = false,
+                )
+            }
+        }
+
+        fun toggleSelectAllVisibleSessions() {
+            _uiState.update { current ->
+                current.copy(
+                    selectedSessionIds =
+                        if (current.allVisibleSelected) {
+                            emptySet()
+                        } else {
+                            current.sessions.mapTo(linkedSetOf(), SessionEntity::id)
+                        },
+                )
+            }
         }
 
         fun deleteSession(sessionId: String) {
@@ -78,6 +129,42 @@ class HomeViewModel
                     _uiState.update { current ->
                         current.copy(error = error.message ?: "删除会话失败")
                     }
+                }
+            }
+        }
+
+        fun deleteSelectedSessions() {
+            val selectedIds = _uiState.value.selectedSessionIds.toList()
+            if (selectedIds.isEmpty() || _uiState.value.isDeletingSelection) {
+                return
+            }
+
+            viewModelScope.launch {
+                _uiState.update { current ->
+                    current.copy(isDeletingSelection = true)
+                }
+
+                val failedIds = linkedSetOf<String>()
+                selectedIds.forEach { sessionId ->
+                    runCatching {
+                        sessionRepository.deleteSession(sessionId)
+                    }.onFailure {
+                        failedIds += sessionId
+                    }
+                }
+
+                _uiState.update { current ->
+                    val failedSelection = reconcileSelection(current.sessions, failedIds)
+                    current.copy(
+                        selectedSessionIds = failedSelection,
+                        isDeletingSelection = false,
+                        error =
+                            when {
+                                failedIds.isEmpty() -> current.error
+                                failedIds.size == selectedIds.size -> "删除会话失败，请重试"
+                                else -> "已删除部分会话，剩余 ${failedIds.size} 个删除失败"
+                            },
+                    )
                 }
             }
         }
@@ -160,6 +247,7 @@ class HomeViewModel
         private fun publishState(isRefreshing: Boolean = _uiState.value.isRefreshing) {
             val currentFilter = _uiState.value.filter
             val filteredSessions = applyFilterAndSort(allSessions, currentFilter)
+            val selectedSessionIds = reconcileSelection(filteredSessions, _uiState.value.selectedSessionIds)
 
             _uiState.update { current ->
                 current.copy(
@@ -169,6 +257,8 @@ class HomeViewModel
                     isRefreshing = isRefreshing,
                     isConnected = relayWsClient.connectionState.value is ConnectionState.Connected,
                     runningSessionCount = allSessions.count { session -> isRunningStatus(session.status) },
+                    selectedSessionIds = selectedSessionIds,
+                    isDeletingSelection = current.isDeletingSelection && selectedSessionIds.isNotEmpty(),
                 )
             }
         }
@@ -184,3 +274,26 @@ internal fun applyFilterAndSort(
             compareByDescending<SessionEntity> { session -> isRunningStatus(session.status) }
                 .thenByDescending(SessionEntity::lastActiveAt),
         )
+
+internal fun toggleSelectedSessionIds(
+    selectedSessionIds: Set<String>,
+    sessionId: String,
+): Set<String> =
+    linkedSetOf<String>().apply {
+        addAll(selectedSessionIds)
+        if (!add(sessionId)) {
+            remove(sessionId)
+        }
+    }
+
+internal fun reconcileSelection(
+    visibleSessions: List<SessionEntity>,
+    selectedSessionIds: Set<String>,
+): Set<String> {
+    if (selectedSessionIds.isEmpty()) {
+        return emptySet()
+    }
+
+    val visibleIds = visibleSessions.mapTo(hashSetOf(), SessionEntity::id)
+    return selectedSessionIds.filterTo(linkedSetOf()) { sessionId -> sessionId in visibleIds }
+}

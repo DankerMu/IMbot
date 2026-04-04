@@ -233,7 +233,7 @@ async function createMockOpenClawGateway() {
 }
 
 test("relay bridges openclaw sessions through the gateway, translates events, and recovers after disconnect", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-openclaw-bridge-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_openclaw_bridge_"));
   const gateway = await createMockOpenClawGateway();
   const config = relay.loadConfig({
     RELAY_STATIC_TOKEN: "t".repeat(64),
@@ -438,7 +438,7 @@ test("relay bridges openclaw sessions through the gateway, translates events, an
 });
 
 test("relay keeps the session unchanged when openclaw resume is rejected by the gateway", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-openclaw-resume-reject-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_openclaw_resume_reject_"));
   const gateway = await createMockOpenClawGateway();
   const config = relay.loadConfig({
     RELAY_STATIC_TOKEN: "t".repeat(64),
@@ -549,7 +549,7 @@ test("relay keeps the session unchanged when openclaw resume is rejected by the 
 });
 
 test("relay falls back to legacy openclaw message and cancel methods when newer methods are unsupported", async (t) => {
-  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-openclaw-legacy-fallback-"));
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot_openclaw_legacy_fallback_"));
   const gateway = await createMockOpenClawGateway();
   const config = relay.loadConfig({
     RELAY_STATIC_TOKEN: "t".repeat(64),

@@ -9,6 +9,7 @@
 | PRD ref | FR-01, FR-05 |
 
 App 的主页面。展示所有会话列表，支持按 provider 过滤，可快速进入详情或创建新会话。
+长按任意会话可进入多选模式，批量删除多个会话。
 
 ## 布局
 
@@ -37,6 +38,18 @@ App 的主页面。展示所有会话列表，支持按 provider 过滤，可快
 │                              [+ FAB] │  ← 新建会话
 ├──────────────────────────────────────┤
 │  🏠 会话  │  📁 目录  │  ⚙ 设置      │  ← Bottom Nav
+└──────────────────────────────────────┘
+```
+
+选择模式：
+
+```
+┌──────────────────────────────────────┐
+│  已选 3 项      [全选] [删除] [完成] │
+├──────────────────────────────────────┤
+│  [✓] SessionCard                     │
+│  [ ] SessionCard                     │
+│  [✓] SessionCard                     │
 └──────────────────────────────────────┘
 ```
 
@@ -73,7 +86,9 @@ data class HomeUiState(
     val isLoading: Boolean = true,
     val isRefreshing: Boolean = false,
     val error: String? = null,
-    val isConnected: Boolean = true
+    val isConnected: Boolean = true,
+    val selectedSessionIds: Set<String> = emptySet(),
+    val isDeletingSelection: Boolean = false
 )
 ```
 
@@ -96,10 +111,13 @@ TopAppBar 右侧 filter dropdown：
 | UI Event | Handler | Side Effect |
 |----------|---------|-------------|
 | Tap SessionCard | `navigateToDetail(id)` | Shared element transition |
+| Long press SessionCard | `enterSelectionMode(id)` | 进入多选模式并选中当前会话 |
+| Tap SessionCard in selection mode | `toggleSelection(id)` | 勾选/取消勾选 |
 | Tap FAB | `navigateToNewSession()` | — |
 | Pull to refresh | `viewModel.refresh()` | API call |
 | Swipe left on card | `viewModel.deleteSession(id)` | Confirmation → API |
 | Filter change | `viewModel.setFilter(provider)` | 本地过滤 |
+| Tap bulk delete | `viewModel.deleteSelectedSessions()` | Confirmation → 顺序调用单删 API |
 
 ## 验收标准
 
@@ -110,4 +128,6 @@ TopAppBar 右侧 filter dropdown：
 - [ ] 空状态展示正确。
 - [ ] FAB 点击进入新建流程。
 - [ ] 左滑删除有确认弹窗。
+- [ ] 长按可进入多选模式。
+- [ ] 多选模式下可批量删除多个会话。
 - [ ] 断线时显示 ConnectionBanner。
