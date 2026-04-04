@@ -71,6 +71,7 @@
 **运行时修改**：`workspace_roots` 可通过 relay API 动态增删，companion 同步更新本地 JSON。
 
 - `providers.*.binary` 可使用绝对路径，或保留 `claude` / `book` 这样的命令名；命令名会先按进程 `PATH` 查找，再补充常见 macOS 用户目录（`~/.local/bin`、`~/bin`、`/opt/homebrew/bin`、`/usr/local/bin`）。
+- `idle_timeout_ms` 为 companion 的 idle session 自动结束阈值，默认 `1800000`（30 分钟）；它只在 session 已进入 `idle` 后生效。
 - 兼容旧版 `workspace_roots`：如果条目缺少 `added_at`，companion 仍会加载，并在下次持久化时补齐该字段。
 - `./scripts/install-companion.sh` 会把当前 shell 的关键运行环境写入 launchd plist（完整 `PATH`、代理变量、`NODE_EXTRA_CA_CERTS`，以及 Claude CLI 认证所需的基础用户终端变量），避免后台 companion 进程与交互 shell 的出站网络/认证行为不一致。
 

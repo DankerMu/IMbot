@@ -36,6 +36,7 @@ internal data class ConnectionBannerUiState(
 
 internal data class DetailUiState(
     val session: RelaySession? = null,
+    val effectiveStatus: String? = null,
     val messages: List<MessageItem> = emptyList(),
     val commandChip: SkillItem? = null,
     val showSlashSheet: Boolean = false,
@@ -79,6 +80,7 @@ class DetailViewModel
         private val sessionId = savedStateHandle.get<String>(SESSION_ID_ARG).orEmpty().trim()
         private val eventProcessor = EventProcessor()
         private val optimisticMessages = mutableListOf<MessageItem.UserMessage>()
+        private val localInteractiveAnswers = mutableMapOf<String, String>()
 
         private val _uiState =
             MutableStateFlow(
@@ -97,6 +99,7 @@ class DetailViewModel
         private var historyLoaded = false
         private val catchUpBuffer = mutableListOf<ServerMessage.Event>()
         private var isCatchingUp = false
+        private var interactiveAnswerSyncJob: Job? = null
 
         init {
             observeConnectionState()
@@ -124,6 +127,7 @@ class DetailViewModel
                     beginCatchUp()
                     eventProcessor.reset()
                     optimisticMessages.clear()
+                    localInteractiveAnswers.clear()
                     relayWsClient.subscribe(sessionId)
 
                     _uiState.update { current ->
@@ -136,6 +140,7 @@ class DetailViewModel
                             showSlashSheet = false,
                             messageMenuTarget = null,
                             selectionModeMessageId = null,
+                            effectiveStatus = null,
                             scrollState = DetailScrollState(),
                         )
                     }
@@ -147,6 +152,7 @@ class DetailViewModel
                             sessionId = sessionId,
                         ).getOrThrow()
                     }.onSuccess { session ->
+                        interactiveAnswerSyncJob?.cancel()
                         publishSession(session)
                         fetchEventsSince(
                             settings = settings,
@@ -160,7 +166,7 @@ class DetailViewModel
                                 isLoading = false,
                             )
                         }
-                        if (canResumeSession(_uiState.value.session?.status)) {
+                        if (canResumeSession(_uiState.value.effectiveStatus ?: _uiState.value.session?.status)) {
                             resumeSession()
                         }
                     }.onFailure { error ->
@@ -291,6 +297,7 @@ class DetailViewModel
             addOptimisticMessage(normalizedText, isInteractiveToolAnswer)
             interactiveToolCallId?.let { callId ->
                 interactiveAnswer?.let { answer ->
+                    localInteractiveAnswers[callId] = answer
                     eventProcessor.recordInteractiveToolAnswer(callId, answer)
                 }
             }
@@ -316,12 +323,23 @@ class DetailViewModel
                                 current.session?.copy(
                                     status = "running",
                                 ),
+                            effectiveStatus = "running",
                             isSending = false,
                             canSend = false,
                         )
                     }
+                    if (isInteractiveToolAnswer) {
+                        interactiveAnswerSyncJob?.cancel()
+                        interactiveAnswerSyncJob =
+                            launch {
+                                syncInteractiveAnswerProgress(
+                                    callId = interactiveToolCallId!!,
+                                )
+                            }
+                    }
                 }.onFailure { error ->
                     interactiveToolCallId?.let { id ->
+                        localInteractiveAnswers.remove(id)
                         eventProcessor.clearInteractiveToolAnswer(id, "发送失败，点击重试")
                     }
                     if (!isInteractiveToolAnswer) {
@@ -334,7 +352,7 @@ class DetailViewModel
                     _uiState.update { current ->
                         current.copy(
                             isSending = false,
-                            canSend = canInputToSession(current.session?.status),
+                            canSend = canInputToSession(current.effectiveStatus),
                             error = error.message ?: "发送消息失败",
                         )
                     }
@@ -345,7 +363,8 @@ class DetailViewModel
         fun cancelSession() {
             val state = _uiState.value
             val session = state.session
-            val canCancel = session != null && !state.isCancelling && canCancelSession(session.status)
+            val status = state.effectiveStatus ?: session?.status
+            val canCancel = session != null && !state.isCancelling && canCancelSession(status)
             val settings = if (canCancel) requireValidSettings() else null
             if (!canCancel || session == null || settings == null) {
                 return
@@ -383,7 +402,8 @@ class DetailViewModel
         fun resumeSession() {
             val state = _uiState.value
             val session = state.session
-            val canResume = session != null && !state.isResuming && canResumeSession(session.status)
+            val status = state.effectiveStatus ?: session?.status
+            val canResume = session != null && !state.isResuming && canResumeSession(status)
             if (!canResume || session == null) {
                 return
             }
@@ -421,7 +441,8 @@ class DetailViewModel
         fun completeSession() {
             val state = _uiState.value
             val session = state.session
-            val canComplete = session != null && !state.isCompleting && canCompleteSession(session.status)
+            val status = state.effectiveStatus ?: session?.status
+            val canComplete = session != null && !state.isCompleting && canCompleteSession(status)
             if (!canComplete || session == null) {
                 return
             }
@@ -572,6 +593,7 @@ class DetailViewModel
         }
 
         override fun onCleared() {
+            interactiveAnswerSyncJob?.cancel()
             relayWsClient.clearSubscription()
             super.onCleared()
         }
@@ -662,38 +684,17 @@ class DetailViewModel
             }
 
             val catchUpSucceeded =
-                runCatching {
-                    var cursor = sinceSeq
-                    var hasMore: Boolean
-
-                    do {
-                        val page =
-                            relayHttpClient.getSessionEvents(
-                                relayUrl = settings.relayUrl,
-                                token = settings.token,
-                                sessionId = sessionId,
-                                sinceSeq = cursor,
-                            ).getOrThrow()
-
-                        val sortedEvents = page.events.sortedBy(ServerMessage.Event::seq)
-                        sortedEvents.forEach { event ->
-                            handleSessionEvent(
-                                event = event,
-                                allowAutoScroll = false,
-                            )
-                        }
-                        cursor = maxOf(cursor, sortedEvents.maxOfOrNull(ServerMessage.Event::seq) ?: cursor)
-                        hasMore = page.hasMore
-                    } while (hasMore)
-                }.onFailure { error ->
-                    _uiState.update { current ->
-                        current.copy(
-                            error = error.message ?: "同步消息失败",
-                        )
-                    }
-                }.isSuccess
+                pullEventsSince(
+                    settings = settings,
+                    sinceSeq = sinceSeq,
+                    allowAutoScroll = false,
+                    failureMessage = "同步消息失败",
+                )
 
             finishCatchUp(processBufferedEvents = catchUpSucceeded)
+            if (catchUpSucceeded) {
+                refreshSessionSnapshot(settings)
+            }
 
             if (catchUpSucceeded) {
                 if (showRecoveryBanner) {
@@ -715,6 +716,20 @@ class DetailViewModel
             }
         }
 
+        private suspend fun refreshSessionSnapshot(settings: RelaySettings) {
+            relayHttpClient.getSession(
+                relayUrl = settings.relayUrl,
+                token = settings.token,
+                sessionId = sessionId,
+            ).onSuccess { session ->
+                val currentStatus = _uiState.value.effectiveStatus ?: _uiState.value.session?.status
+                if (shouldIgnoreSessionSnapshotStatus(currentStatus, session.status)) {
+                    return@onSuccess
+                }
+                publishSession(session)
+            }
+        }
+
         private suspend fun showRecoveredBanner() {
             _uiState.update { current ->
                 current.copy(
@@ -733,10 +748,20 @@ class DetailViewModel
         }
 
         private fun publishSession(session: RelaySession) {
+            val fallbackAnswers = interactiveAnswerFallbacks()
+            eventProcessor.reconcileInteractiveToolCalls(session.status, fallbackAnswers)
+            val newMessages =
+                presentInteractiveMessages(
+                    messages = combinedMessages(),
+                    sessionStatus = session.status,
+                )
+            val effectiveStatus = effectiveSessionStatus(session.status, newMessages)
             _uiState.update { current ->
                 current.copy(
                     session = session,
-                    canSend = canInputToSession(session.status) && !current.isSending,
+                    effectiveStatus = effectiveStatus,
+                    messages = newMessages,
+                    canSend = canInputToSession(effectiveStatus) && !current.isSending,
                 )
             }
         }
@@ -795,12 +820,79 @@ class DetailViewModel
             }
         }
 
+        private suspend fun syncInteractiveAnswerProgress(callId: String) {
+            val settings = requireValidSettings() ?: return
+            val deadlineMs = System.currentTimeMillis() + INTERACTIVE_ANSWER_SYNC_TIMEOUT_MS
+
+            var syncing = true
+            while (syncing && System.currentTimeMillis() < deadlineMs) {
+                val syncSucceeded =
+                    pullEventsSince(
+                        settings = settings,
+                        sinceSeq = eventProcessor.lastProcessedSeq(),
+                        allowAutoScroll = true,
+                        failureMessage = null,
+                    )
+                val sessionStatus =
+                    _uiState.value.effectiveStatus ?: _uiState.value.session?.status
+                val stillPending = latestPendingInteractiveToolCallId() == callId
+                syncing = syncSucceeded && (stillPending || sessionStatus == "running")
+                if (syncing) {
+                    delay(INTERACTIVE_ANSWER_SYNC_INTERVAL_MS)
+                }
+            }
+        }
+
+        private suspend fun pullEventsSince(
+            settings: RelaySettings,
+            sinceSeq: Int,
+            allowAutoScroll: Boolean,
+            failureMessage: String?,
+        ): Boolean =
+            runCatching {
+                var cursor = sinceSeq
+                var hasMore: Boolean
+
+                do {
+                    val page =
+                        relayHttpClient.getSessionEvents(
+                            relayUrl = settings.relayUrl,
+                            token = settings.token,
+                            sessionId = sessionId,
+                            sinceSeq = cursor,
+                        ).getOrThrow()
+
+                    val sortedEvents = page.events.sortedBy(ServerMessage.Event::seq)
+                    sortedEvents.forEach { event ->
+                        handleSessionEvent(
+                            event = event,
+                            allowAutoScroll = allowAutoScroll,
+                        )
+                    }
+                    cursor = maxOf(cursor, sortedEvents.maxOfOrNull(ServerMessage.Event::seq) ?: cursor)
+                    hasMore = page.hasMore
+                } while (hasMore)
+            }.onFailure { error ->
+                if (failureMessage != null) {
+                    _uiState.update { current ->
+                        current.copy(
+                            error = error.message ?: failureMessage,
+                        )
+                    }
+                }
+            }.isSuccess
+
         private fun publishMessages(
             newMessages: List<MessageItem>,
             allowAutoScroll: Boolean,
         ) {
             val previousState = _uiState.value
-            if (previousState.messages == newMessages) {
+            val renderedMessages =
+                presentInteractiveMessages(
+                    messages = newMessages,
+                    sessionStatus = previousState.effectiveStatus ?: previousState.session?.status,
+                )
+            if (previousState.messages == renderedMessages) {
                 return
             }
 
@@ -808,17 +900,20 @@ class DetailViewModel
                 if (allowAutoScroll) {
                     onTimelineChanged(
                         current = previousState.scrollState,
-                        itemCountChanged = newMessages.size != previousState.messages.size,
+                        itemCountChanged = renderedMessages.size != previousState.messages.size,
                     )
                 } else {
                     ScrollMutation(previousState.scrollState, shouldScrollToBottom = false)
                 }
 
             _uiState.update { current ->
+                val effectiveStatus = effectiveSessionStatus(current.session?.status, renderedMessages)
                 current.copy(
-                    messages = newMessages,
+                    messages = renderedMessages,
+                    effectiveStatus = effectiveStatus,
+                    canSend = canInputToSession(effectiveStatus) && !current.isSending,
                     selectionModeMessageId =
-                        if (newMessages.size != current.messages.size) {
+                        if (renderedMessages.size != current.messages.size) {
                             null
                         } else {
                             current.selectionModeMessageId
@@ -828,18 +923,61 @@ class DetailViewModel
             }
 
             if (mutation.shouldScrollToBottom) {
-                emitScrollToBottom(newMessages.lastIndex)
+                emitScrollToBottom(renderedMessages.lastIndex)
             }
         }
 
         private fun combinedMessages(): List<MessageItem> = eventProcessor.snapshot() + optimisticMessages
+
+        private fun interactiveAnswerFallbacks(): Map<String, String> =
+            buildMap {
+                localInteractiveAnswers.forEach { (callId, answer) ->
+                    answer.takeIf(String::isNotBlank)?.let { put(callId, it) }
+                }
+            }
+
+        private fun presentInteractiveMessages(
+            messages: List<MessageItem>,
+            sessionStatus: String?,
+        ): List<MessageItem> {
+            val fallbackAnswers = interactiveAnswerFallbacks()
+            var mutated = false
+            val rendered =
+                messages.map { item ->
+                    val interactive = item as? MessageItem.InteractiveToolCall ?: return@map item
+                    val mergedAnswer = interactive.answer ?: fallbackAnswers[interactive.id]
+                    val terminalStatus = sessionStatus in setOf("completed", "failed", "cancelled")
+                    val shouldResolve =
+                        when {
+                            terminalStatus -> true
+                            sessionStatus == "idle" -> !mergedAnswer.isNullOrBlank()
+                            else -> false
+                        }
+                    val nextItem =
+                        interactive.copy(
+                            isAnswered = interactive.isAnswered || shouldResolve,
+                            answer = mergedAnswer,
+                            errorMessage =
+                                if ((interactive.isAnswered || shouldResolve || !mergedAnswer.isNullOrBlank())) {
+                                    null
+                                } else {
+                                    interactive.errorMessage
+                                },
+                        )
+                    if (nextItem != interactive) {
+                        mutated = true
+                    }
+                    nextItem
+                }
+            return if (mutated) rendered else messages
+        }
 
         private fun canSendInput(
             state: DetailUiState,
             allowRunningInput: Boolean,
         ): Boolean =
             if (allowRunningInput) {
-                canSendToSession(state.session?.status)
+                canRespondToInteractiveRequest(state.effectiveStatus ?: state.session?.status)
             } else {
                 state.canSend
             }
@@ -879,11 +1017,17 @@ class DetailViewModel
             )
 
         private fun latestPendingInteractiveToolCallId(): String? {
-            return findLatestPendingInteractiveToolCallId(_uiState.value.messages)
+            return findLatestPendingInteractiveToolCallId(
+                messages = _uiState.value.messages,
+                sessionStatus = _uiState.value.effectiveStatus ?: _uiState.value.session?.status,
+            )
         }
 
         private fun latestPendingApprovalCallId(): String? {
-            return findLatestPendingApprovalCallId(_uiState.value.messages)
+            return findLatestPendingApprovalCallId(
+                messages = _uiState.value.messages,
+                sessionStatus = _uiState.value.effectiveStatus ?: _uiState.value.session?.status,
+            )
         }
 
         private fun removeOptimisticMessage(text: String) {
@@ -965,3 +1109,6 @@ class DetailViewModel
                 ConnectionState.NotConfigured -> null
             }
     }
+
+private const val INTERACTIVE_ANSWER_SYNC_INTERVAL_MS = 500L
+private const val INTERACTIVE_ANSWER_SYNC_TIMEOUT_MS = 15_000L

@@ -313,8 +313,8 @@ class DetailUtilsTest {
                 latestApproval,
             )
 
-        val latestInteractiveId = findLatestPendingInteractiveToolCallId(messages)
-        val latestApprovalId = findLatestPendingApprovalCallId(messages)
+        val latestInteractiveId = findLatestPendingInteractiveToolCallId(messages, sessionStatus = "running")
+        val latestApprovalId = findLatestPendingApprovalCallId(messages, sessionStatus = "running")
 
         assertEquals("interactive-2", latestInteractiveId)
         assertEquals("approval-2", latestApprovalId)
@@ -322,6 +322,142 @@ class DetailUtilsTest {
         assertTrue(isLatestPendingInteractiveToolCall(latestInteractive, latestInteractiveId))
         assertFalse(isLatestPendingApprovalRequest(olderApproval, latestApprovalId))
         assertTrue(isLatestPendingApprovalRequest(latestApproval, latestApprovalId))
+    }
+
+    @Test
+    fun `latest pending interactive and approval ids are cleared once session is no longer running`() {
+        val interactive =
+            MessageItem.InteractiveToolCall(
+                id = "interactive-1",
+                toolName = "AskUserQuestion",
+                questions =
+                    listOf(
+                        ParsedQuestion(
+                            question = "继续吗",
+                            header = null,
+                            options = null,
+                            multiSelect = false,
+                        ),
+                    ),
+                timestamp = DETAIL_UTILS_TIMESTAMP,
+            )
+        val approval =
+            MessageItem.StatusChange(
+                id = "approval-1",
+                status = "running",
+                message = "Approval required",
+                eventType = "approval_required",
+                callId = "approval-call-1",
+            )
+
+        assertNull(findLatestPendingInteractiveToolCallId(listOf(interactive, approval), sessionStatus = "idle"))
+        assertNull(findLatestPendingApprovalCallId(listOf(interactive, approval), sessionStatus = "failed"))
+    }
+
+    @Test
+    fun `resolvedInteractiveToolCall marks locally answered card as answered once session finishes`() {
+        val pending =
+            MessageItem.InteractiveToolCall(
+                id = "interactive-1",
+                toolName = "AskUserQuestion",
+                questions =
+                    listOf(
+                        ParsedQuestion(
+                            question = "选哪个",
+                            header = null,
+                            options = listOf(ParsedOption("Beta", null)),
+                            multiSelect = false,
+                        ),
+                    ),
+                answer = "Beta",
+                timestamp = DETAIL_UTILS_TIMESTAMP,
+            )
+
+        val resolved = resolvedInteractiveToolCall(pending, sessionStatus = "idle")
+        val stillPending = resolvedInteractiveToolCall(pending, sessionStatus = "running")
+
+        assertTrue(resolved.isAnswered)
+        assertEquals("Beta", resolved.answer)
+        assertFalse(stillPending.isAnswered)
+    }
+
+    @Test
+    fun `resolvedInteractiveToolCall treats final session as resolved even without answer text`() {
+        val pending =
+            MessageItem.InteractiveToolCall(
+                id = "interactive-2",
+                toolName = "AskUserQuestion",
+                questions =
+                    listOf(
+                        ParsedQuestion(
+                            question = "继续吗",
+                            header = null,
+                            options = null,
+                            multiSelect = false,
+                        ),
+                    ),
+                timestamp = DETAIL_UTILS_TIMESTAMP,
+            )
+
+        val resolved = resolvedInteractiveToolCall(pending, sessionStatus = "cancelled")
+
+        assertTrue(resolved.isAnswered)
+        assertNull(resolved.answer)
+    }
+
+    @Test
+    fun `effectiveSessionStatus prefers session snapshot but keeps pending interaction in running state`() {
+        val messages =
+            listOf(
+                MessageItem.StatusChange(
+                    id = "status-1",
+                    status = "failed",
+                    message = "oops",
+                ),
+            )
+
+        assertEquals("idle", effectiveSessionStatus(sessionStatus = "idle", messages = messages))
+        assertEquals("failed", effectiveSessionStatus(sessionStatus = null, messages = messages))
+
+        val pendingInteractive =
+            listOf(
+                MessageItem.InteractiveToolCall(
+                    id = "interactive-running",
+                    toolName = "AskUserQuestion",
+                    questions =
+                        listOf(
+                            ParsedQuestion(
+                                question = "继续吗",
+                                header = null,
+                                options = null,
+                                multiSelect = false,
+                            ),
+                        ),
+                    timestamp = DETAIL_UTILS_TIMESTAMP,
+                ),
+            )
+        assertEquals("running", effectiveSessionStatus(sessionStatus = "idle", messages = pendingInteractive))
+
+        val pendingApproval =
+            listOf(
+                MessageItem.StatusChange(
+                    id = "approval-1",
+                    status = "running",
+                    message = "Approval required",
+                    eventType = "approval_required",
+                    callId = "approval-call-1",
+                ),
+            )
+        assertEquals("running", effectiveSessionStatus(sessionStatus = "idle", messages = pendingApproval))
+    }
+
+    @Test
+    fun `shouldIgnoreSessionSnapshotStatus blocks stale regressions after catch up`() {
+        assertTrue(shouldIgnoreSessionSnapshotStatus(currentStatus = "idle", snapshotStatus = "running"))
+        assertTrue(shouldIgnoreSessionSnapshotStatus(currentStatus = "completed", snapshotStatus = "running"))
+        assertTrue(shouldIgnoreSessionSnapshotStatus(currentStatus = "running", snapshotStatus = "queued"))
+        assertFalse(shouldIgnoreSessionSnapshotStatus(currentStatus = "running", snapshotStatus = "completed"))
+        assertFalse(shouldIgnoreSessionSnapshotStatus(currentStatus = "failed", snapshotStatus = "completed"))
     }
 
     @Test

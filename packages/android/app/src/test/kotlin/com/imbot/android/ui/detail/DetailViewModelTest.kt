@@ -67,7 +67,7 @@ class DetailViewModelTest {
             val viewModel = createViewModel(relay = relay, ws = ws)
             advanceUntilIdle()
 
-            assertEquals(1, relay.getSessionCalls)
+            assertEquals(2, relay.getSessionCalls)
             assertEquals(1, relay.getSessionEventsCalls)
             assertEquals(listOf(TEST_SESSION.id), ws.subscriptions)
             assertEquals(TEST_SESSION, viewModel.uiState.value.session)
@@ -191,6 +191,218 @@ class DetailViewModelTest {
 
             assertEquals(1, relay.answerInteractiveToolCalls)
             assertEquals(listOf(InteractiveToolAnswerRequest(TEST_SESSION.id, "tool-2", "B", 0)), relay.interactiveToolAnswers)
+        }
+
+    @Test
+    fun `submitToolAnswer catches up relay events when websocket misses final updates`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionEventsHandler =
+                        { _, _, _, sinceSeq, _ ->
+                            when (sinceSeq) {
+                                0 -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                                1 ->
+                                    Result.success(
+                                        RelayEventPage(
+                                            events =
+                                                listOf(
+                                                    event(
+                                                        seq = 2,
+                                                        eventType = "tool_call_completed",
+                                                        payload =
+                                                            payload(
+                                                                "call_id" to "tool-1",
+                                                                "tool_name" to "AskUserQuestion",
+                                                                "result" to "User has answered your questions: \"0\"=\"Beta\".",
+                                                            ),
+                                                    ),
+                                                    event(
+                                                        seq = 3,
+                                                        eventType = "assistant_delta",
+                                                        payload = payload("text" to "FINAL_ANSWER:Beta"),
+                                                    ),
+                                                    event(seq = 4, eventType = "session_idle"),
+                                                    event(
+                                                        seq = 5,
+                                                        eventType = "session_status_changed",
+                                                        payload = payload("status" to "idle"),
+                                                    ),
+                                                ),
+                                            hasMore = false,
+                                        ),
+                                    )
+
+                                else -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                            }
+                        }
+                }
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "tool_call_started",
+                    payload =
+                        payload(
+                            "call_id" to "tool-1",
+                            "tool_name" to "AskUserQuestion",
+                            "args" to """{"question":"选哪个?","options":["A","B"]}""",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.submitToolAnswer("Beta")
+            advanceUntilIdle()
+
+            assertEquals(listOf(0, 1), relay.getSessionEventRequests.map(SessionEventsRequest::sinceSeq))
+            assertEquals("idle", viewModel.uiState.value.session?.status)
+            assertTrue(viewModel.uiState.value.canSend)
+
+            val messages = viewModel.uiState.value.messages
+            val interactive = messages.filterIsInstance<MessageItem.InteractiveToolCall>().single()
+            assertTrue(interactive.isAnswered)
+            assertEquals("Beta", interactive.answer)
+            assertAgentMessage(messages.last(), "FINAL_ANSWER:Beta", isStreaming = true)
+        }
+
+    @Test
+    fun `loadSession drops superseded terminal status bubbles after a later resumed run`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "idle"))
+                    getSessionEventsHandler =
+                        { _, _, _, sinceSeq, _ ->
+                            when (sinceSeq) {
+                                0 ->
+                                    Result.success(
+                                        RelayEventPage(
+                                            events =
+                                                listOf(
+                                                    event(
+                                                        seq = 1,
+                                                        eventType = "session_error",
+                                                        payload =
+                                                            payload("message" to "Companion shutting down; session process will be lost"),
+                                                    ),
+                                                    event(
+                                                        seq = 2,
+                                                        eventType = "session_status_changed",
+                                                        payload = payload("status" to "failed"),
+                                                    ),
+                                                    event(
+                                                        seq = 3,
+                                                        eventType = "session_result",
+                                                        payload = payload("status" to "failed"),
+                                                    ),
+                                                    event(seq = 4, eventType = "session_started"),
+                                                    event(
+                                                        seq = 5,
+                                                        eventType = "session_status_changed",
+                                                        payload = payload("status" to "running"),
+                                                    ),
+                                                    event(seq = 6, eventType = "user_message", payload = payload("text" to "继续")),
+                                                    event(
+                                                        seq = 7,
+                                                        eventType = "assistant_message",
+                                                        payload = payload("text" to "新的回复"),
+                                                    ),
+                                                    event(seq = 8, eventType = "session_idle"),
+                                                    event(
+                                                        seq = 9,
+                                                        eventType = "session_status_changed",
+                                                        payload = payload("status" to "idle"),
+                                                    ),
+                                                ),
+                                            hasMore = false,
+                                        ),
+                                    )
+
+                                else -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                            }
+                        }
+                }
+
+            val viewModel = createViewModel(relay = relay)
+            advanceUntilIdle()
+
+            assertEquals("idle", viewModel.uiState.value.effectiveStatus)
+            assertTrue(viewModel.uiState.value.canSend)
+            assertEquals(2, viewModel.uiState.value.messages.size)
+            assertUserMessage(viewModel.uiState.value.messages[0], "继续")
+            assertAgentMessage(viewModel.uiState.value.messages[1], "新的回复", isStreaming = false)
+            assertTrue(viewModel.uiState.value.messages.none { it is MessageItem.StatusChange })
+        }
+
+    @Test
+    fun `submitToolAnswer marks interactive card resolved once session reaches idle even without tool completion event`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionHandler =
+                        { _, _, _ ->
+                            Result.success(
+                                if (getSessionCalls >= 2) {
+                                    TEST_SESSION.copy(status = "idle")
+                                } else {
+                                    TEST_SESSION
+                                },
+                            )
+                        }
+                    getSessionEventsHandler =
+                        { _, _, _, sinceSeq, _ ->
+                            when (sinceSeq) {
+                                0 -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                                1 ->
+                                    Result.success(
+                                        RelayEventPage(
+                                            events =
+                                                listOf(
+                                                    event(seq = 2, eventType = "session_idle"),
+                                                    event(
+                                                        seq = 3,
+                                                        eventType = "session_status_changed",
+                                                        payload = payload("status" to "idle"),
+                                                    ),
+                                                ),
+                                            hasMore = false,
+                                        ),
+                                    )
+
+                                else -> Result.success(RelayEventPage(events = emptyList(), hasMore = false))
+                            }
+                        }
+                }
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(relay = relay, ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "tool_call_started",
+                    payload =
+                        payload(
+                            "call_id" to "tool-1",
+                            "tool_name" to "AskUserQuestion",
+                            "args" to """{"question":"选哪个?","options":["Alpha","Beta"]}""",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            viewModel.submitToolAnswer("Beta")
+            advanceUntilIdle()
+
+            val interactive = viewModel.uiState.value.messages.filterIsInstance<MessageItem.InteractiveToolCall>().single()
+            assertEquals("idle", viewModel.uiState.value.effectiveStatus)
+            assertTrue(viewModel.uiState.value.canSend)
+            assertTrue(resolvedInteractiveToolCall(interactive, viewModel.uiState.value.effectiveStatus).isAnswered)
+            assertEquals("Beta", interactive.answer)
         }
 
     @Test

@@ -90,9 +90,11 @@ class EventProcessor(
             "assistant_message" -> finalizeAssistantMessage(event)
             "tool_call_started" -> appendToolCallStarted(event)
             "tool_call_completed" -> appendToolCallCompleted(event)
-            "session_status_changed" -> appendStatusChangeIfSignificant(event)
-            "session_started" -> Unit // silent — top bar shows status
-            "session_idle" -> Unit // silent — top bar shows status
+            "session_status_changed" -> {
+                clearSupersededTerminalStatusChangesIfNeeded(event)
+                appendStatusChangeIfSignificant(event)
+            }
+            "session_started", "session_idle" -> clearSupersededTerminalStatusChanges()
             "session_result" ->
                 appendStatusChange(
                     status = event.payload.stringValue("status").orEmpty(),
@@ -133,6 +135,53 @@ class EventProcessor(
         val item = messages.getOrNull(toolCallIndex) as? MessageItem.InteractiveToolCall ?: return
         if (!item.isAnswered) {
             messages[toolCallIndex] = item.copy(answer = null, errorMessage = errorMessage)
+        }
+    }
+
+    internal fun reconcileInteractiveToolCalls(
+        sessionStatus: String?,
+        fallbackAnswers: Map<String, String> = emptyMap(),
+    ): Boolean {
+        if (canRespondToInteractiveRequest(sessionStatus)) {
+            return false
+        }
+
+        var mutated = false
+        messages.replaceAll { item ->
+            val interactive = item as? MessageItem.InteractiveToolCall ?: return@replaceAll item
+            val mergedAnswer = interactive.answer ?: fallbackAnswers[interactive.id]
+            val resolved =
+                if (
+                    interactive.isAnswered ||
+                    mergedAnswer.isNullOrBlank()
+                ) {
+                    interactive
+                } else {
+                    interactive.copy(
+                        isAnswered = true,
+                        answer = mergedAnswer,
+                        errorMessage = null,
+                    )
+                }
+            if (resolved != interactive) {
+                mutated = true
+            }
+            resolved
+        }
+        return mutated
+    }
+
+    private fun clearSupersededTerminalStatusChangesIfNeeded(event: ServerMessage.Event) {
+        val status = event.payload.stringValue("status").orEmpty()
+        if (status.isNotBlank() && status !in terminalStatuses) {
+            clearSupersededTerminalStatusChanges()
+        }
+    }
+
+    private fun clearSupersededTerminalStatusChanges() {
+        messages.removeAll { item ->
+            val statusChange = item as? MessageItem.StatusChange ?: return@removeAll false
+            statusChange.eventType == null && statusChange.status in terminalStatuses
         }
     }
 
