@@ -1599,3 +1599,28 @@ test("transition rejects a raced same-target update without emitting a duplicate
     .get("sess-race");
   assert.deepEqual(statusEvents, { count: 1 });
 });
+
+test("orchestrator normalizes invalid permission_mode to bypassPermissions", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-perm-mode-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  runtime.companionManager.isOnline = () => true;
+
+  const session = await runtime.orchestrator.create({
+    provider: "claude",
+    host_id: "macbook-1",
+    cwd: "/tmp/test-perm",
+    permission_mode: "--inject-flag"
+  });
+
+  assert.equal(session.status, "idle");
+  const row = runtime.db
+    .prepare("SELECT permission_mode FROM sessions WHERE id = ?")
+    .get(session.id);
+  assert.equal(row.permission_mode, "bypassPermissions");
+});

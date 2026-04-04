@@ -84,6 +84,14 @@ export class TranscriptSyncer {
         .filter((entry) => entry.source === "remote")
         .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
 
+      // Evict cursors for sessions no longer in the index
+      const activeRelayIds = new Set(entries.map((entry) => entry.relay_session_id));
+      for (const key of this.cursors.keys()) {
+        if (!activeRelayIds.has(key)) {
+          this.cursors.delete(key);
+        }
+      }
+
       for (const entry of entries) {
         await this.syncEntry(entry);
       }
@@ -103,9 +111,9 @@ export class TranscriptSyncer {
     const cursor = await this.getOrCreateCursor(entry);
     const transcriptPath = buildTranscriptPath(providerConfig.projectsDir, entry.cwd, entry.provider_session_id);
 
-    let stat: Awaited<ReturnType<typeof fs.stat>>;
+    let stat: Awaited<ReturnType<typeof fs.lstat>>;
     try {
-      stat = await fs.stat(transcriptPath);
+      stat = await fs.lstat(transcriptPath);
     } catch (error) {
       if (isMissingPathError(error)) {
         return;
@@ -115,7 +123,7 @@ export class TranscriptSyncer {
       return;
     }
 
-    if (!stat.isFile()) {
+    if (!stat.isFile() || stat.isSymbolicLink()) {
       return;
     }
 
@@ -133,8 +141,8 @@ export class TranscriptSyncer {
     // import turns appended by an external native CLI without duplicating turns already relayed
     // by the companion-managed runtime path.
     const cutoffMs = providerSessionIsActive ? await this.loadCutoffMs(entry.relay_session_id) : cursor.cutoffMs;
-    const nextChunk = await readUtf8Delta(transcriptPath, cursor.offset, stat.size);
-    cursor.offset = stat.size;
+    const { text: nextChunk, bytesRead } = await readUtf8Delta(transcriptPath, cursor.offset, stat.size);
+    cursor.offset += bytesRead;
 
     const merged = `${cursor.trailingFragment}${nextChunk}`;
     const hasTrailingNewline = merged.endsWith("\n") || merged.endsWith("\r");
@@ -208,9 +216,9 @@ export class TranscriptSyncer {
   }
 }
 
-async function readUtf8Delta(transcriptPath: string, fromOffset: number, toOffset: number): Promise<string> {
+async function readUtf8Delta(transcriptPath: string, fromOffset: number, toOffset: number): Promise<{ text: string; bytesRead: number }> {
   if (toOffset <= fromOffset) {
-    return "";
+    return { text: "", bytesRead: 0 };
   }
 
   const handle = await fs.open(transcriptPath, "r");
@@ -218,7 +226,7 @@ async function readUtf8Delta(transcriptPath: string, fromOffset: number, toOffse
     const length = toOffset - fromOffset;
     const buffer = Buffer.alloc(length);
     const { bytesRead } = await handle.read(buffer, 0, length, fromOffset);
-    return buffer.toString("utf8", 0, bytesRead);
+    return { text: buffer.toString("utf8", 0, bytesRead), bytesRead };
   } finally {
     await handle.close();
   }
@@ -351,7 +359,8 @@ function extractStructuredMessageText(value: unknown): string | null {
 }
 
 function buildTranscriptPath(projectsDir: string, cwd: string, providerSessionId: string): string {
-  return path.join(projectsDir, encodeProjectPath(cwd), `${providerSessionId}.jsonl`);
+  const sanitizedId = providerSessionId.replace(/[/\\]/g, "_").replace(/\.\./g, "_");
+  return path.join(projectsDir, encodeProjectPath(cwd), `${sanitizedId}.jsonl`);
 }
 
 function encodeProjectPath(cwd: string): string {

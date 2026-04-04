@@ -26,6 +26,7 @@ type LoggerLike = {
 };
 
 const MAX_REPORT_LOCAL_SESSIONS_BATCH_SIZE = 200;
+const VALID_PERMISSION_MODES = new Set(["bypassPermissions", "default", "plan", "acceptEdits", "auto"]);
 
 export type CreateSessionInput = {
   provider?: string;
@@ -109,9 +110,9 @@ export class SessionOrchestrator {
       workspace_cwd: input.cwd,
       initial_prompt: hasPrompt ? input.prompt ?? null : null,
       model: input.model ?? null,
-      // FR-10 stays default-off: sessions still default to bypassPermissions, but callers may
-      // opt into a non-default mode and that value must survive intact for the reserved path.
-      permission_mode: input.permission_mode ?? "bypassPermissions",
+      permission_mode: VALID_PERMISSION_MODES.has(input.permission_mode ?? "bypassPermissions")
+        ? (input.permission_mode ?? "bypassPermissions")
+        : "bypassPermissions",
       status: "queued",
       error_message: null,
       error_code: null,
@@ -388,9 +389,10 @@ export class SessionOrchestrator {
       if ((session.status === "running" || session.status === "idle") && Boolean(session.provider_session_id)) {
         try {
           await this.dispatchCancel(session);
-        } catch {
+        } catch (cancelError) {
           // Companion may be offline or may no longer have an active process for an idle session.
           // Deletion still proceeds so the relay-side record can be removed.
+          this.logger.warn(`Session ${sessionId} pre-delete cancel failed (proceeding): ${cancelError}`);
         }
         await this.transitionWithConflictTolerance(session.id, "cancelled");
       }

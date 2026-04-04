@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  symlinkSync,
   writeFileSync
 } from "node:fs";
 import { createRequire } from "node:module";
@@ -22,7 +23,7 @@ const silentLogger = {
 };
 
 function encodeProjectPath(projectPath) {
-  return projectPath.replace(/\//g, "-");
+  return path.resolve(projectPath).replace(/\//g, "-");
 }
 
 function createTranscriptFile(projectsDir, cwd, sessionId, contents) {
@@ -230,6 +231,93 @@ test("TranscriptSyncer rechecks relay last_active_at for active provider session
     );
     assert.deepEqual(sentEvents[0].payload, { text: "external user" });
     assert.deepEqual(sentEvents[1].payload, { text: "external answer" });
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("TranscriptSyncer evicts cursors for sessions no longer in the index", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-evict-"));
+
+  try {
+    const sessionIndex = new companion.SessionIndex({
+      filePath: path.join(tempDir, "sessions.json"),
+      logger: silentLogger
+    });
+    const projectsDir = path.join(tempDir, ".claudebook", "projects");
+    const cwd = path.join(tempDir, "novel", "evict-test");
+    mkdirSync(cwd, { recursive: true });
+
+    sessionIndex.set("relay-evict-1", {
+      provider_session_id: "provider-evict-1",
+      cwd,
+      provider: "book",
+      created_at: "2026-04-04T10:00:00.000Z",
+      source: "remote",
+      initial_prompt: null
+    });
+    sessionIndex.set("relay-evict-2", {
+      provider_session_id: "provider-evict-2",
+      cwd,
+      provider: "book",
+      created_at: "2026-04-04T10:00:01.000Z",
+      source: "remote",
+      initial_prompt: null
+    });
+
+    createTranscriptFile(
+      projectsDir, cwd, "provider-evict-1",
+      '{"type":"user","timestamp":"2026-04-04T10:01:00.000Z","message":{"role":"user","content":"a"}}\n'
+    );
+    createTranscriptFile(
+      projectsDir, cwd, "provider-evict-2",
+      '{"type":"user","timestamp":"2026-04-04T10:01:00.000Z","message":{"role":"user","content":"b"}}\n'
+    );
+
+    const syncer = new companion.TranscriptSyncer({
+      sessionIndex,
+      providers: { book: { binary: "book", configDir: path.join(tempDir, ".claudebook"), projectsDir } },
+      relayUrl: "ws://127.0.0.1:3010",
+      token: "test-token",
+      logger: silentLogger,
+      fetchSessionMetadata: async () => ({ last_active_at: "2026-04-04T09:00:00.000Z" }),
+      sendEvent: () => {}
+    });
+
+    await syncer.syncNow();
+    assert.equal(syncer.cursors.size, 2);
+
+    sessionIndex.remove("relay-evict-1");
+    await syncer.syncNow();
+    assert.equal(syncer.cursors.size, 1);
+    assert.equal(syncer.cursors.has("relay-evict-2"), true);
+    assert.equal(syncer.cursors.has("relay-evict-1"), false);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("TranscriptSyncer skips symlinked transcript files", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-symlink-"));
+
+  try {
+    const { cwd, projectsDir, sentEvents, syncer } = createRuntimeHarness(tempDir, {
+      lastActiveAt: "2026-04-04T09:00:00.000Z"
+    });
+
+    const projectDir = path.join(projectsDir, encodeProjectPath(cwd));
+    mkdirSync(projectDir, { recursive: true });
+
+    const realFile = path.join(tempDir, "real-transcript.jsonl");
+    writeFileSync(
+      realFile,
+      '{"type":"user","timestamp":"2026-04-04T10:01:00.000Z","message":{"role":"user","content":"symlink user"}}\n',
+      "utf8"
+    );
+    symlinkSync(realFile, path.join(projectDir, "provider-session-1.jsonl"));
+
+    await syncer.syncNow();
+    assert.deepEqual(sentEvents, []);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }

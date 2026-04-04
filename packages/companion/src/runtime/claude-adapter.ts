@@ -694,7 +694,8 @@ export class ClaudeRuntimeAdapter {
     session.closed = true;
     session.stdout.close();
     this.rejectPendingControlResponse(session, "Runtime exited while waiting for interactive tool input", {
-      writeControlResponse: false
+      writeControlResponse: false,
+      emitCompletion: true
     });
     await this.flushBookTranscriptNormalization(session);
 
@@ -959,6 +960,16 @@ export class ClaudeRuntimeAdapter {
 
   private startPendingControlTimer(session: RuntimeSession): void {
     this.clearPendingControlTimer(session);
+    session.pendingControlTimer = setTimeout(() => {
+      this.logger.warn?.(
+        `Session ${session.relaySessionId} pending control request timed out after ${this.idleTimeoutMs}ms`
+      );
+      this.rejectPendingControlResponse(session, "Interactive tool answer timeout", {
+        writeControlResponse: true,
+        emitCompletion: true
+      });
+    }, this.idleTimeoutMs);
+    session.pendingControlTimer.unref?.();
   }
 
   private clearIdleTimer(session: RuntimeSession): void {
