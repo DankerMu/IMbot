@@ -1,4 +1,6 @@
 import { spawn as spawnChildProcess, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { promises as fs } from "node:fs";
+import path from "node:path";
 import { createInterface, type Interface as ReadLineInterface } from "node:readline";
 
 import type {
@@ -14,6 +16,10 @@ import { RuntimeEventMapper } from "./event-mapper";
 import { SessionIndex, type SessionIndexEntry } from "./session-index";
 
 type SpawnFunction = typeof spawnChildProcess;
+
+const BOOK_TRANSCRIPT_NORMALIZATION_DELAY_MS = 50;
+const BOOK_ENTRYPOINT_SOURCE = Buffer.from('"entrypoint":"sdk-cli"', "utf8");
+const BOOK_ENTRYPOINT_TARGET = Buffer.from('"entrypoint":"cli"    ', "utf8");
 
 interface RuntimeSession {
   readonly relaySessionId: string;
@@ -36,6 +42,9 @@ interface RuntimeSession {
   closed: boolean;
   idleTimer: NodeJS.Timeout | null;
   pendingControlTimer: NodeJS.Timeout | null;
+  transcriptNormalizationTimer: NodeJS.Timeout | null;
+  transcriptNormalizationQueued: boolean;
+  transcriptNormalizationInFlight: boolean;
   isIdle: boolean;
   emitIdleOnReady: boolean;
   exitPromise: Promise<void>;
@@ -292,6 +301,8 @@ export class ClaudeRuntimeAdapter {
         })
       );
     }
+
+    this.scheduleBookTranscriptNormalization(session);
   }
 
   async cancel(relaySessionId: string): Promise<void> {
@@ -351,6 +362,10 @@ export class ClaudeRuntimeAdapter {
 
   getActiveSessionIds(): string[] {
     return Array.from(this.activeByRelaySessionId.keys());
+  }
+
+  hasActiveProviderSession(providerSessionId: string): boolean {
+    return this.activeByProviderSessionId.has(providerSessionId);
   }
 
   rejectAllPendingControlResponses(reason: string): void {
@@ -447,6 +462,9 @@ export class ClaudeRuntimeAdapter {
       closed: false,
       idleTimer: null,
       pendingControlTimer: null,
+      transcriptNormalizationTimer: null,
+      transcriptNormalizationQueued: false,
+      transcriptNormalizationInFlight: false,
       isIdle: false,
       emitIdleOnReady: params.emitIdleOnReady ?? false,
       exitPromise,
@@ -498,21 +516,25 @@ export class ClaudeRuntimeAdapter {
     const record = asRecord(parsed);
     const type = typeof record?.type === "string" ? record.type : null;
     if (type === "control_request") {
+      this.scheduleBookTranscriptNormalization(session);
       await this.handleControlRequest(session, parsed);
       return;
     }
 
     if (type === "control_cancel_request") {
+      this.scheduleBookTranscriptNormalization(session);
       await this.handleControlCancelRequest(session, parsed);
       return;
     }
 
     if (type === "control_response") {
+      this.scheduleBookTranscriptNormalization(session);
       return;
     }
 
     const mapped = session.eventMapper.map(parsed);
     if (!mapped) {
+      this.scheduleBookTranscriptNormalization(session);
       return;
     }
 
@@ -541,6 +563,7 @@ export class ClaudeRuntimeAdapter {
         );
       }
 
+      this.scheduleBookTranscriptNormalization(session);
       return;
     }
 
@@ -574,6 +597,8 @@ export class ClaudeRuntimeAdapter {
     if (type === "result" && record) {
       await this.emitSessionUsage(session, record);
     }
+
+    this.scheduleBookTranscriptNormalization(session);
   }
 
   private async handleControlRequest(session: RuntimeSession, raw: unknown): Promise<void> {
@@ -662,11 +687,16 @@ export class ClaudeRuntimeAdapter {
   private async handleClose(session: RuntimeSession, code: number | null, signal: NodeJS.Signals | null): Promise<void> {
     this.clearIdleTimer(session);
     this.clearPendingControlTimer(session);
+    this.clearTranscriptNormalizationTimer(session);
+    if (shouldNormalizeBookTranscript(session)) {
+      session.transcriptNormalizationQueued = true;
+    }
     session.closed = true;
     session.stdout.close();
     this.rejectPendingControlResponse(session, "Runtime exited while waiting for interactive tool input", {
       writeControlResponse: false
     });
+    await this.flushBookTranscriptNormalization(session);
 
     if (session.providerSessionId) {
       this.activeByProviderSessionId.delete(session.providerSessionId);
@@ -775,6 +805,8 @@ export class ClaudeRuntimeAdapter {
       }
     );
 
+    this.scheduleBookTranscriptNormalization(session);
+
     if (!session.providerSessionIdSettled) {
       session.providerSessionIdSettled = true;
       session.resolveProviderSessionId(providerSessionId);
@@ -852,6 +884,65 @@ export class ClaudeRuntimeAdapter {
     return providerConfig;
   }
 
+  private scheduleBookTranscriptNormalization(session: RuntimeSession): void {
+    if (!shouldNormalizeBookTranscript(session)) {
+      return;
+    }
+
+    session.transcriptNormalizationQueued = true;
+    if (session.transcriptNormalizationTimer) {
+      return;
+    }
+
+    session.transcriptNormalizationTimer = setTimeout(() => {
+      session.transcriptNormalizationTimer = null;
+      void this.flushBookTranscriptNormalization(session).catch((error) => {
+        this.logger.warn?.(
+          `Failed to normalize book transcript for ${session.relaySessionId}: ${getErrorMessage(
+            error,
+            "unknown error"
+          )}`
+        );
+      });
+    }, BOOK_TRANSCRIPT_NORMALIZATION_DELAY_MS);
+    session.transcriptNormalizationTimer.unref?.();
+  }
+
+  private async flushBookTranscriptNormalization(session: RuntimeSession): Promise<void> {
+    if (!shouldNormalizeBookTranscript(session)) {
+      return;
+    }
+
+    if (session.transcriptNormalizationInFlight) {
+      session.transcriptNormalizationQueued = true;
+      return;
+    }
+
+    const providerSessionId = session.providerSessionId;
+    if (!providerSessionId) {
+      return;
+    }
+
+    session.transcriptNormalizationInFlight = true;
+    try {
+      const providerConfig = this.getProviderConfig("book");
+      while (session.transcriptNormalizationQueued) {
+        session.transcriptNormalizationQueued = false;
+        await normalizeBookTranscriptEntrypoint({
+          projectsDir: providerConfig.projectsDir,
+          cwd: session.cwd,
+          providerSessionId
+        });
+      }
+    } finally {
+      session.transcriptNormalizationInFlight = false;
+    }
+
+    if (session.transcriptNormalizationQueued) {
+      await this.flushBookTranscriptNormalization(session);
+    }
+  }
+
   private startIdleTimer(session: RuntimeSession): void {
     this.clearIdleTimer(session);
     session.idleTimer = setTimeout(() => {
@@ -881,6 +972,13 @@ export class ClaudeRuntimeAdapter {
     if (session.pendingControlTimer) {
       clearTimeout(session.pendingControlTimer);
       session.pendingControlTimer = null;
+    }
+  }
+
+  private clearTranscriptNormalizationTimer(session: RuntimeSession): void {
+    if (session.transcriptNormalizationTimer) {
+      clearTimeout(session.transcriptNormalizationTimer);
+      session.transcriptNormalizationTimer = null;
     }
   }
 
@@ -1003,6 +1101,35 @@ async function waitForExit(exitPromise: Promise<void>, timeoutMs: number): Promi
   }
 }
 
+async function normalizeBookTranscriptEntrypoint(params: {
+  readonly projectsDir: string;
+  readonly cwd: string;
+  readonly providerSessionId: string;
+}): Promise<void> {
+  const transcriptPath = getTranscriptPath(params.projectsDir, params.cwd, params.providerSessionId);
+
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+  try {
+    handle = await fs.open(transcriptPath, "r+");
+  } catch (error) {
+    if (isMissingPathError(error)) {
+      return;
+    }
+
+    throw error;
+  }
+
+  try {
+    const content = await handle.readFile();
+    const matchOffsets = findBufferMatchOffsets(content, BOOK_ENTRYPOINT_SOURCE);
+    for (const offset of matchOffsets) {
+      await handle.write(BOOK_ENTRYPOINT_TARGET, 0, BOOK_ENTRYPOINT_TARGET.length, offset);
+    }
+  } finally {
+    await handle.close();
+  }
+}
+
 function appendTail(current: string, next: string, maxLength: number): string {
   const combined = `${current}${next}`;
   return combined.length > maxLength ? combined.slice(combined.length - maxLength) : combined;
@@ -1067,4 +1194,45 @@ function getErrorMessage(reason: unknown, fallback: string): string {
   }
 
   return fallback;
+}
+
+function shouldNormalizeBookTranscript(session: RuntimeSession): boolean {
+  return session.provider === "book" && session.providerSessionId != null;
+}
+
+function getTranscriptPath(projectsDir: string, cwd: string, providerSessionId: string): string {
+  return path.join(projectsDir, encodeProjectPath(cwd), `${providerSessionId}.jsonl`);
+}
+
+function encodeProjectPath(cwd: string): string {
+  return path
+    .resolve(cwd)
+    .replace(/\\/g, "/")
+    .replace(/\//g, "-");
+}
+
+function findBufferMatchOffsets(buffer: Buffer, needle: Buffer): number[] {
+  const offsets: number[] = [];
+  let offset = 0;
+
+  while (offset < buffer.length) {
+    const matchOffset = buffer.indexOf(needle, offset);
+    if (matchOffset === -1) {
+      return offsets;
+    }
+
+    offsets.push(matchOffset);
+    offset = matchOffset + needle.length;
+  }
+
+  return offsets;
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error != null &&
+    "code" in error &&
+    (error as { code?: unknown }).code === "ENOENT"
+  );
 }

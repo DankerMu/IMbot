@@ -13,6 +13,7 @@ import { ClaudeRuntimeAdapter } from "./runtime/claude-adapter";
 import { discoverAllSessions, discoverSessions } from "./runtime/session-discovery";
 import { SessionIndex } from "./runtime/session-index";
 import { SessionReconciler } from "./runtime/session-reconciler";
+import { TranscriptSyncer } from "./runtime/transcript-sync";
 import { CompanionError, type LoggerLike } from "./types";
 import { browseDirectory } from "./workspace/browser";
 import { ConfigManager } from "./workspace/config-manager";
@@ -97,6 +98,17 @@ export async function createCompanionRuntime(options?: {
       relayClient.send(message);
     }
   });
+  const transcriptSyncer = new TranscriptSyncer({
+    sessionIndex,
+    providers: config.providers,
+    relayUrl: config.relayUrl,
+    token: config.token,
+    logger,
+    isProviderSessionActive: (providerSessionId) => adapter.hasActiveProviderSession(providerSessionId),
+    sendEvent: (message) => {
+      relayClient.send(message);
+    }
+  });
   const dispatcher = new CommandDispatcher({
     logger,
     sendAck: (message) => {
@@ -156,6 +168,7 @@ export async function createCompanionRuntime(options?: {
   });
   relayClient.on("connected", () => {
     heartbeat.start();
+    transcriptSyncer.start();
 
     for (const session of adapter.getActiveSessions()) {
       relayClient.send({
@@ -164,16 +177,21 @@ export async function createCompanionRuntime(options?: {
         event_type: "session_status_changed",
         payload: {
           status: session.status
-        }
+        },
+        source: "runtime"
       });
     }
 
     void reconciler.reconcile().catch((error) => {
       logger.error?.("Session reconciliation failed", error);
     });
+    void transcriptSyncer.syncNow().catch((error) => {
+      logger.error?.("Transcript sync failed", error);
+    });
   });
   relayClient.on("disconnected", () => {
     heartbeat.stop();
+    transcriptSyncer.stop();
     adapter.rejectAllPendingControlResponses("Relay disconnected");
   });
   relayClient.on("error", () => {
@@ -194,6 +212,7 @@ export async function createCompanionRuntime(options?: {
     },
     close: async () => {
       heartbeat.stop();
+      transcriptSyncer.stop();
       await adapter.shutdown();
       relayClient.close();
     }
@@ -241,6 +260,7 @@ export {
   ClaudeRuntimeAdapter,
   SessionIndex,
   SessionReconciler,
+  TranscriptSyncer,
   browseDirectory,
   ConfigManager,
   discoverAllSessions,

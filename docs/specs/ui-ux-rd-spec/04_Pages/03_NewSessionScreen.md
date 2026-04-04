@@ -19,7 +19,7 @@
 │  ← 新建会话                          │  ← TopAppBar
 ├──────────────────────────────────────┤
 │  ● ─ ─ ○ ─ ─ ○                      │  ← Step indicator (1/3)
-│  Provider  目录  开始                │
+│  Provider  目录  消息（可选）        │
 ├──────────────────────────────────────┤
 │                                      │
 │  Step 1: Provider Picker             │
@@ -61,7 +61,7 @@
 └──────────────────────────────────────┘
 ```
 
-### Step 3: Prompt Input
+### Step 3: Prompt Input (Optional)
 
 ```
 ┌──────────────────────────────────────┐
@@ -74,7 +74,7 @@
 │  目录: /Users/.../IMbot              │
 │                                      │
 │  ┌─────────────────────────────┐     │
-│  │ 输入你的 prompt...           │     │  ← 多行输入
+│  │ 输入你的首条消息（可选）...   │     │  ← 多行输入
 │  │                             │     │
 │  │                             │     │
 │  └─────────────────────────────┘     │
@@ -94,8 +94,9 @@ Step1 (Provider)
     ▼
 Step2 (Directory)
     │ select directory
+    ├─ tap "开始" → 直接创建空 session
     ▼
-Step3 (Prompt)
+Step3 (Prompt Optional)
     │ tap "开始"
     ▼
 Creating ── loading overlay
@@ -125,7 +126,8 @@ data class NewSessionUiState(
 - Step 1: provider 选择后自动确定 host（Claude/book → MacBook, OpenClaw → relay-local）。
 - Step 1: 如果 host offline，对应 provider 显示为 disabled + "离线" 标签。
 - Step 2: book provider 只能在 novel root 下浏览（过滤其他 root）。
-- Step 3: prompt 不能为空。
+- Step 2: 目录选定后即可直接点击 "开始" 创建空 session。
+- Step 3: prompt / 首条消息为非必填。
 - Step 3: model dropdown 选项来自 provider 支持的模型列表。
 - "开始" 按钮点击后显示 loading overlay，阻止重复提交。
 

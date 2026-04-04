@@ -70,6 +70,33 @@ class EventProcessorTest {
     }
 
     @Test
+    fun `session_usage without context window falls back from model`() {
+        val result =
+            processor.processWithMetadata(
+                event(
+                    seq = 1,
+                    eventType = "session_usage",
+                    payload =
+                        payload(
+                            "input_tokens" to 12,
+                            "output_tokens" to 34,
+                            "model" to "claude-sonnet-4-6",
+                        ),
+                ),
+            )
+
+        assertEquals(
+            SessionUsageState(
+                inputTokens = 12,
+                outputTokens = 34,
+                contextWindow = 200_000,
+                model = "claude-sonnet-4-6",
+            ),
+            result.usageUpdate,
+        )
+    }
+
+    @Test
     fun `user_message event generates user message`() {
         val result =
             processor.process(

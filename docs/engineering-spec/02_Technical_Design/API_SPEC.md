@@ -196,6 +196,8 @@
 }
 ```
 
+`prompt` 为 optional。省略或传空白字符串时，relay 会创建 `idle` session，并等待首条 `POST /sessions/:id/message` 再启动 provider 进程。
+
 **Response 201**:
 ```json
 {
@@ -214,6 +216,8 @@
 ```
 
 **Side effects**: 先以 `queued` 插入 session 记录，再立即向 companion（或 OpenClaw bridge）发送 `create_session` 命令；成功 ack 后会话转为 `running`，响应返回更新后的 session。
+
+当 `prompt` 缺失或为空白时：session 仍先以 `queued` 写入，再立即转为 `idle`，广播 `session_idle { reason: "awaiting_first_message" }`，且不发送 `create_session` 命令。
 
 **Errors**:
 - `400 invalid_request`: 缺少必填字段。

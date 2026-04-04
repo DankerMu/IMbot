@@ -862,6 +862,77 @@ test("handleEvent ignores late provider events after a session reaches a termina
   }
 });
 
+test("handleEvent accepts transcript_sync message events after a session reaches a terminal state", async (t) => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-late-transcript-events-"));
+  const config = relay.loadConfig({
+    RELAY_STATIC_TOKEN: "t".repeat(64),
+    RELAY_DB_PATH: path.join(tempDir, "imbot.db"),
+    RELAY_LOG_LEVEL: "error",
+    RELAY_OPENCLAW_URL: "ws://127.0.0.1:1"
+  });
+
+  const runtime = await relay.createRelayApp({
+    config,
+    logger: false
+  });
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  const now = new Date().toISOString();
+  runtime.db
+    .prepare(
+      `
+      INSERT INTO hosts (id, name, type, status, last_heartbeat_at, created_at, updated_at)
+      VALUES ('macbook-1', 'macbook-1', 'macbook', 'online', ?, ?, ?)
+      `
+    )
+    .run(now, now, now);
+
+  for (const status of ["completed", "failed", "cancelled"]) {
+    insertSession(runtime.db, `sess-sync-${status}`, status);
+  }
+
+  for (const status of ["completed", "failed", "cancelled"]) {
+    await runtime.orchestrator.handleEvent({
+      type: "event",
+      session_id: `sess-sync-${status}`,
+      event_type: "assistant_message",
+      payload: {
+        text: `late-${status}`
+      },
+      source: "transcript_sync"
+    });
+    await runtime.orchestrator.handleEvent({
+      type: "event",
+      session_id: `sess-sync-${status}`,
+      event_type: "session_usage",
+      payload: {
+        input_tokens: 1,
+        output_tokens: 2
+      },
+      source: "transcript_sync"
+    });
+  }
+
+  for (const status of ["completed", "failed", "cancelled"]) {
+    const eventTypes = runtime.db
+      .prepare("SELECT type FROM session_events WHERE session_id = ? ORDER BY seq ASC")
+      .all(`sess-sync-${status}`)
+      .map((row) => row.type);
+    assert.deepEqual(eventTypes, ["assistant_message", "session_usage"]);
+
+    const row = runtime.db
+      .prepare("SELECT status FROM sessions WHERE id = ?")
+      .get(`sess-sync-${status}`);
+    assert.deepEqual(row, {
+      status
+    });
+  }
+});
+
 test("handleEvent recovers failed sessions when the companion reconnect reports them as running", async (t) => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-failed-recovery-"));
   const config = relay.loadConfig({

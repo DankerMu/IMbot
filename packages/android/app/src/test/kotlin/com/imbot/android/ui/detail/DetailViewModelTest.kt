@@ -162,6 +162,38 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `session_usage without context window falls back from model`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val ws = FakeRelayWsClient()
+            val viewModel = createViewModel(ws = ws)
+            advanceUntilIdle()
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "session_usage",
+                    payload =
+                        payload(
+                            "input_tokens" to 12,
+                            "output_tokens" to 34,
+                            "model" to "claude-sonnet-4-6",
+                        ),
+                ),
+            )
+            advanceUntilIdle()
+
+            assertEquals(
+                SessionUsageState(
+                    inputTokens = 12,
+                    outputTokens = 34,
+                    contextWindow = 200_000,
+                    model = "claude-sonnet-4-6",
+                ),
+                viewModel.uiState.value.usage,
+            )
+        }
+
+    @Test
     fun `loadSession resets usage to default values`() =
         runTest(mainDispatcherRule.dispatcher) {
             val ws = FakeRelayWsClient()
@@ -186,7 +218,10 @@ class DetailViewModelTest {
             advanceUntilIdle()
 
             assertEquals(
-                SessionUsageState(model = TEST_SESSION.model),
+                SessionUsageState(
+                    contextWindow = 200_000,
+                    model = TEST_SESSION.model,
+                ),
                 viewModel.uiState.value.usage,
             )
         }

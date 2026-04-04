@@ -4,6 +4,7 @@ import type {
   CompanionHeartbeatMessage,
   CompanionMessage,
   InteractiveProvider,
+  LocalSessionInfo,
   Provider
 } from "@imbot/wire";
 import { ERROR_CODES, PROVIDERS } from "@imbot/wire";
@@ -187,6 +188,21 @@ export class CompanionManager {
     });
 
     this.extractAckData(ack);
+  }
+
+  async listSessions(
+    hostId: string,
+    provider: InteractiveProvider,
+    cwd?: string
+  ): Promise<LocalSessionInfo[]> {
+    const ack = await this.sendCommand(hostId, {
+      cmd: "list_sessions",
+      req_id: this.createRequestId(),
+      provider,
+      ...(cwd ? { cwd } : {})
+    });
+
+    return this.extractLocalSessionsResult(ack);
   }
 
   async sendCommand(hostId: string, command: CompanionCommand): Promise<CompanionMessage> {
@@ -416,6 +432,43 @@ export class CompanionManager {
         ];
       })
     };
+  }
+
+  private extractLocalSessionsResult(message: CompanionMessage): LocalSessionInfo[] {
+    const data = this.extractAckData(message);
+    if (!Array.isArray(data)) {
+      throw new RelayError("provider_unreachable", "Companion list_sessions response was malformed");
+    }
+
+    return data.flatMap((entry) => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return [];
+      }
+
+      const providerSessionId =
+        "provider_session_id" in entry && typeof entry.provider_session_id === "string"
+          ? entry.provider_session_id
+          : null;
+      const cwd = "cwd" in entry && typeof entry.cwd === "string" ? entry.cwd : null;
+      const createdAt = "created_at" in entry && typeof entry.created_at === "string" ? entry.created_at : null;
+      const status =
+        "status" in entry && (entry.status === "completed" || entry.status === "unknown")
+          ? entry.status
+          : null;
+
+      if (!providerSessionId || !cwd || !createdAt || !status) {
+        return [];
+      }
+
+      return [
+        {
+          provider_session_id: providerSessionId,
+          cwd,
+          created_at: createdAt,
+          status
+        }
+      ];
+    });
   }
 
   private extractAckData(message: CompanionMessage): unknown {

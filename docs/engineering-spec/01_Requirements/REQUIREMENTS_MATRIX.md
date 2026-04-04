@@ -8,7 +8,7 @@
 |----|-------------|------------------|--------------------|---------|---------------|
 | FR-01 | Provider 管理 (Claude/book/OpenClaw 三种平级) | ARCH §Relay Modules, DATA §hosts/sessions, API §/hosts | `p0-openclaw-bridge`, `p1-companion-session-management`, `p2-android-new-session`, `p2-android-session-list` | UT-01, IT-01, E2E-01, E2E-05 | Phase 0-1 |
 | FR-02 | Workspace 管理 (动态根目录+子目录浏览) | ARCH §Companion/Workspace, DATA §workspace_roots, API §/hosts/:id/roots+browse | `p1-relay-workspace-api`, `p1-companion-session-management`, `p2-android-new-session`, `p2-android-workspace-settings` | UT-02, IT-02, E2E-01, E2E-02 | Phase 1-2 |
-| FR-03 | 会话创建 (provider+目录+prompt) | BIZ §Create Session Flow, API §POST /sessions, ARCH §SessionOrchestrator | `p0-relay-minimal`, `p0-companion-minimal`, `p0-android-prototype`, `p2-android-new-session` | UT-03, IT-03, E2E-01 | Phase 0-1 |
+| FR-03 | 会话创建 (provider+目录+可选 prompt) | BIZ §Create Session Flow, API §POST /sessions, ARCH §SessionOrchestrator | `p0-relay-minimal`, `p0-companion-minimal`, `p0-android-prototype`, `p2-android-new-session` | UT-03, IT-03, E2E-01 | Phase 0-1 |
 | FR-04 | 会话恢复 (列出历史+恢复) | BIZ §State Machine, API §POST /sessions/:id/resume, ARCH §Companion/Runtime | `p1-relay-session-lifecycle`, `p1-companion-session-management`, `p0-openclaw-bridge`, `p2-android-workspace-settings`, `p2-android-session-detail`, `p3-session-detail-hardening` | UT-04, IT-04, E2E-02, E2E-06 | Phase 1 |
 | FR-05 | 多会话并发 (无硬上限) | DATA §sessions, ARCH §WsHub/subscriptions, BIZ §State Machine | `p1-relay-session-lifecycle`, `p1-reconnect-and-catchup`, `p2-android-session-list`, `p3-error-ux-and-cleanup` | UT-05, IT-05, E2E-05 | Phase 1 |
 | FR-06 | 流式输出+实时渲染 (Markdown+语法高亮) | BIZ §Event Pipeline, API §WS Protocol, ARCH §Android/DetailScreen | `p0-android-prototype`, `p2-android-session-detail`, `p3-theme-and-animations`, `p3-session-detail-hardening` | UT-06, E2E-07, PERF-04 | Phase 1-2 |
@@ -50,7 +50,7 @@
                     │                                              │
 查看状态             │  打开 App → 看 session list → 选一个看详情    │ FR-05, FR-06
                     │                                              │
-新建任务             │  + → 选 provider → 选目录 → 写 prompt → 开始  │ FR-01, FR-02, FR-03
+新建任务             │  + → 选 provider → 选目录 → 可选写 prompt → 开始 │ FR-01, FR-02, FR-03
                     │                                              │
 恢复旧话             │  浏览目录 → 选旧 session → 恢复 → 继续       │ FR-04
                     │                                              │

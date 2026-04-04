@@ -70,7 +70,7 @@ function createRuntimeConfig(tempDir) {
 }
 
 function encodeProjectPath(projectPath) {
-  return projectPath.replace(/^\/+/, "").replace(/\//g, "-");
+  return projectPath.replace(/\//g, "-");
 }
 
 function createDiscoveredSessionFileInProjectsDir(projectsDir, cwd, sessionId, createdAt, contents = '{"ok":true}\n') {
@@ -253,16 +253,10 @@ function createAdapterHarness(tempDir, isAllowedDirectory, harnessOptions = {}) 
   const spawnCalls = [];
   const children = [];
   const events = [];
+  const runtimeConfig = createRuntimeConfig(tempDir);
 
   const adapter = new companion.ClaudeRuntimeAdapter({
-    providers: {
-      claude: {
-        binary: "claude"
-      },
-      book: {
-        binary: "book"
-      }
-    },
+    providers: runtimeConfig.providers,
     sessionIndex,
     logger: silentLogger,
     idleTimeoutMs: harnessOptions.idleTimeoutMs,
@@ -307,6 +301,75 @@ function createAdapterHarness(tempDir, isAllowedDirectory, harnessOptions = {}) 
     events
   };
 }
+
+test("ClaudeRuntimeAdapter normalizes book transcripts so native book --resume can see the session", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-book-transcript-"));
+  const bookProject = path.join(tempDir, "novel", "project-1");
+  mkdirSync(bookProject, { recursive: true });
+
+  try {
+    const { adapter, children } = createAdapterHarness(tempDir, () => true);
+    const transcriptContents =
+      '{"type":"user","message":{"role":"user","content":"你好，resume"},"entrypoint":"sdk-cli","cwd":"' +
+      `${bookProject}` +
+      '","sessionId":"provider-session-test"}\n' +
+      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"已收到"}]},"entrypoint":"sdk-cli","cwd":"' +
+      `${bookProject}` +
+      '","sessionId":"provider-session-test"}\n';
+    const { sessionFile } = createDiscoveredSessionFileInProjectsDir(
+      path.join(tempDir, ".claudebook", "projects"),
+      bookProject,
+      "provider-session-test",
+      "2026-04-04T12:00:00.000Z",
+      transcriptContents
+    );
+
+    await adapter.createSession({
+      cmd: "create_session",
+      req_id: "req-book-normalize",
+      session_id: "relay-book-normalize",
+      provider: "book",
+      cwd: bookProject,
+      prompt: "hello",
+      permission_mode: "bypassPermissions"
+    });
+
+    await waitFor(() => !readFileSync(sessionFile, "utf8").includes('"entrypoint":"sdk-cli"'));
+    assert.equal(readFileSync(sessionFile, "utf8").includes('"entrypoint":"cli"    '), true);
+
+    writeFileSync(
+      sessionFile,
+      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"再次收到"}]},"entrypoint":"sdk-cli","cwd":"' +
+        `${bookProject}` +
+        '","sessionId":"provider-session-test"}\n',
+      { flag: "a" }
+    );
+    children[0].emitJson({
+      type: "result",
+      result: "normalized"
+    });
+
+    await waitFor(() => {
+      const content = readFileSync(sessionFile, "utf8");
+      return !content.includes('"entrypoint":"sdk-cli"') && content.includes("再次收到");
+    });
+
+    writeFileSync(
+      sessionFile,
+      '{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"退出前补写"}]},"entrypoint":"sdk-cli","cwd":"' +
+        `${bookProject}` +
+        '","sessionId":"provider-session-test"}\n',
+      { flag: "a" }
+    );
+    children[0].close(0, null);
+
+    await waitFor(() => !readFileSync(sessionFile, "utf8").includes('"entrypoint":"sdk-cli"'));
+
+    await adapter.shutdown();
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 test("ClaudeRuntimeAdapter allows create_session for book when cwd is under a configured root", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-book-allowed-"));
@@ -655,7 +718,10 @@ test("ClaudeRuntimeAdapter writes send_message payloads to stdin as stream-json"
   }
 });
 
-test("ClaudeRuntimeAdapter emits session_idle for live results, resets idle timers on send_message, and completes on timeout", async () => {
+test(
+  "ClaudeRuntimeAdapter emits session_idle for live results, resets idle timers on send_message, and completes on timeout",
+  { concurrency: false },
+  async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-idle-timeout-"));
   const projectDir = path.join(tempDir, "AI-vault");
   mkdirSync(projectDir, { recursive: true });
@@ -745,7 +811,8 @@ test("ClaudeRuntimeAdapter emits session_idle for live results, resets idle time
     global.clearTimeout = originalClearTimeout;
     rmSync(tempDir, { recursive: true, force: true });
   }
-});
+  }
+);
 
 test("ClaudeRuntimeAdapter completeSession sends SIGTERM and waits for exit", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-adapter-complete-"));
@@ -1048,7 +1115,7 @@ test("SessionIndex supports source and initial_prompt fields", () => {
   }
 });
 
-test("SessionIndex setMany persists multiple entries in a single write", () => {
+test("SessionIndex setMany persists multiple entries in a single write", { concurrency: false }, () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-session-index-batch-"));
   const filePath = path.join(tempDir, "sessions.json");
   const nodeFs = require("node:fs");
@@ -1560,7 +1627,8 @@ test("CompanionRuntime replays active running and idle session statuses after re
         event_type: "session_status_changed",
         payload: {
           status: "running"
-        }
+        },
+        source: "runtime"
       },
       {
         type: "event",
@@ -1568,7 +1636,8 @@ test("CompanionRuntime replays active running and idle session statuses after re
         event_type: "session_status_changed",
         payload: {
           status: "idle"
-        }
+        },
+        source: "runtime"
       }
     ]);
   } finally {

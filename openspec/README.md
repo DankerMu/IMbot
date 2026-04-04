@@ -69,6 +69,7 @@ If you need requirement-level mapping, use `docs/engineering-spec/01_Requirement
 ### `p1` Active
 
 - `p1-dual-session-sync` — 双端 session 同步：修复 cwd 过滤过严导致 Android 创建的 session 在 native CLI resume 中不可见
+- `p1-session-transcript-sync` — 远端 transcript 增量同步：让 Mac 原生 CLI 追加的消息增量回灌 relay，并在 Android 详情页同步显示
 
 ### `p2` Active
 

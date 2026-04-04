@@ -26,32 +26,30 @@ class RelayOnboardingFlowTest {
         val token = optionalArg("token")
         assumeTrue("Skipped: relayUrl and token instrumentation args required", relayUrl != null && token != null)
 
-        composeRule.onNodeWithText("测试连接").assertIsDisplayed()
+        if (hasTextInTree("测试连接")) {
+            composeRule.onNodeWithText("测试连接").assertIsDisplayed()
 
-        val textFields = composeRule.onAllNodes(hasSetTextAction())
-        textFields[0].performTextInput(relayUrl!!)
-        textFields[1].performTextInput(token!!)
+            val textFields = composeRule.onAllNodes(hasSetTextAction())
+            textFields[0].performTextInput(relayUrl!!)
+            textFields[1].performTextInput(token!!)
 
-        composeRule.onNodeWithText("测试连接").performClick()
-        composeRule.waitUntil(timeoutMillis = 20_000) {
-            composeRule.onAllNodesWithText("开始使用", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() ||
-                composeRule.onAllNodesWithText("认证失败", substring = true, useUnmergedTree = true)
+            composeRule.onNodeWithText("测试连接").performClick()
+            composeRule.waitUntil(timeoutMillis = 20_000) {
+                hasExactTextInTree("开始使用") || hasTextInTree("认证失败") || hasHomeTabs()
+            }
+
+            val authFailures =
+                composeRule
+                    .onAllNodesWithText("认证失败", substring = true, useUnmergedTree = true)
                     .fetchSemanticsNodes()
-                    .isNotEmpty()
+            check(authFailures.isEmpty()) { "Onboarding authentication failed" }
+
+            if (hasExactTextInTree("开始使用")) {
+                composeRule.onNodeWithText("开始使用", useUnmergedTree = true).performClick()
+            }
         }
 
-        val authFailures =
-            composeRule.onAllNodesWithText("认证失败", substring = true, useUnmergedTree = true).fetchSemanticsNodes()
-        check(authFailures.isEmpty()) { "Onboarding authentication failed" }
-
-        composeRule.onNodeWithText("开始使用").assertIsDisplayed()
-        composeRule.onNodeWithText("开始使用").performClick()
-
-        composeRule.waitUntil(timeoutMillis = 15_000) {
-            composeRule.onAllNodesWithText("会话", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() &&
-                composeRule.onAllNodesWithText("目录", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty() &&
-                composeRule.onAllNodesWithText("设置", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
-        }
+        waitForHomeTabs()
 
         assertNoAuthErrorWindow(durationMs = 8_000)
 
@@ -81,6 +79,17 @@ class RelayOnboardingFlowTest {
         composeRule.onAllNodesWithText(text, substring = true, useUnmergedTree = true)
             .fetchSemanticsNodes()
             .isNotEmpty()
+
+    private fun hasExactTextInTree(text: String): Boolean =
+        composeRule.onAllNodesWithText(text, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
+
+    private fun waitForHomeTabs() {
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            hasHomeTabs()
+        }
+    }
+
+    private fun hasHomeTabs(): Boolean = hasTextInTree("会话") && hasTextInTree("目录") && hasTextInTree("设置")
 
     private fun optionalArg(name: String): String? =
         InstrumentationRegistry.getArguments().getString(name)

@@ -381,7 +381,15 @@ export class SessionOrchestrator {
       const session = this.requireSession(sessionId);
       const previousStatus = session.status;
 
-      if ((session.status === "running" || session.status === "idle") && Boolean(session.provider_session_id)) {
+      if (session.status === "queued") {
+        throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
+      }
+
+      if (session.status === "idle" && Boolean(session.provider_session_id)) {
+        throw new RelayError("state_conflict", `Session ${sessionId} cannot be deleted from ${session.status}`);
+      }
+
+      if (session.status === "running" && Boolean(session.provider_session_id)) {
         try {
           await this.dispatchCancel(session);
         } catch {
@@ -436,11 +444,18 @@ export class SessionOrchestrator {
     }
 
     const activeMutation = this.activeLifecycleMutations.get(message.session_id);
+    const acceptsTranscriptSyncLateMessage =
+      message.source === "transcript_sync" &&
+      (message.event_type === "user_message" ||
+        message.event_type === "assistant_message" ||
+        message.event_type === "session_usage") &&
+      (session.status === "completed" || session.status === "failed" || session.status === "cancelled");
     const acceptsEvents =
       session.status === "running" ||
       session.status === "idle" ||
       activeMutation === "create" ||
-      activeMutation === "resume";
+      activeMutation === "resume" ||
+      acceptsTranscriptSyncLateMessage;
     if (!acceptsEvents) {
       this.logger.warn(
         `Dropping ${message.event_type} for non-active session ${message.session_id} (${session.status})`

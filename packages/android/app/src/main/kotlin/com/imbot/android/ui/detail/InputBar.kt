@@ -30,16 +30,20 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.LocalDensity
 import com.imbot.android.ui.theme.LocalIMbotComponentShapes
 
 @Composable
@@ -83,16 +87,9 @@ internal fun InputBar(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+                        .padding(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                commandChip?.let { skill ->
-                    CommandChip(
-                        skill = skill,
-                        onDismiss = onDismissCommand,
-                    )
-                }
-
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -112,6 +109,8 @@ internal fun InputBar(
                         placeholder = commandChip?.description ?: inputPlaceholderForStatus(status),
                         enabled = inputEnabled,
                         shape = componentShapes.pill,
+                        commandChip = commandChip,
+                        onDismissCommand = onDismissCommand,
                         modifier = Modifier.weight(1f),
                         onSend = {
                             submitDraft(
@@ -147,9 +146,20 @@ private fun PillTextField(
     placeholder: String,
     enabled: Boolean,
     shape: androidx.compose.ui.graphics.Shape,
+    commandChip: SkillItem?,
+    onDismissCommand: () -> Unit,
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var commandChipSize by remember(commandChip?.command) { mutableStateOf(IntSize.Zero) }
+    val density = LocalDensity.current
+    val textStartPadding =
+        if (commandChip == null) {
+            0.dp
+        } else {
+            with(density) { commandChipSize.width.toDp() + 6.dp }
+        }
+
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -176,19 +186,56 @@ private fun PillTextField(
                         .fillMaxWidth()
                         .clip(shape)
                         .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
             ) {
-                if (value.isEmpty()) {
-                    Text(
-                        text = placeholder,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                    )
+                commandChip?.let { skill ->
+                    Box(
+                        modifier =
+                            Modifier
+                                .align(Alignment.CenterStart)
+                                .onSizeChanged { commandChipSize = it },
+                    ) {
+                        CommandChip(
+                            skill = skill,
+                            onDismiss = onDismissCommand,
+                            variant = CommandChipVariant.Inline,
+                        )
+                    }
                 }
-                innerTextField()
+
+                TextFieldContent(
+                    value = value,
+                    placeholder = placeholder,
+                    startPadding = textStartPadding,
+                    innerTextField = innerTextField,
+                )
             }
         },
     )
+}
+
+@Composable
+private fun TextFieldContent(
+    value: String,
+    placeholder: String,
+    startPadding: Dp,
+    innerTextField: @Composable () -> Unit,
+) {
+    Box(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(start = startPadding),
+    ) {
+        if (value.isEmpty()) {
+            Text(
+                text = placeholder,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+            )
+        }
+        innerTextField()
+    }
 }
 
 private fun updateDraftAndMaybeTriggerSlashSheet(
