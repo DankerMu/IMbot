@@ -404,33 +404,72 @@ class DetailViewModelTest {
         }
 
     @Test
-    fun `loadSession resets usage to default values`() =
+    fun `loadSession restores persisted usage summary and keeps tokens across non usage events`() =
         runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult =
+                        Result.success(
+                            TEST_SESSION.copy(
+                                model = "glm-5",
+                                inputTokens = 42_000,
+                                outputTokens = 9_000,
+                                contextWindow = 200_000,
+                            ),
+                        )
+                }
             val ws = FakeRelayWsClient()
-            val viewModel = createViewModel(ws = ws)
-            advanceUntilIdle()
-
-            ws.emitEvent(
-                event(
-                    seq = 1,
-                    eventType = "session_usage",
-                    payload =
-                        payload(
-                            "input_tokens" to 12,
-                            "output_tokens" to 34,
-                            "context_window" to 200_000,
-                        ),
-                ),
-            )
-            advanceUntilIdle()
-
-            viewModel.loadSession()
+            val sessionDao = FakeSessionDao()
+            val settingsRepository = FakeSettingsRepository()
+            val sessionRepository =
+                SessionRepository(
+                    database = FakeAppDatabase(sessionDao),
+                    sessionDao = sessionDao,
+                    relayHttpClient = relay,
+                    settingsRepository = settingsRepository,
+                )
+            val viewModel =
+                DetailViewModel(
+                    relayHttpClient = relay,
+                    sessionRepository = sessionRepository,
+                    relayWsClient = ws,
+                    settingsRepository = settingsRepository,
+                    savedStateHandle = SavedStateHandle(mapOf("sessionId" to TEST_SESSION.id)),
+                )
             advanceUntilIdle()
 
             assertEquals(
                 SessionUsageState(
-                    contextWindow = 0,
-                    model = TEST_SESSION.model,
+                    inputTokens = 42_000,
+                    outputTokens = 9_000,
+                    contextWindow = 200_000,
+                    model = "glm-5",
+                ),
+                viewModel.uiState.value.usage,
+            )
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "session_idle",
+                    timestamp = "2026-04-04T10:03:00Z",
+                ),
+            )
+            advanceUntilIdle()
+
+            val cached = sessionDao.storedSession(TEST_SESSION.id)
+            assertNotNull(cached)
+            assertEquals(42_000, cached?.inputTokens)
+            assertEquals(9_000, cached?.outputTokens)
+            assertEquals(200_000, cached?.contextWindow)
+            assertEquals("glm-5", cached?.model)
+
+            assertEquals(
+                SessionUsageState(
+                    inputTokens = 42_000,
+                    outputTokens = 9_000,
+                    contextWindow = 200_000,
+                    model = "glm-5",
                 ),
                 viewModel.uiState.value.usage,
             )

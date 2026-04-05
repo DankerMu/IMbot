@@ -20,6 +20,11 @@ type TranscriptMappedEvent = {
   payload: unknown;
 };
 
+type TranscriptLineMapping = {
+  events: TranscriptMappedEvent[];
+  timestampMs: number | null;
+};
+
 type RelaySessionMetadata = {
   last_active_at: string;
 };
@@ -30,6 +35,7 @@ export interface TranscriptSyncerOptions {
   readonly relayUrl: string;
   readonly token: string;
   readonly sendEvent: (message: CompanionEventMessage) => Promise<void> | void;
+  readonly consumeRuntimeUserMessageMirror?: (providerSessionId: string, text: string) => boolean;
   readonly isProviderSessionActive?: (providerSessionId: string) => boolean;
   readonly logger?: LoggerLike;
   readonly pollIntervalMs?: number;
@@ -141,6 +147,7 @@ export class TranscriptSyncer {
     // import turns appended by an external native CLI without duplicating turns already relayed
     // by the companion-managed runtime path.
     const cutoffMs = providerSessionIsActive ? await this.loadCutoffMs(entry.relay_session_id) : cursor.cutoffMs;
+    const scanningFromStart = cursor.offset === 0 && cursor.trailingFragment === "";
     const { text: nextChunk, bytesRead } = await readUtf8Delta(transcriptPath, cursor.offset, stat.size);
     cursor.offset += bytesRead;
 
@@ -148,14 +155,42 @@ export class TranscriptSyncer {
     const hasTrailingNewline = merged.endsWith("\n") || merged.endsWith("\r");
     const lines = merged.split(/\r?\n/);
     cursor.trailingFragment = hasTrailingNewline ? "" : (lines.pop() ?? "");
+    let cutoffSatisfied = cutoffMs == null || !scanningFromStart;
 
     for (const line of lines) {
-      const events = mapTranscriptLine(line, cutoffMs);
-      if (events.length === 0) {
+      const mapping = mapTranscriptLine(line, cutoffMs);
+      if (mapping.events.length === 0) {
         continue;
       }
 
-      for (const event of events) {
+      if (!cutoffSatisfied && cutoffMs != null) {
+        if (mapping.timestampMs == null) {
+          continue;
+        }
+
+        if (mapping.timestampMs <= cutoffMs) {
+          continue;
+        }
+
+        cutoffSatisfied = true;
+      }
+
+      const shouldSuppressRuntimeMirror =
+        mapping.events.length === 1 &&
+        mapping.events[0].eventType === "user_message" &&
+        typeof mapping.events[0].payload === "object" &&
+        mapping.events[0].payload !== null &&
+        "text" in mapping.events[0].payload &&
+        typeof mapping.events[0].payload.text === "string" &&
+        this.options.consumeRuntimeUserMessageMirror?.(
+          entry.provider_session_id,
+          mapping.events[0].payload.text
+        ) === true;
+      if (shouldSuppressRuntimeMirror) {
+        continue;
+      }
+
+      for (const event of mapping.events) {
         await Promise.resolve(
           this.options.sendEvent({
             type: "event",
@@ -232,39 +267,42 @@ async function readUtf8Delta(transcriptPath: string, fromOffset: number, toOffse
   }
 }
 
-function mapTranscriptLine(line: string, cutoffMs: number | null): TranscriptMappedEvent[] {
+function mapTranscriptLine(line: string, cutoffMs: number | null): TranscriptLineMapping {
   const trimmed = line.trim();
   if (trimmed === "") {
-    return [];
+    return { events: [], timestampMs: null };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(trimmed) as unknown;
   } catch {
-    return [];
+    return { events: [], timestampMs: null };
   }
 
   const record = asRecord(parsed);
   if (!record) {
-    return [];
+    return { events: [], timestampMs: null };
   }
 
   const timestampMs = parseTimestampMs(getString(record.timestamp));
   if (timestampMs != null && cutoffMs != null && timestampMs <= cutoffMs) {
-    return [];
+    return { events: [], timestampMs };
   }
 
   const type = getString(record.type);
   if (type === "user") {
     const text = extractTranscriptText(record);
-    return text ? [{ eventType: "user_message", payload: { text } }] : [];
+    return {
+      events: text ? [{ eventType: "user_message", payload: { text } }] : [],
+      timestampMs
+    };
   }
 
   if (type === "assistant") {
     const text = extractTranscriptText(record);
     if (!text) {
-      return [];
+      return { events: [], timestampMs };
     }
 
     const events: TranscriptMappedEvent[] = [
@@ -284,10 +322,10 @@ function mapTranscriptLine(line: string, cutoffMs: number | null): TranscriptMap
       });
     }
 
-    return events;
+    return { events, timestampMs };
   }
 
-  return [];
+  return { events: [], timestampMs };
 }
 
 function extractUsagePayload(record: Record<string, unknown>): SessionUsagePayload | null {

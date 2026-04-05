@@ -1228,8 +1228,8 @@ test("handleEvent drops transcript_sync duplicates for the synthetic initial use
   });
 });
 
-test("handleEvent drops transcript_sync duplicates for regular runtime user messages", async (t) => {
-  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-dedupe-runtime-user-message-");
+test("handleEvent preserves same-text transcript_sync user turns outside the synthetic initial prompt case", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-preserve-runtime-user-message-");
 
   t.after(async () => {
     await runtime.close();
@@ -1262,8 +1262,11 @@ test("handleEvent drops transcript_sync duplicates for regular runtime user mess
     .prepare("SELECT type, payload FROM session_events WHERE session_id = ? AND type = 'user_message' ORDER BY seq ASC")
     .all("sess-runtime-dedupe");
 
-  assert.equal(userMessages.length, 1);
+  assert.equal(userMessages.length, 2);
   assert.deepEqual(JSON.parse(userMessages[0].payload), {
+    text: "high"
+  });
+  assert.deepEqual(JSON.parse(userMessages[1].payload), {
     text: "high"
   });
 });

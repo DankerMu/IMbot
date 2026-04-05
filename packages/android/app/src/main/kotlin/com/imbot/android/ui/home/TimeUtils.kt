@@ -5,7 +5,6 @@ import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
-import java.util.Locale
 
 fun formatRelativeTime(isoString: String): String = formatRelativeTime(isoString, Instant.now())
 

@@ -64,6 +64,8 @@ export interface ClaudeRuntimeAdapterOptions {
   readonly providers: Readonly<Partial<Record<InteractiveProvider, CompanionProviderConfig>>>;
   readonly sessionIndex: SessionIndex;
   readonly sendEvent: (message: CompanionEventMessage) => Promise<void> | void;
+  readonly onRuntimeUserMessage?: (providerSessionId: string, text: string) => void;
+  readonly onRuntimeSessionClosed?: (providerSessionId: string) => void;
   readonly isAllowedDirectory?: (provider: InteractiveProvider, cwd: string) => boolean;
   readonly logger?: LoggerLike;
   readonly spawn?: SpawnFunction;
@@ -300,6 +302,8 @@ export class ClaudeRuntimeAdapter {
           }
         })
       );
+      const providerSessionId = session.providerSessionId ?? (await session.providerSessionIdPromise);
+      this.options.onRuntimeUserMessage?.(providerSessionId, text);
     }
 
     this.scheduleBookTranscriptNormalization(session);
@@ -700,6 +704,7 @@ export class ClaudeRuntimeAdapter {
     await this.flushBookTranscriptNormalization(session);
 
     if (session.providerSessionId) {
+      this.options.onRuntimeSessionClosed?.(session.providerSessionId);
       this.activeByProviderSessionId.delete(session.providerSessionId);
       this.activeByRelaySessionId.delete(session.relaySessionId);
     }

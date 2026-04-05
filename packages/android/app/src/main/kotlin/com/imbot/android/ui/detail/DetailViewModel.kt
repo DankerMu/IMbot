@@ -816,15 +816,24 @@ class DetailViewModel
             usage: SessionUsageState,
             session: RelaySession,
         ): SessionUsageState {
+            val inputTokens = usage.inputTokens.takeIf { it > 0 } ?: session.inputTokens.takeIf { it > 0 } ?: 0
+            val outputTokens = usage.outputTokens.takeIf { it > 0 } ?: session.outputTokens.takeIf { it > 0 } ?: 0
             val model = usage.model ?: session.model?.takeIf(String::isNotBlank)
             val contextWindow =
                 usage.contextWindow.takeIf { it > 0 }
                     ?: session.contextWindow.takeIf { it > 0 }
                     ?: 0
-            return if (model == usage.model && contextWindow == usage.contextWindow) {
+            return if (
+                inputTokens == usage.inputTokens &&
+                outputTokens == usage.outputTokens &&
+                model == usage.model &&
+                contextWindow == usage.contextWindow
+            ) {
                 usage
             } else {
                 usage.copy(
+                    inputTokens = inputTokens,
+                    outputTokens = outputTokens,
                     model = model,
                     contextWindow = contextWindow,
                 )
@@ -836,14 +845,13 @@ class DetailViewModel
             val session = state.session ?: return
             val usage = state.usage
             val normalizedTimestamp = timestamp?.takeIf(String::isNotBlank)
-            val hasRealtimeUsage =
-                usage.inputTokens > 0 || usage.outputTokens > 0 || usage.contextWindow > 0 || !usage.model.isNullOrBlank()
+            val hasRealtimeTokenSummary = usage.inputTokens > 0 || usage.outputTokens > 0
 
             val snapshot =
                 session.copy(
                     model = usage.model ?: session.model,
-                    inputTokens = if (hasRealtimeUsage) usage.inputTokens else session.inputTokens,
-                    outputTokens = if (hasRealtimeUsage) usage.outputTokens else session.outputTokens,
+                    inputTokens = if (hasRealtimeTokenSummary) usage.inputTokens else session.inputTokens,
+                    outputTokens = if (hasRealtimeTokenSummary) usage.outputTokens else session.outputTokens,
                     contextWindow = usage.contextWindow.takeIf { it > 0 } ?: session.contextWindow,
                     updatedAt = normalizedTimestamp ?: session.updatedAt,
                     lastActiveAt = normalizedTimestamp ?: session.lastActiveAt,

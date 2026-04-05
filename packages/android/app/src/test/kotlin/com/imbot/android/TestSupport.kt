@@ -199,6 +199,7 @@ class FakeRelayWsClient : RelayWsClient(OkHttpClient(), ErrorStateManager()) {
 
     val connectRequests = mutableListOf<Pair<String, String>>()
     val subscriptions = mutableListOf<String>()
+    var lastTrackedSessionIds: Set<String> = emptySet()
     var pauseReconnectionCalls = 0
     var resumeReconnectionCalls = 0
     var forceReconnectCalls = 0
@@ -218,6 +219,10 @@ class FakeRelayWsClient : RelayWsClient(OkHttpClient(), ErrorStateManager()) {
 
     override fun subscribe(sessionId: String) {
         subscriptions += sessionId
+    }
+
+    override fun setTrackedSessionIds(sessionIds: Set<String>) {
+        lastTrackedSessionIds = sessionIds
     }
 
     override fun pauseReconnection() {

@@ -11,6 +11,8 @@ import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelaySession
 import com.imbot.android.network.ServerMessage
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.time.Instant
 import javax.inject.Inject
@@ -25,6 +27,8 @@ class SessionRepository
         private val relayHttpClient: RelayHttpClient,
         private val settingsRepository: SettingsRepository,
     ) : SessionStore {
+        private val sessionWriteMutex = Mutex()
+
         fun getSessions(): Flow<List<SessionEntity>> = sessionDao.getAll()
 
         override fun getSessionsByPathPrefix(pathPrefix: String): Flow<List<SessionEntity>> =
@@ -51,21 +55,34 @@ class SessionRepository
                     limit = limit,
                     offset = offset,
                 ).getOrThrow()
-            val sessions = page.sessions.map(RelaySession::toEntity)
+            sessionWriteMutex.withLock {
+                database.withTransaction {
+                    val localPage =
+                        sessionDao.getPage(
+                            offset = page.offset,
+                            limit = page.limit,
+                        )
+                    val localSessionsById = localPage.associateBy(SessionEntity::id)
+                    val sessions =
+                        page.sessions.map { session ->
+                            mergeSessionSnapshot(
+                                existing = localSessionsById[session.id],
+                                incoming =
+                                    session.toEntity(
+                                        summarySeq = localSessionsById[session.id]?.summarySeq ?: 0,
+                                    ),
+                            )
+                        }
 
-            database.withTransaction {
-                sessionDao.insertAll(sessions)
-                val staleIds =
-                    computeStaleSessionIds(
-                        localPage =
-                            sessionDao.getPage(
-                                offset = page.offset,
-                                limit = page.limit,
-                            ),
-                        remoteSessionIds = sessions.map(SessionEntity::id).toSet(),
-                    )
-                if (staleIds.isNotEmpty()) {
-                    sessionDao.deleteByIds(staleIds)
+                    sessionDao.insertAll(sessions)
+                    val staleIds =
+                        computeStaleSessionIds(
+                            localPage = localPage,
+                            remoteSessionIds = sessions.map(SessionEntity::id).toSet(),
+                        )
+                    if (staleIds.isNotEmpty()) {
+                        sessionDao.deleteByIds(staleIds)
+                    }
                 }
             }
         }
@@ -74,69 +91,89 @@ class SessionRepository
             sessionId: String,
             status: String,
         ) {
-            val existing = sessionDao.getById(sessionId) ?: return
-            if (existing.status == status) {
-                return
-            }
-            val now = Instant.now().toString()
+            sessionWriteMutex.withLock {
+                val existing = sessionDao.getById(sessionId) ?: return
+                if (existing.status == status) {
+                    return
+                }
+                val now = Instant.now().toString()
 
-            sessionDao.insertAll(
-                listOf(
-                    existing.copy(
-                        status = status,
-                        updatedAt = now,
-                        lastActiveAt = now,
+                sessionDao.insertAll(
+                    listOf(
+                        existing.copy(
+                            status = status,
+                            updatedAt = now,
+                            lastActiveAt = now,
+                        ),
                     ),
-                ),
-            )
+                )
+            }
         }
 
         suspend fun upsertSessionSnapshot(session: RelaySession) {
-            sessionDao.insertAll(listOf(session.toEntity()))
+            sessionWriteMutex.withLock {
+                val existing = sessionDao.getById(session.id)
+                val merged =
+                    mergeSessionSnapshot(
+                        existing = existing,
+                        incoming = session.toEntity(summarySeq = existing?.summarySeq ?: 0),
+                    )
+                sessionDao.insertAll(listOf(merged))
+            }
         }
 
         suspend fun applyRealtimeSummaryEvent(event: ServerMessage.Event) {
-            val existing = sessionDao.getById(event.sessionId) ?: return
-            val timestamp = event.timestamp.takeIf(String::isNotBlank) ?: Instant.now().toString()
-            val updated =
-                when (event.eventType) {
-                    "user_message",
-                    "assistant_message",
-                    ->
-                        existing.copy(
-                            updatedAt = timestamp,
-                            lastActiveAt = timestamp,
-                        )
+            sessionWriteMutex.withLock {
+                val existing = sessionDao.getById(event.sessionId) ?: return
+                if (shouldIgnoreRealtimeSummaryEvent(existing, event)) {
+                    return
+                }
 
-                    "session_started" ->
-                        existing.copy(
-                            model = event.payload.stringValue("model") ?: existing.model,
-                            status = "running",
-                            updatedAt = timestamp,
-                            lastActiveAt = timestamp,
-                        )
+                val timestamp = event.timestamp.takeIf(String::isNotBlank) ?: Instant.now().toString()
+                val updated =
+                    when (event.eventType) {
+                        "user_message",
+                        "assistant_message",
+                        ->
+                            existing.copy(
+                                updatedAt = timestamp,
+                                lastActiveAt = timestamp,
+                                summarySeq = maxOf(existing.summarySeq, event.seq),
+                            )
 
-                    "session_usage" ->
-                        existing.copy(
-                            model = event.payload.stringValue("model") ?: existing.model,
-                            inputTokens = event.payload.intValue("input_tokens") ?: existing.inputTokens,
-                            outputTokens = event.payload.intValue("output_tokens") ?: existing.outputTokens,
-                            contextWindow = event.payload.intValue("context_window") ?: existing.contextWindow,
-                            updatedAt = timestamp,
-                            lastActiveAt = timestamp,
-                        )
+                        "session_started" ->
+                            existing.copy(
+                                model = event.payload.stringValue("model") ?: existing.model,
+                                status = "running",
+                                updatedAt = timestamp,
+                                lastActiveAt = timestamp,
+                                summarySeq = maxOf(existing.summarySeq, event.seq),
+                            )
 
-                    "session_idle" ->
-                        existing.copy(
-                            status = "idle",
-                            updatedAt = timestamp,
-                            lastActiveAt = timestamp,
-                        )
+                        "session_usage" ->
+                            existing.copy(
+                                model = event.payload.stringValue("model") ?: existing.model,
+                                inputTokens = event.payload.intValue("input_tokens") ?: existing.inputTokens,
+                                outputTokens = event.payload.intValue("output_tokens") ?: existing.outputTokens,
+                                contextWindow = event.payload.intValue("context_window") ?: existing.contextWindow,
+                                updatedAt = timestamp,
+                                lastActiveAt = timestamp,
+                                summarySeq = maxOf(existing.summarySeq, event.seq),
+                            )
 
-                    else -> null
-                } ?: return
+                        "session_idle" ->
+                            existing.copy(
+                                status = "idle",
+                                updatedAt = timestamp,
+                                lastActiveAt = timestamp,
+                                summarySeq = maxOf(existing.summarySeq, event.seq),
+                            )
 
-            sessionDao.insertAll(listOf(updated))
+                        else -> null
+                    } ?: return
+
+                sessionDao.insertAll(listOf(mergeSessionSnapshot(existing = existing, incoming = updated)))
+            }
         }
 
         suspend fun deleteSession(sessionId: String) {
@@ -149,7 +186,9 @@ class SessionRepository
                 token = settings.token,
                 sessionId = sessionId,
             ).getOrThrow()
-            sessionDao.deleteById(sessionId)
+            sessionWriteMutex.withLock {
+                sessionDao.deleteById(sessionId)
+            }
         }
 
         suspend fun answerInteractiveTool(
@@ -173,8 +212,10 @@ class SessionRepository
         }
 
         override suspend fun clearLocalCache() {
-            database.withTransaction {
-                sessionDao.deleteAll()
+            sessionWriteMutex.withLock {
+                database.withTransaction {
+                    sessionDao.deleteAll()
+                }
             }
         }
     }
@@ -190,7 +231,7 @@ internal fun computeStaleSessionIds(
         .map(SessionEntity::id)
         .toList()
 
-private fun RelaySession.toEntity() =
+private fun RelaySession.toEntity(summarySeq: Int = 0) =
     SessionEntity(
         id = id,
         provider = provider,
@@ -203,10 +244,84 @@ private fun RelaySession.toEntity() =
         inputTokens = inputTokens,
         outputTokens = outputTokens,
         contextWindow = contextWindow,
+        summarySeq = summarySeq,
         createdAt = createdAt,
         updatedAt = updatedAt,
         lastActiveAt = lastActiveAt,
     )
+
+private fun mergeSessionSnapshot(
+    existing: SessionEntity?,
+    incoming: SessionEntity,
+): SessionEntity {
+    if (existing == null) {
+        return incoming
+    }
+
+    val preferred =
+        when {
+            compareSessionSnapshotFreshness(incoming, existing) > 0 -> incoming
+            else -> existing
+        }
+    val fallback = if (preferred === incoming) existing else incoming
+
+    return preferred.copy(
+        model = preferred.model ?: fallback.model,
+        inputTokens = maxOf(preferred.inputTokens, fallback.inputTokens),
+        outputTokens = maxOf(preferred.outputTokens, fallback.outputTokens),
+        contextWindow = maxOf(preferred.contextWindow, fallback.contextWindow),
+        summarySeq = maxOf(preferred.summarySeq, fallback.summarySeq),
+    )
+}
+
+private fun compareSessionSnapshotFreshness(
+    first: SessionEntity,
+    second: SessionEntity,
+): Int {
+    compareTimestampStrings(
+        first.lastActiveAt,
+        second.lastActiveAt,
+    ).takeIf { it != 0 }?.let { return it }
+    compareTimestampStrings(
+        first.updatedAt,
+        second.updatedAt,
+    ).takeIf { it != 0 }?.let { return it }
+    return first.summarySeq.compareTo(second.summarySeq)
+}
+
+private fun shouldIgnoreRealtimeSummaryEvent(
+    existing: SessionEntity,
+    event: ServerMessage.Event,
+): Boolean {
+    if (event.seq > 0 && event.seq <= existing.summarySeq) {
+        return true
+    }
+
+    val eventTimestamp = event.timestamp.takeIf(String::isNotBlank) ?: return false
+    val freshnessTimestamp = maxTimestampString(existing.lastActiveAt, existing.updatedAt)
+    return compareTimestampStrings(eventTimestamp, freshnessTimestamp) < 0
+}
+
+private fun maxTimestampString(
+    first: String,
+    second: String,
+): String = if (compareTimestampStrings(first, second) >= 0) first else second
+
+private fun compareTimestampStrings(
+    first: String,
+    second: String,
+): Int {
+    val firstInstant = parseInstant(first)
+    val secondInstant = parseInstant(second)
+    return when {
+        firstInstant != null && secondInstant != null -> firstInstant.compareTo(secondInstant)
+        firstInstant != null -> 1
+        secondInstant != null -> -1
+        else -> first.compareTo(second)
+    }
+}
+
+private fun parseInstant(value: String): Instant? = runCatching { Instant.parse(value) }.getOrNull()
 
 private fun JSONObject?.stringValue(key: String): String? {
     val payload = this ?: return null

@@ -180,10 +180,7 @@ class HomeViewModel
                 sessionRepository.getSessions().collect { sessions ->
                     allSessions = sessions
                     relayWsClient.setTrackedSessionIds(
-                        sessions
-                            .filter { session -> isLiveStatus(session.status) }
-                            .map(SessionEntity::id)
-                            .toSet(),
+                        sessions.mapTo(linkedSetOf(), SessionEntity::id),
                     )
                     publishState()
                 }

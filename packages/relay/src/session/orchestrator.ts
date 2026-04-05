@@ -888,7 +888,7 @@ export class SessionOrchestrator {
       return true;
     }
 
-    return this.isDuplicateLatestUserMessage(session.id, incomingText);
+    return false;
   }
 
   private isDuplicateSyntheticInitialUserMessage(session: Session, incomingText: string): boolean {
@@ -916,32 +916,6 @@ export class SessionOrchestrator {
 
     try {
       const storedPayload = JSON.parse(conversationalEvents[0].payload) as { text?: string };
-      return typeof storedPayload.text === "string" && storedPayload.text.trim() === incomingText;
-    } catch {
-      return false;
-    }
-  }
-
-  private isDuplicateLatestUserMessage(sessionId: string, incomingText: string): boolean {
-    const latestConversationEvent = this.db
-      .prepare(
-        `
-        SELECT type, payload
-        FROM session_events
-        WHERE session_id = ?
-          AND type IN ('user_message', 'assistant_message')
-        ORDER BY seq DESC
-        LIMIT 1
-        `
-      )
-      .get(sessionId) as { type: EventType; payload: string } | undefined;
-
-    if (!latestConversationEvent || latestConversationEvent.type !== "user_message") {
-      return false;
-    }
-
-    try {
-      const storedPayload = JSON.parse(latestConversationEvent.payload) as { text?: string };
       return typeof storedPayload.text === "string" && storedPayload.text.trim() === incomingText;
     } catch {
       return false;

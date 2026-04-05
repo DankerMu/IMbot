@@ -25,6 +25,8 @@ data class SessionEntity(
     val outputTokens: Int = 0,
     @ColumnInfo(name = "context_window")
     val contextWindow: Int = 0,
+    @ColumnInfo(name = "summary_seq")
+    val summarySeq: Int = 0,
     @ColumnInfo(name = "created_at")
     val createdAt: String,
     @ColumnInfo(name = "updated_at")

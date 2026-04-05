@@ -10,6 +10,7 @@ import { EventBuffer } from "./event-buffer";
 import { HeartbeatTimer } from "./heartbeat";
 import { RelayClient, type RelayClientBackoffOptions } from "./relay-client";
 import { ClaudeRuntimeAdapter } from "./runtime/claude-adapter";
+import { RuntimeUserMessageMirrorTracker } from "./runtime/runtime-user-message-mirror-tracker";
 import { discoverAllSessions, discoverSessions } from "./runtime/session-discovery";
 import { SessionIndex } from "./runtime/session-index";
 import { SessionReconciler } from "./runtime/session-reconciler";
@@ -71,6 +72,7 @@ export async function createCompanionRuntime(options?: {
       relayClient.send(message);
     }
   });
+  const runtimeUserMessageMirrorTracker = new RuntimeUserMessageMirrorTracker();
   const adapter = new ClaudeRuntimeAdapter({
     providers: config.providers,
     sessionIndex,
@@ -83,6 +85,12 @@ export async function createCompanionRuntime(options?: {
       }
 
       return configManager.isPathUnderRoot("book", cwd);
+    },
+    onRuntimeUserMessage: (providerSessionId, text) => {
+      runtimeUserMessageMirrorTracker.record(providerSessionId, text);
+    },
+    onRuntimeSessionClosed: (providerSessionId) => {
+      runtimeUserMessageMirrorTracker.clear(providerSessionId);
     },
     sendEvent: (message) => {
       relayClient.send(message);
@@ -104,6 +112,8 @@ export async function createCompanionRuntime(options?: {
     relayUrl: config.relayUrl,
     token: config.token,
     logger,
+    consumeRuntimeUserMessageMirror: (providerSessionId, text) =>
+      runtimeUserMessageMirrorTracker.consume(providerSessionId, text),
     isProviderSessionActive: (providerSessionId) => adapter.hasActiveProviderSession(providerSessionId),
     sendEvent: (message) => {
       relayClient.send(message);
