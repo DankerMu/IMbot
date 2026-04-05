@@ -207,6 +207,6 @@ Relay 的 `GET /sessions` 返回所有 session，但 Android session list 的 se
 
 ## 风险
 
-1. **全量扫描性能**：如果 `~/.claude/projects/` 下有大量 project 目录（>100），全量扫描可能变慢。缓解：保留 `limit` 参数，按 mtime 排序只取最近 200 个。
+1. **全量扫描性能**：如果 `~/.claude/projects/` 下有大量 project 目录（>100），全量扫描可能变慢。缓解：保留 `limit` 参数，按最近活跃时间排序，默认只同步最近 10 个，并允许 companion 配置覆盖。
 2. **stream-json 不持久化**（分支 B）：需要额外的 session 导出机制。这是最大风险——如果上游 `book`/`claude` CLI 在 stream-json 模式下不写 JSONL，则需要 companion 自行模拟持久化，或接受 native resume 不可用。
 3. **Reconciler 频率**：全量扫描增加 I/O，但只在 companion 连接/重连时触发，频率低。

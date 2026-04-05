@@ -148,6 +148,7 @@ test("discoverSessions uses custom claudeProjectsDir for book provider", async (
         provider_session_id: "book-session-1",
         cwd,
         created_at: "2026-03-30T07:00:00.000Z",
+        last_active_at: "2026-03-30T07:00:00.000Z",
         status: "completed"
       }
     ]);
@@ -175,6 +176,7 @@ test("discoverSessions with separate book projects dir does not mix with claude 
         provider_session_id: "book-session-1",
         cwd,
         created_at: "2026-03-30T08:00:00.000Z",
+        last_active_at: "2026-03-30T08:00:00.000Z",
         status: "completed"
       }
     ]);
@@ -310,6 +312,7 @@ test("discoverSessions marks empty session files as unknown", async () => {
         provider_session_id: "session-empty",
         cwd,
         created_at: "2026-03-30T05:00:00.000Z",
+        last_active_at: "2026-03-30T05:00:00.000Z",
         status: "unknown"
       }
     ]);
@@ -441,6 +444,7 @@ test("discoverAllSessions marks empty files as unknown", async () => {
         provider_session_id: "session-empty",
         cwd,
         created_at: "2026-03-30T05:00:00.000Z",
+        last_active_at: "2026-03-30T05:00:00.000Z",
         status: "unknown"
       }
     ]);

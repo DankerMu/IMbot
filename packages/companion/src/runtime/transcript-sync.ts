@@ -30,6 +30,13 @@ type RelaySessionMetadata = {
   last_active_at: string;
 };
 
+type ResolvedRelaySession = {
+  relay_session_id: string;
+  created_at?: string;
+  last_active_at?: string;
+  initial_prompt?: string | null;
+};
+
 export interface TranscriptSyncerOptions {
   readonly sessionIndex: SessionIndex;
   readonly providers: Readonly<Partial<Record<InteractiveProvider, CompanionProviderConfig>>>;
@@ -45,12 +52,14 @@ export interface TranscriptSyncerOptions {
   readonly logger?: LoggerLike;
   readonly pollIntervalMs?: number;
   readonly fetchSessionMetadata?: (relaySessionId: string) => Promise<RelaySessionMetadata | null>;
+  readonly resolveRelaySession?: (entry: SessionIndexRecord) => Promise<ResolvedRelaySession | null>;
 }
 
 export class TranscriptSyncer {
   private readonly logger: LoggerLike;
   private readonly pollIntervalMs: number;
   private readonly fetchSessionMetadata: (relaySessionId: string) => Promise<RelaySessionMetadata | null>;
+  private readonly resolveRelaySession: (entry: SessionIndexRecord) => Promise<ResolvedRelaySession | null>;
   private readonly cursors = new Map<string, TranscriptCursor>();
   private intervalHandle: NodeJS.Timeout | null = null;
   private syncing = false;
@@ -59,6 +68,7 @@ export class TranscriptSyncer {
     this.logger = options.logger ?? console;
     this.pollIntervalMs = options.pollIntervalMs ?? DEFAULT_POLL_INTERVAL_MS;
     this.fetchSessionMetadata = options.fetchSessionMetadata ?? ((relaySessionId) => this.fetchRelaySessionMetadata(relaySessionId));
+    this.resolveRelaySession = options.resolveRelaySession ?? (async () => null);
   }
 
   start(): void {
@@ -90,8 +100,7 @@ export class TranscriptSyncer {
 
     this.syncing = true;
     try {
-      const entries = this.options.sessionIndex
-        .list()
+      const entries = (await this.promoteLocalEntries(this.options.sessionIndex.list()))
         .filter((entry) => entry.source === "remote")
         .sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
 
@@ -111,6 +120,40 @@ export class TranscriptSyncer {
     }
   }
 
+  private async promoteLocalEntries(entries: SessionIndexRecord[]): Promise<SessionIndexRecord[]> {
+    let promoted = false;
+
+    for (const entry of entries) {
+      if (entry.source !== "local") {
+        continue;
+      }
+
+      const resolved = await this.resolveRelaySession(entry);
+      if (!resolved) {
+        continue;
+      }
+
+      this.options.sessionIndex.set(resolved.relay_session_id, {
+        provider_session_id: entry.provider_session_id,
+        cwd: entry.cwd,
+        provider: entry.provider,
+        created_at: resolved.created_at ?? entry.created_at,
+        ...(resolved.last_active_at || entry.last_observed_at
+          ? {
+              last_observed_at: resolved.last_active_at ?? entry.last_observed_at
+            }
+          : {}),
+        source: "remote",
+        initial_prompt: resolved.initial_prompt ?? entry.initial_prompt ?? null
+      });
+      this.options.sessionIndex.remove(entry.relay_session_id);
+      this.cursors.delete(entry.relay_session_id);
+      promoted = true;
+    }
+
+    return promoted ? this.options.sessionIndex.list() : entries;
+  }
+
   private async syncEntry(entry: SessionIndexRecord): Promise<void> {
     const providerSessionIsActive = this.options.isProviderSessionActive?.(entry.provider_session_id) ?? false;
 
@@ -120,6 +163,7 @@ export class TranscriptSyncer {
     }
 
     const cursor = await this.getOrCreateCursor(entry);
+    this.resetBootstrapCursorIfNeeded(entry, cursor);
     const transcriptPath = buildTranscriptPath(providerConfig.projectsDir, entry.cwd, entry.provider_session_id);
 
     let stat: Awaited<ReturnType<typeof fs.lstat>>;
@@ -142,7 +186,7 @@ export class TranscriptSyncer {
       cursor.offset = 0;
       cursor.pendingBeforeCutoff = [];
       cursor.trailingFragment = "";
-      cursor.cutoffMs = await this.loadCutoffMs(entry.relay_session_id);
+      cursor.cutoffMs = await this.resolveInitialCutoffMs(entry);
     }
 
     if (stat.size === cursor.offset && cursor.trailingFragment === "") {
@@ -156,6 +200,7 @@ export class TranscriptSyncer {
     const scanningFromStart = cursor.offset === 0 && cursor.trailingFragment === "";
     const { text: nextChunk, bytesRead } = await readUtf8Delta(transcriptPath, cursor.offset, stat.size);
     cursor.offset += bytesRead;
+    let emittedEventCount = 0;
 
     const merged = `${cursor.trailingFragment}${nextChunk}`;
     const hasTrailingNewline = merged.endsWith("\n") || merged.endsWith("\r");
@@ -183,6 +228,7 @@ export class TranscriptSyncer {
       }
 
       for (const event of mapping.events) {
+        emittedEventCount += 1;
         await Promise.resolve(
           this.options.sendEvent({
             type: "event",
@@ -235,6 +281,14 @@ export class TranscriptSyncer {
     if (!providerSessionIsActive && cursor.pendingBeforeCutoff.length === 0) {
       cursor.cutoffMs = null;
     }
+
+    if (
+      entry.initial_transcript_sync_pending === true &&
+      emittedEventCount > 0 &&
+      cursor.trailingFragment === ""
+    ) {
+      this.clearInitialTranscriptSyncPending(entry.relay_session_id);
+    }
   }
 
   private async getOrCreateCursor(entry: SessionIndexRecord): Promise<TranscriptCursor> {
@@ -244,7 +298,7 @@ export class TranscriptSyncer {
     }
 
     const cursor: TranscriptCursor = {
-      cutoffMs: await this.loadCutoffMs(entry.relay_session_id),
+      cutoffMs: await this.resolveInitialCutoffMs(entry),
       offset: 0,
       pendingBeforeCutoff: [],
       trailingFragment: ""
@@ -253,9 +307,58 @@ export class TranscriptSyncer {
     return cursor;
   }
 
+  private resetBootstrapCursorIfNeeded(entry: SessionIndexRecord, cursor: TranscriptCursor): void {
+    if (entry.initial_transcript_sync_pending !== true) {
+      return;
+    }
+
+    if (
+      cursor.cutoffMs === null &&
+      cursor.offset === 0 &&
+      cursor.pendingBeforeCutoff.length === 0 &&
+      cursor.trailingFragment === ""
+    ) {
+      return;
+    }
+
+    cursor.cutoffMs = null;
+    cursor.offset = 0;
+    cursor.pendingBeforeCutoff = [];
+    cursor.trailingFragment = "";
+  }
+
   private async loadCutoffMs(relaySessionId: string): Promise<number | null> {
     const metadata = await this.fetchSessionMetadata(relaySessionId);
     return parseTimestampMs(metadata?.last_active_at ?? null);
+  }
+
+  private async resolveInitialCutoffMs(entry: SessionIndexRecord): Promise<number | null> {
+    if (entry.initial_transcript_sync_pending === true) {
+      return null;
+    }
+
+    return this.loadCutoffMs(entry.relay_session_id);
+  }
+
+  private clearInitialTranscriptSyncPending(relaySessionId: string): void {
+    const current = this.options.sessionIndex.get(relaySessionId);
+    if (!current || current.initial_transcript_sync_pending !== true) {
+      return;
+    }
+
+    this.options.sessionIndex.set(relaySessionId, {
+      provider_session_id: current.provider_session_id,
+      cwd: current.cwd,
+      provider: current.provider,
+      created_at: current.created_at,
+      ...(current.last_observed_at
+        ? {
+            last_observed_at: current.last_observed_at
+          }
+        : {}),
+      source: current.source,
+      initial_prompt: current.initial_prompt ?? null
+    });
   }
 
   private async fetchRelaySessionMetadata(relaySessionId: string): Promise<RelaySessionMetadata | null> {

@@ -45,13 +45,18 @@ function createRuntimeHarness(tempDir, options = {}) {
   const cwd = path.join(tempDir, "novel", "session-1");
   mkdirSync(cwd, { recursive: true });
 
-  sessionIndex.set("relay-session-1", {
+  sessionIndex.set(options.sessionIndexKey ?? "relay-session-1", {
     provider_session_id: "provider-session-1",
     cwd,
     provider: "book",
     created_at: "2026-04-04T10:00:00.000Z",
-    source: "remote",
-    initial_prompt: null
+    source: options.source ?? "remote",
+    initial_prompt: null,
+    ...(options.initialTranscriptSyncPending === true
+      ? {
+          initial_transcript_sync_pending: true
+        }
+      : {})
   });
 
   const sentEvents = [];
@@ -72,12 +77,14 @@ function createRuntimeHarness(tempDir, options = {}) {
     },
     relayUrl: "ws://127.0.0.1:3010",
     token: "test-token",
+    hostId: "macbook-1",
     logger: silentLogger,
     consumeRuntimeUserMessageMirror: (providerSessionId, text, timestampMs) =>
       options.consumeRuntimeUserMessageMirror?.(providerSessionId, text, timestampMs) ?? false,
     fetchSessionMetadata: async () => ({
       last_active_at: lastActiveAtRef.value
     }),
+    resolveRelaySession: options.resolveRelaySession,
     isProviderSessionActive: () => activeRef.value,
     sendEvent: (message) => {
       sentEvents.push(message);
@@ -87,12 +94,226 @@ function createRuntimeHarness(tempDir, options = {}) {
   return {
     cwd,
     projectsDir,
+    sessionIndex,
     sentEvents,
     syncer,
     activeRef,
     lastActiveAtRef
   };
 }
+
+test("TranscriptSyncer promotes reported local sessions to remote entries before importing transcript rows", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-local-promote-"));
+
+  try {
+    const { cwd, projectsDir, sessionIndex, sentEvents, syncer } = createRuntimeHarness(tempDir, {
+      source: "local",
+      sessionIndexKey: "local:provider-session-1",
+      lastActiveAt: "2026-04-04T10:00:30.000Z",
+      resolveRelaySession: async (entry) => ({
+        relay_session_id: "relay-session-promoted",
+        created_at: entry.created_at,
+        last_active_at: "2026-04-04T10:00:30.000Z",
+        initial_prompt: null
+      })
+    });
+    createTranscriptFile(
+      projectsDir,
+      cwd,
+      "provider-session-1",
+      [
+        '{"type":"user","timestamp":"2026-04-04T10:01:00.000Z","message":{"role":"user","content":"local user"}}',
+        '{"type":"assistant","timestamp":"2026-04-04T10:01:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"local answer"}],"usage":{"input_tokens":42,"output_tokens":9}}}'
+      ].join("\n") + "\n"
+    );
+
+    await syncer.syncNow();
+
+    assert.deepEqual(
+      sentEvents.map((event) => ({
+        session_id: event.session_id,
+        type: event.event_type,
+        payload: event.payload
+      })),
+      [
+        {
+          session_id: "relay-session-promoted",
+          type: "user_message",
+          payload: {
+            text: "local user"
+          }
+        },
+        {
+          session_id: "relay-session-promoted",
+          type: "assistant_message",
+          payload: {
+            text: "local answer"
+          }
+        },
+        {
+          session_id: "relay-session-promoted",
+          type: "session_usage",
+          payload: {
+            input_tokens: 42,
+            output_tokens: 9
+          }
+        }
+      ]
+    );
+    assert.equal(sessionIndex.get("local:provider-session-1"), null);
+    assert.deepEqual(sessionIndex.get("relay-session-promoted"), {
+      provider_session_id: "provider-session-1",
+      cwd,
+      provider: "book",
+      created_at: "2026-04-04T10:00:00.000Z",
+      last_observed_at: "2026-04-04T10:00:30.000Z",
+      source: "remote",
+      initial_prompt: null
+    });
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("TranscriptSyncer bootstraps a promoted shadow session even when relay last_active_at already matches the transcript", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-bootstrap-"));
+
+  try {
+    const { cwd, projectsDir, sessionIndex, sentEvents, syncer } = createRuntimeHarness(tempDir, {
+      lastActiveAt: "2026-04-04T10:01:02.000Z",
+      initialTranscriptSyncPending: true
+    });
+    createTranscriptFile(
+      projectsDir,
+      cwd,
+      "provider-session-1",
+      [
+        '{"type":"user","timestamp":"2026-04-04T10:01:00.000Z","message":{"role":"user","content":"bootstrap user"}}',
+        '{"type":"assistant","timestamp":"2026-04-04T10:01:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"bootstrap answer"}],"usage":{"input_tokens":42,"output_tokens":9}}}'
+      ].join("\n") + "\n"
+    );
+
+    await syncer.syncNow();
+
+    assert.deepEqual(
+      sentEvents.map((event) => ({
+        session_id: event.session_id,
+        type: event.event_type,
+        payload: event.payload
+      })),
+      [
+        {
+          session_id: "relay-session-1",
+          type: "user_message",
+          payload: {
+            text: "bootstrap user"
+          }
+        },
+        {
+          session_id: "relay-session-1",
+          type: "assistant_message",
+          payload: {
+            text: "bootstrap answer"
+          }
+        },
+        {
+          session_id: "relay-session-1",
+          type: "session_usage",
+          payload: {
+            input_tokens: 42,
+            output_tokens: 9
+          }
+        }
+      ]
+    );
+    assert.deepEqual(sessionIndex.get("relay-session-1"), {
+      provider_session_id: "provider-session-1",
+      cwd,
+      provider: "book",
+      created_at: "2026-04-04T10:00:00.000Z",
+      source: "remote",
+      initial_prompt: null
+    });
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("TranscriptSyncer rewinds an existing cursor when transcript bootstrap becomes pending later", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-rewind-"));
+
+  try {
+    const { cwd, projectsDir, sessionIndex, sentEvents, syncer } = createRuntimeHarness(tempDir, {
+      lastActiveAt: "2026-04-04T10:01:02.000Z"
+    });
+    createTranscriptFile(
+      projectsDir,
+      cwd,
+      "provider-session-1",
+      [
+        '{"type":"user","timestamp":"2026-04-04T10:01:00.000Z","message":{"role":"user","content":"rewind user"}}',
+        '{"type":"assistant","timestamp":"2026-04-04T10:01:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"rewind answer"}],"usage":{"input_tokens":42,"output_tokens":9}}}'
+      ].join("\n") + "\n"
+    );
+
+    await syncer.syncNow();
+    assert.deepEqual(sentEvents, []);
+
+    sessionIndex.set("relay-session-1", {
+      provider_session_id: "provider-session-1",
+      cwd,
+      provider: "book",
+      created_at: "2026-04-04T10:00:00.000Z",
+      source: "remote",
+      initial_prompt: null,
+      initial_transcript_sync_pending: true
+    });
+
+    await syncer.syncNow();
+
+    assert.deepEqual(
+      sentEvents.map((event) => ({
+        session_id: event.session_id,
+        type: event.event_type,
+        payload: event.payload
+      })),
+      [
+        {
+          session_id: "relay-session-1",
+          type: "user_message",
+          payload: {
+            text: "rewind user"
+          }
+        },
+        {
+          session_id: "relay-session-1",
+          type: "assistant_message",
+          payload: {
+            text: "rewind answer"
+          }
+        },
+        {
+          session_id: "relay-session-1",
+          type: "session_usage",
+          payload: {
+            input_tokens: 42,
+            output_tokens: 9
+          }
+        }
+      ]
+    );
+    assert.deepEqual(sessionIndex.get("relay-session-1"), {
+      provider_session_id: "provider-session-1",
+      cwd,
+      provider: "book",
+      created_at: "2026-04-04T10:00:00.000Z",
+      source: "remote",
+      initial_prompt: null
+    });
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
 
 test("TranscriptSyncer only imports transcript entries newer than relay last_active_at", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-cutoff-"));

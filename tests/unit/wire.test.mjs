@@ -88,7 +88,8 @@ test("CompanionReportLocalSessionsMessage matches the expected wire shape", () =
         provider_session_id: "abc-123",
         provider: "claude",
         cwd: "/tmp",
-        created_at: "2026-04-01T00:00:00Z"
+        created_at: "2026-04-01T00:00:00Z",
+        last_active_at: "2026-04-01T00:05:00Z"
       }
     ]
   };

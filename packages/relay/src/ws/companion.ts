@@ -63,9 +63,42 @@ export function registerCompanionWebSocketRoute(
       }
 
       if (message.type === "report_local_sessions") {
-        void deps.orchestrator.handleReportLocalSessions(message, hostId).catch((error) => {
-          app.log.error(error);
-        });
+        void deps.orchestrator
+          .handleReportLocalSessions(message, hostId)
+          .then((data) => {
+            if (!message.req_id) {
+              return;
+            }
+
+            ws.send(
+              JSON.stringify({
+                type: "ack",
+                req_id: message.req_id,
+                status: "ok",
+                data
+              }),
+            );
+          })
+          .catch((error) => {
+            app.log.error(error);
+            if (!message.req_id) {
+              return;
+            }
+
+            const relayError =
+              error instanceof Error
+                ? error
+                : new Error("report_local_sessions handler failed");
+            ws.send(
+              JSON.stringify({
+                type: "ack",
+                req_id: message.req_id,
+                status: "error",
+                error_code: "handler_failed",
+                message: relayError.message
+              }),
+            );
+          });
         return;
       }
     });

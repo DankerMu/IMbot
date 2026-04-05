@@ -137,6 +137,7 @@ test("loadCompanionConfig reads env overrides and validates configured providers
     assert.equal(config.providers.claude.binary, "/usr/local/bin/claude");
     assert.equal(config.sessionIndexPath, sessionIndexPath);
     assert.equal(config.idleTimeoutMs, 60000);
+    assert.equal(config.localSessionSyncLimit, 10);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -180,6 +181,69 @@ test("loadCompanionConfig resolves bare provider binaries from common user paths
 
     assert.equal(config.providers.claude.binary, claudeBinary);
     assert.equal(config.idleTimeoutMs, 90000);
+    assert.equal(config.localSessionSyncLimit, 10);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("loadCompanionConfig reads local session sync limit from config or env override", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-companion-config-sync-limit-"));
+  const configPath = path.join(tempDir, "companion.json");
+  const envOnlyConfigPath = path.join(tempDir, "companion-env-only.json");
+
+  writeFileSync(
+    configPath,
+    JSON.stringify(
+      {
+        relay_url: "ws://127.0.0.1:3010",
+        token: "test-token",
+        host_id: "macbook-1",
+        local_session_sync_limit: 7,
+        providers: {
+          claude: {
+            binary: "/usr/local/bin/claude"
+          }
+        }
+      },
+      null,
+      2
+    )
+  );
+  writeFileSync(
+    envOnlyConfigPath,
+    JSON.stringify(
+      {
+        relay_url: "ws://127.0.0.1:3010",
+        token: "test-token",
+        host_id: "macbook-1",
+        providers: {
+          claude: {
+            binary: "/usr/local/bin/claude"
+          }
+        }
+      },
+      null,
+      2
+    )
+  );
+
+  try {
+    const fromConfig = companion.loadCompanionConfig({
+      COMPANION_CONFIG: configPath
+    });
+    const fromConfigAndEnv = companion.loadCompanionConfig({
+      COMPANION_CONFIG: configPath,
+      COMPANION_LOCAL_SESSION_SYNC_LIMIT: "3"
+    });
+    const fromEnv = companion.loadCompanionConfig({
+      COMPANION_CONFIG: envOnlyConfigPath,
+      COMPANION_LOCAL_SESSION_SYNC_LIMIT: "3"
+    });
+
+    assert.equal(fromConfig.localSessionSyncLimit, 7);
+    assert.equal(fromConfigAndEnv.localSessionSyncLimit, 7);
+    assert.equal(fromEnv.localSessionSyncLimit, 3);
   } finally {
     rmSync(tempDir, { recursive: true, force: true });
   }
@@ -492,6 +556,7 @@ test("ClaudeRuntimeAdapter keeps claude create_session unrestricted", async () =
       cwd: claudeProject,
       provider: "claude",
       created_at: sessionIndex.get("relay-claude-1").created_at,
+      last_observed_at: sessionIndex.get("relay-claude-1").created_at,
       source: "remote",
       initial_prompt: longPrompt.slice(0, 200)
     });
@@ -1346,6 +1411,7 @@ test("CompanionRuntime list_sessions handler dispatches correctly", async () => 
         provider_session_id: "session-runtime",
         cwd,
         created_at: "2026-03-30T02:00:00.000Z",
+        last_active_at: "2026-03-30T02:00:00.000Z",
         status: "completed"
       }
     ]);

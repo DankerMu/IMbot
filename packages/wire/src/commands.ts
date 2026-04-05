@@ -58,6 +58,7 @@ export type LocalSessionInfo = {
   provider_session_id: string;
   cwd: string;
   created_at: string;
+  last_active_at: string;
   status: "completed" | "unknown";
 };
 

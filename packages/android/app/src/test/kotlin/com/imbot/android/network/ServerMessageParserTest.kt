@@ -57,6 +57,19 @@ class ServerMessageParserTest {
     }
 
     @Test
+    fun `parses sessions changed message`() {
+        val parsed = parseServerMessage("""{"type":"sessions_changed","reason":"local_sync","host_id":"macbook-1"}""")
+
+        assertEquals(
+            ServerMessage.SessionsChanged(
+                reason = "local_sync",
+                hostId = "macbook-1",
+            ),
+            parsed,
+        )
+    }
+
+    @Test
     fun `parses error message`() {
         val parsed = parseServerMessage("""{"type":"error","code":"host_offline","message":"Companion offline"}""")
 

@@ -429,7 +429,7 @@ function assertProviderMatchesHost(host: Host, provider: Provider): void {
 }
 
 function sortLocalSessions(sessions: readonly LocalSessionInfo[]): LocalSessionInfo[] {
-  return [...sessions].sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+  return [...sessions].sort((left, right) => Date.parse(right.last_active_at) - Date.parse(left.last_active_at));
 }
 
 async function assertRootTargetExists(

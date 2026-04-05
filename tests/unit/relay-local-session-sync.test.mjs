@@ -84,7 +84,12 @@ function buildMessage(sessions, hostId = "ignored-by-relay") {
   return {
     type: "report_local_sessions",
     host_id: hostId,
-    sessions
+    sessions: Array.isArray(sessions)
+      ? sessions.map((session) => ({
+          ...session,
+          last_active_at: session.last_active_at ?? session.created_at
+        }))
+      : sessions
   };
 }
 
@@ -92,7 +97,7 @@ test("handleReportLocalSessions creates shadow records for unknown sessions", as
   const { runtime } = await createRuntime(t, "imbot-relay-local-sync-create-");
   insertHost(runtime.db);
 
-  await runtime.orchestrator.handleReportLocalSessions(
+  const result = await runtime.orchestrator.handleReportLocalSessions(
     buildMessage([
       {
         provider_session_id: "provider-session-shadow-1",
@@ -138,6 +143,22 @@ test("handleReportLocalSessions creates shadow records for unknown sessions", as
       local_available: 1
     }
   ]);
+  assert.deepEqual(
+    result.sessions.map((session) => ({
+      provider_session_id: session.provider_session_id,
+      has_transcript_events: session.has_transcript_events
+    })),
+    [
+      {
+        provider_session_id: "provider-session-shadow-2",
+        has_transcript_events: false
+      },
+      {
+        provider_session_id: "provider-session-shadow-1",
+        has_transcript_events: false
+      }
+    ]
+  );
 });
 
 test("handleReportLocalSessions is idempotent when provider_session_id repeats", async (t) => {
@@ -194,6 +215,54 @@ test("handleReportLocalSessions updates local_available from 0 to 1 for existing
     status: "queued",
     local_available: 1
   });
+});
+
+test("handleReportLocalSessions refreshes last_active_at and broadcasts sessions_changed", async (t) => {
+  const { runtime } = await createRuntime(t, "imbot-relay-local-sync-freshness-");
+  insertHost(runtime.db);
+  insertSession(runtime.db, {
+    id: "sess-existing-freshness",
+    providerSessionId: "provider-session-freshness",
+    localAvailable: 1,
+    status: "completed",
+    createdAt: "2026-03-01T00:00:00.000Z"
+  });
+
+  const broadcasts = [];
+  const originalBroadcastAll = runtime.hub.broadcastAll.bind(runtime.hub);
+  runtime.hub.broadcastAll = (message) => {
+    broadcasts.push(message);
+    originalBroadcastAll(message);
+  };
+
+  await runtime.orchestrator.handleReportLocalSessions(
+    buildMessage([
+      {
+        provider_session_id: "provider-session-freshness",
+        provider: "claude",
+        cwd: "/tmp/project",
+        created_at: "2026-03-01T00:00:00.000Z",
+        last_active_at: "2026-04-02T02:00:00.000Z"
+      }
+    ]),
+    "macbook-1"
+  );
+
+  const row = runtime.db
+    .prepare("SELECT local_available, last_active_at FROM sessions WHERE provider_session_id = ?")
+    .get("provider-session-freshness");
+
+  assert.deepEqual(row, {
+    local_available: 1,
+    last_active_at: "2026-04-02T02:00:00.000Z"
+  });
+  assert.deepEqual(broadcasts, [
+    {
+      type: "sessions_changed",
+      reason: "local_sync",
+      host_id: "macbook-1"
+    }
+  ]);
 });
 
 test("handleReportLocalSessions skips sessions with empty provider_session_id", async (t) => {
@@ -392,7 +461,15 @@ test("shadow sessions are queryable via GET /sessions", async (t) => {
         provider_session_id: "provider-session-list-shadow",
         provider: "claude",
         cwd: "/tmp/project-shadow",
-        created_at: "2026-04-01T06:00:00.000Z"
+        created_at: "2026-04-01T06:00:00.000Z",
+        last_active_at: "2026-04-01T06:00:00.000Z"
+      },
+      {
+        provider_session_id: "provider-session-list-active-old",
+        provider: "claude",
+        cwd: "/tmp/project-active-old",
+        created_at: "2026-03-01T06:00:00.000Z",
+        last_active_at: "2026-04-02T09:00:00.000Z"
       }
     ]),
     "macbook-1"
@@ -416,4 +493,5 @@ test("shadow sessions are queryable via GET /sessions", async (t) => {
   assert.equal(shadowSession.status, "completed");
   assert.equal(shadowSession.local_available, true);
   assert.equal(shadowSession.host_id, "macbook-1");
+  assert.equal(payload.sessions[0].provider_session_id, "provider-session-list-active-old");
 });

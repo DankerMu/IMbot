@@ -357,6 +357,7 @@ private fun ServerMessage.toNoticeState(): NoticeState? =
                 isError = status == "failed",
             )
 
+        is ServerMessage.SessionsChanged,
         is ServerMessage.Event,
         ServerMessage.Pong,
         -> null

@@ -34,12 +34,14 @@ export type CompanionHeartbeatMessage = {
 
 export type CompanionReportLocalSessionsMessage = {
   type: "report_local_sessions";
+  req_id?: string;
   host_id: string;
   sessions: Array<{
     provider_session_id: string;
     provider: "claude" | "book";
     cwd: string;
     created_at: string;
+    last_active_at: string;
   }>;
 };
 
@@ -61,6 +63,7 @@ export type ServerMessage =
     }
   | { type: "status"; session_id: string; status: SessionStatus }
   | { type: "host_status"; host_id: string; status: "online" | "offline" }
+  | { type: "sessions_changed"; reason: "local_sync"; host_id?: string }
   | { type: "error"; code: ErrorCode | string; message: string }
   | { type: "pong" };
 

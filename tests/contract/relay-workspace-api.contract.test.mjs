@@ -359,12 +359,14 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
           provider_session_id: "book-session-newer",
           cwd: "/Users/danker/Desktop/novel/project-b",
           created_at: "2026-04-04T10:00:00.000Z",
+          last_active_at: "2026-04-04T10:00:00.000Z",
           status: "completed"
         },
         {
           provider_session_id: "book-session-older",
           cwd: "/Users/danker/Desktop/novel/project-a",
           created_at: "2026-04-03T10:00:00.000Z",
+          last_active_at: "2026-04-03T10:00:00.000Z",
           status: "completed"
         }
       ]
@@ -378,12 +380,14 @@ test("relay workspace API manages hosts, roots, browse, and host status broadcas
         provider_session_id: "book-session-newer",
         cwd: "/Users/danker/Desktop/novel/project-b",
         created_at: "2026-04-04T10:00:00.000Z",
+        last_active_at: "2026-04-04T10:00:00.000Z",
         status: "completed"
       },
       {
         provider_session_id: "book-session-older",
         cwd: "/Users/danker/Desktop/novel/project-a",
         created_at: "2026-04-03T10:00:00.000Z",
+        last_active_at: "2026-04-03T10:00:00.000Z",
         status: "completed"
       }
     ]

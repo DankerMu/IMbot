@@ -15,6 +15,8 @@ import com.imbot.android.data.local.SessionEntity
 import com.imbot.android.data.repository.SessionRepository
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelaySessionPage
+import com.imbot.android.network.ServerMessage
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -33,11 +35,12 @@ class HomeViewModelTest {
     fun `observeSessions tracks terminal sessions for late transcript summaries`() =
         runTest(mainDispatcherRule.dispatcher) {
             val sessionDao = InMemorySessionDao()
+            val relayHttpClient = FakeHomeRelayHttpClient()
             val repository =
                 SessionRepository(
                     database = FakeAppDatabase(sessionDao),
                     sessionDao = sessionDao,
-                    relayHttpClient = FakeHomeRelayHttpClient(),
+                    relayHttpClient = relayHttpClient,
                     settingsRepository = FakeSettingsRepository(),
                 )
             val ws = FakeRelayWsClient()
@@ -58,9 +61,125 @@ class HomeViewModelTest {
 
             assertEquals(linkedSetOf("running-1", "completed-1"), ws.lastTrackedSessionIds)
         }
+
+    @Test
+    fun `sessions changed message triggers a session list refresh`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val sessionDao = InMemorySessionDao()
+            val relayHttpClient = FakeHomeRelayHttpClient()
+            val repository =
+                SessionRepository(
+                    database = FakeAppDatabase(sessionDao),
+                    sessionDao = sessionDao,
+                    relayHttpClient = relayHttpClient,
+                    settingsRepository = FakeSettingsRepository(),
+                )
+            val ws = FakeRelayWsClient()
+
+            HomeViewModel(
+                relayWsClient = ws,
+                sessionRepository = repository,
+                settingsRepository = FakeSettingsRepository(),
+            )
+            advanceUntilIdle()
+
+            assertEquals(1, relayHttpClient.getSessionsPageCalls)
+
+            ws.emitMessage(ServerMessage.SessionsChanged(reason = "local_sync", hostId = "macbook-1"))
+            advanceUntilIdle()
+
+            assertEquals(2, relayHttpClient.getSessionsPageCalls)
+        }
+
+    @Test
+    fun `sessions changed while refresh is active schedules a follow-up refresh`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val gate = CompletableDeferred<Unit>()
+            val sessionDao = InMemorySessionDao()
+            val relayHttpClient =
+                object : RelayHttpClient(OkHttpClient()) {
+                    var getSessionsPageCalls = 0
+
+                    override suspend fun getSessionsPage(
+                        relayUrl: String,
+                        token: String,
+                        limit: Int,
+                        offset: Int,
+                    ): Result<RelaySessionPage> {
+                        getSessionsPageCalls += 1
+                        if (getSessionsPageCalls == 1) {
+                            gate.await()
+                        }
+                        return Result.success(
+                            RelaySessionPage(
+                                sessions = emptyList(),
+                                total = 0,
+                                limit = limit,
+                                offset = offset,
+                            ),
+                        )
+                    }
+                }
+            val repository =
+                SessionRepository(
+                    database = FakeAppDatabase(sessionDao),
+                    sessionDao = sessionDao,
+                    relayHttpClient = relayHttpClient,
+                    settingsRepository = FakeSettingsRepository(),
+                )
+            val ws = FakeRelayWsClient()
+
+            HomeViewModel(
+                relayWsClient = ws,
+                sessionRepository = repository,
+                settingsRepository = FakeSettingsRepository(),
+            )
+            advanceUntilIdle()
+
+            assertEquals(1, relayHttpClient.getSessionsPageCalls)
+
+            ws.emitMessage(ServerMessage.SessionsChanged(reason = "local_sync", hostId = "macbook-1"))
+            advanceUntilIdle()
+            assertEquals(1, relayHttpClient.getSessionsPageCalls)
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+
+            assertEquals(2, relayHttpClient.getSessionsPageCalls)
+        }
+
+    @Test
+    fun `silent refreshes do not surface manual refreshing state`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val sessionDao = InMemorySessionDao()
+            val relayHttpClient = FakeHomeRelayHttpClient()
+            val repository =
+                SessionRepository(
+                    database = FakeAppDatabase(sessionDao),
+                    sessionDao = sessionDao,
+                    relayHttpClient = relayHttpClient,
+                    settingsRepository = FakeSettingsRepository(),
+                )
+            val ws = FakeRelayWsClient()
+            val viewModel =
+                HomeViewModel(
+                    relayWsClient = ws,
+                    sessionRepository = repository,
+                    settingsRepository = FakeSettingsRepository(),
+                )
+            advanceUntilIdle()
+
+            viewModel.refreshSilently()
+            advanceUntilIdle()
+
+            assertEquals(false, viewModel.uiState.value.isRefreshing)
+            assertEquals(2, relayHttpClient.getSessionsPageCalls)
+        }
 }
 
 private class FakeHomeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
+    var getSessionsPageCalls = 0
+
     override suspend fun getSessionsPage(
         relayUrl: String,
         token: String,
@@ -74,7 +193,9 @@ private class FakeHomeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
                 limit = limit,
                 offset = offset,
             ),
-        )
+        ).also {
+            getSessionsPageCalls += 1
+        }
 }
 
 private class FakeAppDatabase(

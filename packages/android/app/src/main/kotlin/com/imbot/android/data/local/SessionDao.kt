@@ -11,13 +11,13 @@ interface SessionDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(sessions: List<SessionEntity>)
 
-    @Query("SELECT * FROM sessions ORDER BY last_active_at DESC")
+    @Query("SELECT * FROM sessions ORDER BY last_active_at DESC, created_at DESC")
     fun getAll(): Flow<List<SessionEntity>>
 
     @Query(
         """
         SELECT * FROM sessions
-        ORDER BY created_at DESC
+        ORDER BY last_active_at DESC, created_at DESC
         LIMIT :limit OFFSET :offset
         """,
     )
@@ -30,7 +30,7 @@ interface SessionDao {
         """
         SELECT * FROM sessions
         WHERE workspace_cwd = :prefix OR workspace_cwd LIKE :escapedPrefix || '/%' ESCAPE '\'
-        ORDER BY last_active_at DESC
+        ORDER BY last_active_at DESC, created_at DESC
         """,
     )
     fun getByPathPrefix(
