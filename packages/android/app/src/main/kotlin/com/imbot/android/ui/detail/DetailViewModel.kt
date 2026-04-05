@@ -823,20 +823,17 @@ class DetailViewModel
                 usage.contextWindow.takeIf { it > 0 }
                     ?: session.contextWindow.takeIf { it > 0 }
                     ?: 0
-            return if (
-                inputTokens == usage.inputTokens &&
-                outputTokens == usage.outputTokens &&
-                model == usage.model &&
-                contextWindow == usage.contextWindow
-            ) {
-                usage
-            } else {
+            val resolvedUsage =
                 usage.copy(
                     inputTokens = inputTokens,
                     outputTokens = outputTokens,
                     model = model,
                     contextWindow = contextWindow,
                 )
+            return if (resolvedUsage == usage) {
+                usage
+            } else {
+                resolvedUsage
             }
         }
 

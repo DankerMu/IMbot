@@ -89,9 +89,6 @@ export async function createCompanionRuntime(options?: {
     onRuntimeUserMessage: (providerSessionId, text) => {
       runtimeUserMessageMirrorTracker.record(providerSessionId, text);
     },
-    onRuntimeSessionClosed: (providerSessionId) => {
-      runtimeUserMessageMirrorTracker.clear(providerSessionId);
-    },
     sendEvent: (message) => {
       relayClient.send(message);
     }
@@ -112,8 +109,8 @@ export async function createCompanionRuntime(options?: {
     relayUrl: config.relayUrl,
     token: config.token,
     logger,
-    consumeRuntimeUserMessageMirror: (providerSessionId, text) =>
-      runtimeUserMessageMirrorTracker.consume(providerSessionId, text),
+    consumeRuntimeUserMessageMirror: (providerSessionId, text, timestampMs) =>
+      runtimeUserMessageMirrorTracker.consume(providerSessionId, text, timestampMs),
     isProviderSessionActive: (providerSessionId) => adapter.hasActiveProviderSession(providerSessionId),
     sendEvent: (message) => {
       relayClient.send(message);

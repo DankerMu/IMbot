@@ -14,6 +14,7 @@ import test from "node:test";
 
 const require = createRequire(import.meta.url);
 const companion = require("../../packages/companion/dist/index.js");
+const { RuntimeUserMessageMirrorTracker } = require("../../packages/companion/dist/runtime/runtime-user-message-mirror-tracker.js");
 
 const silentLogger = {
   debug() {},
@@ -72,8 +73,8 @@ function createRuntimeHarness(tempDir, options = {}) {
     relayUrl: "ws://127.0.0.1:3010",
     token: "test-token",
     logger: silentLogger,
-    consumeRuntimeUserMessageMirror: (providerSessionId, text) =>
-      options.consumeRuntimeUserMessageMirror?.(providerSessionId, text) ?? false,
+    consumeRuntimeUserMessageMirror: (providerSessionId, text, timestampMs) =>
+      options.consumeRuntimeUserMessageMirror?.(providerSessionId, text, timestampMs) ?? false,
     fetchSessionMetadata: async () => ({
       last_active_at: lastActiveAtRef.value
     }),
@@ -238,6 +239,74 @@ test("TranscriptSyncer suppresses transcript user rows that mirror runtime-emitt
     assert.deepEqual(
       sentEvents.map((event) => event.event_type),
       ["assistant_message", "session_usage"]
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("TranscriptSyncer still suppresses a mirrored user row after the runtime has already exited", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-runtime-close-mirror-"));
+
+  try {
+    let nowMs = Date.parse("2026-04-04T10:01:00.000Z");
+    const tracker = new RuntimeUserMessageMirrorTracker(5 * 60 * 1000, () => nowMs);
+    tracker.record("provider-session-1", "repeat after me");
+
+    const { cwd, projectsDir, sentEvents, syncer } = createRuntimeHarness(tempDir, {
+      lastActiveAt: "2026-04-04T09:00:00.000Z",
+      active: false,
+      consumeRuntimeUserMessageMirror: (providerSessionId, text, timestampMs) =>
+        tracker.consume(providerSessionId, text, timestampMs)
+    });
+    createTranscriptFile(
+      projectsDir,
+      cwd,
+      "provider-session-1",
+      '{"type":"user","message":{"role":"user","content":"repeat after me"}}\n'
+    );
+
+    nowMs += 15_000;
+    await syncer.syncNow();
+
+    assert.deepEqual(sentEvents, []);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("TranscriptSyncer does not suppress earlier same-text transcript rows before the pending runtime mirror", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-mixed-origin-user-text-"));
+
+  try {
+    let nowMs = Date.parse("2026-04-04T10:01:30.000Z");
+    const tracker = new RuntimeUserMessageMirrorTracker(5 * 60 * 1000, () => nowMs);
+    tracker.record("provider-session-1", "same text");
+
+    const { cwd, projectsDir, sentEvents, syncer } = createRuntimeHarness(tempDir, {
+      lastActiveAt: "2026-04-04T09:00:00.000Z",
+      consumeRuntimeUserMessageMirror: (providerSessionId, text, timestampMs) =>
+        tracker.consume(providerSessionId, text, timestampMs)
+    });
+    createTranscriptFile(
+      projectsDir,
+      cwd,
+      "provider-session-1",
+      [
+        '{"type":"user","timestamp":"2026-04-04T10:01:00.000Z","message":{"role":"user","content":"same text"}}',
+        '{"type":"user","timestamp":"2026-04-04T10:01:31.000Z","message":{"role":"user","content":"same text"}}'
+      ].join("\n") + "\n"
+    );
+
+    await syncer.syncNow();
+
+    assert.deepEqual(
+      sentEvents.map((event) => event.payload),
+      [
+        {
+          text: "same text"
+        }
+      ]
     );
   } finally {
     rmSync(tempDir, { recursive: true, force: true });

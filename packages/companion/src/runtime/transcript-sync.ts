@@ -35,7 +35,11 @@ export interface TranscriptSyncerOptions {
   readonly relayUrl: string;
   readonly token: string;
   readonly sendEvent: (message: CompanionEventMessage) => Promise<void> | void;
-  readonly consumeRuntimeUserMessageMirror?: (providerSessionId: string, text: string) => boolean;
+  readonly consumeRuntimeUserMessageMirror?: (
+    providerSessionId: string,
+    text: string,
+    timestampMs: number | null,
+  ) => boolean;
   readonly isProviderSessionActive?: (providerSessionId: string) => boolean;
   readonly logger?: LoggerLike;
   readonly pollIntervalMs?: number;
@@ -184,7 +188,8 @@ export class TranscriptSyncer {
         typeof mapping.events[0].payload.text === "string" &&
         this.options.consumeRuntimeUserMessageMirror?.(
           entry.provider_session_id,
-          mapping.events[0].payload.text
+          mapping.events[0].payload.text,
+          mapping.timestampMs,
         ) === true;
       if (shouldSuppressRuntimeMirror) {
         continue;

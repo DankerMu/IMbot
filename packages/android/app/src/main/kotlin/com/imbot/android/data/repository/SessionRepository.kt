@@ -125,52 +125,7 @@ class SessionRepository
         suspend fun applyRealtimeSummaryEvent(event: ServerMessage.Event) {
             sessionWriteMutex.withLock {
                 val existing = sessionDao.getById(event.sessionId) ?: return
-                if (shouldIgnoreRealtimeSummaryEvent(existing, event)) {
-                    return
-                }
-
-                val timestamp = event.timestamp.takeIf(String::isNotBlank) ?: Instant.now().toString()
-                val updated =
-                    when (event.eventType) {
-                        "user_message",
-                        "assistant_message",
-                        ->
-                            existing.copy(
-                                updatedAt = timestamp,
-                                lastActiveAt = timestamp,
-                                summarySeq = maxOf(existing.summarySeq, event.seq),
-                            )
-
-                        "session_started" ->
-                            existing.copy(
-                                model = event.payload.stringValue("model") ?: existing.model,
-                                status = "running",
-                                updatedAt = timestamp,
-                                lastActiveAt = timestamp,
-                                summarySeq = maxOf(existing.summarySeq, event.seq),
-                            )
-
-                        "session_usage" ->
-                            existing.copy(
-                                model = event.payload.stringValue("model") ?: existing.model,
-                                inputTokens = event.payload.intValue("input_tokens") ?: existing.inputTokens,
-                                outputTokens = event.payload.intValue("output_tokens") ?: existing.outputTokens,
-                                contextWindow = event.payload.intValue("context_window") ?: existing.contextWindow,
-                                updatedAt = timestamp,
-                                lastActiveAt = timestamp,
-                                summarySeq = maxOf(existing.summarySeq, event.seq),
-                            )
-
-                        "session_idle" ->
-                            existing.copy(
-                                status = "idle",
-                                updatedAt = timestamp,
-                                lastActiveAt = timestamp,
-                                summarySeq = maxOf(existing.summarySeq, event.seq),
-                            )
-
-                        else -> null
-                    } ?: return
+                val updated = buildRealtimeSummaryUpdate(existing, event) ?: return
 
                 sessionDao.insertAll(listOf(mergeSessionSnapshot(existing = existing, incoming = updated)))
             }
@@ -278,29 +233,87 @@ private fun compareSessionSnapshotFreshness(
     first: SessionEntity,
     second: SessionEntity,
 ): Int {
-    compareTimestampStrings(
-        first.lastActiveAt,
-        second.lastActiveAt,
-    ).takeIf { it != 0 }?.let { return it }
-    compareTimestampStrings(
-        first.updatedAt,
-        second.updatedAt,
-    ).takeIf { it != 0 }?.let { return it }
-    return first.summarySeq.compareTo(second.summarySeq)
+    val lastActiveComparison =
+        compareTimestampStrings(
+            first.lastActiveAt,
+            second.lastActiveAt,
+        )
+    val updatedComparison =
+        compareTimestampStrings(
+            first.updatedAt,
+            second.updatedAt,
+        )
+    return when {
+        lastActiveComparison != 0 -> lastActiveComparison
+        updatedComparison != 0 -> updatedComparison
+        else -> first.summarySeq.compareTo(second.summarySeq)
+    }
+}
+
+private fun buildRealtimeSummaryUpdate(
+    existing: SessionEntity,
+    event: ServerMessage.Event,
+): SessionEntity? {
+    if (shouldIgnoreRealtimeSummaryEvent(existing, event)) {
+        return null
+    }
+
+    val timestamp = event.timestamp.takeIf(String::isNotBlank) ?: Instant.now().toString()
+    val summarySeq = maxOf(existing.summarySeq, event.seq)
+    return when (event.eventType) {
+        "user_message",
+        "assistant_message",
+        ->
+            existing.copy(
+                updatedAt = timestamp,
+                lastActiveAt = timestamp,
+                summarySeq = summarySeq,
+            )
+
+        "session_started" ->
+            existing.copy(
+                model = event.payload.stringValue("model") ?: existing.model,
+                status = "running",
+                updatedAt = timestamp,
+                lastActiveAt = timestamp,
+                summarySeq = summarySeq,
+            )
+
+        "session_usage" ->
+            existing.copy(
+                model = event.payload.stringValue("model") ?: existing.model,
+                inputTokens = event.payload.intValue("input_tokens") ?: existing.inputTokens,
+                outputTokens = event.payload.intValue("output_tokens") ?: existing.outputTokens,
+                contextWindow = event.payload.intValue("context_window") ?: existing.contextWindow,
+                updatedAt = timestamp,
+                lastActiveAt = timestamp,
+                summarySeq = summarySeq,
+            )
+
+        "session_idle" ->
+            existing.copy(
+                status = "idle",
+                updatedAt = timestamp,
+                lastActiveAt = timestamp,
+                summarySeq = summarySeq,
+            )
+
+        else -> null
+    }
 }
 
 private fun shouldIgnoreRealtimeSummaryEvent(
     existing: SessionEntity,
     event: ServerMessage.Event,
-): Boolean {
-    if (event.seq > 0 && event.seq <= existing.summarySeq) {
-        return true
-    }
-
-    val eventTimestamp = event.timestamp.takeIf(String::isNotBlank) ?: return false
-    val freshnessTimestamp = maxTimestampString(existing.lastActiveAt, existing.updatedAt)
-    return compareTimestampStrings(eventTimestamp, freshnessTimestamp) < 0
-}
+): Boolean =
+    (event.seq > 0 && event.seq <= existing.summarySeq) ||
+        event.timestamp
+            .takeIf(String::isNotBlank)
+            ?.let { eventTimestamp ->
+                val freshnessTimestamp = maxTimestampString(existing.lastActiveAt, existing.updatedAt)
+                compareTimestampStrings(eventTimestamp, freshnessTimestamp) < 0
+            }
+            ?: false
 
 private fun maxTimestampString(
     first: String,
