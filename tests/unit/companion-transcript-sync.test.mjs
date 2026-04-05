@@ -264,6 +264,57 @@ test("TranscriptSyncer buffers undecidable untimestamped rows until a later line
   }
 });
 
+test("TranscriptSyncer replays same-scan untimestamped rows once a later timestamped line crosses the cutoff", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-same-scan-untimestamped-boundary-"));
+
+  try {
+    const { cwd, projectsDir, sentEvents, syncer } = createRuntimeHarness(tempDir, {
+      lastActiveAt: "2026-04-04T10:00:30.000Z"
+    });
+    createTranscriptFile(
+      projectsDir,
+      cwd,
+      "provider-session-1",
+      [
+        '{"type":"user","message":{"role":"user","content":"new untimestamped user"}}',
+        '{"type":"assistant","timestamp":"2026-04-04T10:01:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"new answer"}],"usage":{"input_tokens":42,"output_tokens":9}}}'
+      ].join("\n") + "\n"
+    );
+
+    await syncer.syncNow();
+
+    assert.deepEqual(
+      sentEvents.map((event) => ({
+        type: event.event_type,
+        payload: event.payload
+      })),
+      [
+        {
+          type: "user_message",
+          payload: {
+            text: "new untimestamped user"
+          }
+        },
+        {
+          type: "assistant_message",
+          payload: {
+            text: "new answer"
+          }
+        },
+        {
+          type: "session_usage",
+          payload: {
+            input_tokens: 42,
+            output_tokens: 9
+          }
+        }
+      ]
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("TranscriptSyncer does not replay a stale untimestamped startup row once an old timestamped separator is observed", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-stale-untimestamped-startup-"));
 

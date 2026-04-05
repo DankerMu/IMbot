@@ -214,7 +214,8 @@ export class TranscriptSyncer {
         }
 
         cutoffSatisfied = true;
-        if (bufferedRowsOriginatedBeforeThisScan) {
+        const crossingIntoAssistantReply = mapping.events.some((event) => event.eventType === "assistant_message");
+        if (bufferedRowsOriginatedBeforeThisScan || crossingIntoAssistantReply) {
           while (pendingBeforeCutoff.length > 0) {
             const buffered = pendingBeforeCutoff.shift();
             if (buffered) {
