@@ -77,6 +77,7 @@ export class SessionReconciler {
     }
 
     const pendingProviderSessionIds = new Set<string>();
+    const bootstrapCandidateProviderSessionIds = new Set<string>();
     const sessionsToReport: DiscoveredSessionRecord[] = [];
     const indexUpdates = new Map<string, SessionIndexEntry>();
     let skipped = 0;
@@ -134,7 +135,7 @@ export class SessionReconciler {
         };
         sessionsToReport.push(discoveredRecord);
         if (shouldBootstrapIndexedSession) {
-          this.bootstrappedProviderSessionIds.add(session.provider_session_id);
+          bootstrapCandidateProviderSessionIds.add(session.provider_session_id);
         }
 
         if (indexed) {
@@ -179,9 +180,8 @@ export class SessionReconciler {
         filteredIndexUpdates.set(key, value);
       }
     }
-    this.options.sessionIndex.setMany(filteredIndexUpdates);
-
     let ackData: ReportLocalSessionsAckData | null = null;
+    let reportSucceeded = false;
     try {
       const reqId = randomUUID();
       ackData =
@@ -199,8 +199,16 @@ export class SessionReconciler {
             }))
           })
         )) ?? null;
+      reportSucceeded = true;
     } catch (error) {
       this.logger.warn?.(`Failed to promote local sessions from relay ack: ${formatError(error)}`);
+    }
+
+    if (reportSucceeded) {
+      this.options.sessionIndex.setMany(filteredIndexUpdates);
+      for (const providerSessionId of bootstrapCandidateProviderSessionIds) {
+        this.bootstrappedProviderSessionIds.add(providerSessionId);
+      }
     }
 
     this.promoteAckedSessions(ackData, reportedProviderSessionIds);
