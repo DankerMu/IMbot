@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.imbot.android.ui.home
 
 import androidx.room.DatabaseConfiguration
@@ -64,7 +66,15 @@ private class FakeHomeRelayHttpClient : RelayHttpClient(OkHttpClient()) {
         token: String,
         limit: Int,
         offset: Int,
-    ): Result<RelaySessionPage> = Result.success(RelaySessionPage(sessions = emptyList(), total = 0, limit = limit, offset = offset))
+    ): Result<RelaySessionPage> =
+        Result.success(
+            RelaySessionPage(
+                sessions = emptyList(),
+                total = 0,
+                limit = limit,
+                offset = offset,
+            ),
+        )
 }
 
 private class FakeAppDatabase(

@@ -1,3 +1,5 @@
+@file:Suppress("TooManyFunctions")
+
 package com.imbot.android.data.repository
 
 import androidx.room.withTransaction
@@ -165,47 +167,7 @@ class SessionRepository
         }
     }
 
-internal fun computeStaleSessionIds(
-    localPage: List<SessionEntity>,
-    remoteSessionIds: Set<String>,
-): List<String> =
-    localPage
-        .asSequence()
-        .filterNot { session -> session.id in remoteSessionIds }
-        .filterNot { session -> session.status == STATUS_RUNNING || session.status == STATUS_QUEUED }
-        .map(SessionEntity::id)
-        .toList()
-
-internal suspend fun buildMergedSessionSnapshots(
-    sessionDao: SessionDao,
-    remoteSessions: List<RelaySession>,
-): List<SessionEntity> {
-    val existingSessionsById =
-        mutableMapOf<String, SessionEntity>().apply {
-            remoteSessions
-                .asSequence()
-                .map(RelaySession::id)
-                .distinct()
-                .forEach { sessionId ->
-                    sessionDao.getById(sessionId)?.let { session ->
-                        put(sessionId, session)
-                    }
-                }
-        }
-
-    return remoteSessions.map { session ->
-        val existing = existingSessionsById[session.id]
-        mergeSessionSnapshot(
-            existing = existing,
-            incoming =
-                session.toEntity(
-                    summarySeq = existing?.summarySeq ?: 0,
-                ),
-        )
-    }
-}
-
-private fun RelaySession.toEntity(summarySeq: Int = 0) =
+internal fun RelaySession.toEntity(summarySeq: Int = 0) =
     SessionEntity(
         id = id,
         provider = provider,
@@ -224,7 +186,7 @@ private fun RelaySession.toEntity(summarySeq: Int = 0) =
         lastActiveAt = lastActiveAt,
     )
 
-private fun mergeSessionSnapshot(
+internal fun mergeSessionSnapshot(
     existing: SessionEntity?,
     incoming: SessionEntity,
 ): SessionEntity {
@@ -385,5 +347,3 @@ private fun JSONObject?.intValue(key: String): Int? {
 }
 
 private const val DEFAULT_SESSION_PAGE_LIMIT = 200
-private const val STATUS_QUEUED = "queued"
-private const val STATUS_RUNNING = "running"

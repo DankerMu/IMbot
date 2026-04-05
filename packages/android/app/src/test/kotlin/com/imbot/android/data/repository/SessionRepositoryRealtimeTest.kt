@@ -1,3 +1,5 @@
+@file:Suppress("MaxLineLength")
+
 package com.imbot.android.data.repository
 
 import android.content.SharedPreferences
@@ -370,6 +372,7 @@ private class InMemorySessionDao : SessionDao {
     }
 }
 
+@Suppress("MaxLineLength")
 private class FakeSharedPreferences : SharedPreferences {
     private val values = linkedMapOf<String, Any?>()
 
