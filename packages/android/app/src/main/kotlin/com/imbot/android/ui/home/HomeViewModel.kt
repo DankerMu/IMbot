@@ -224,15 +224,21 @@ class HomeViewModel
             }
         }
 
-    private fun refresh(
-        initialLoad: Boolean,
-        userVisible: Boolean,
-    ) {
-        if (queueRefreshIfRunning(userVisible)) {
+        private fun refresh(
+            initialLoad: Boolean,
+            userVisible: Boolean,
+        ) {
+            if (queueRefreshIfRunning(userVisible)) {
                 return
             }
 
-        refreshJob =
+            refreshJob = launchRefreshJob(initialLoad, userVisible)
+        }
+
+        private fun launchRefreshJob(
+            initialLoad: Boolean,
+            userVisible: Boolean,
+        ): Job =
             viewModelScope.launch {
                 try {
                     runRefreshLoop(
@@ -245,35 +251,34 @@ class HomeViewModel
                     refreshJob = null
                 }
             }
-    }
 
-    private suspend fun runRefreshLoop(initialRequest: RefreshRequest) {
-        var request: RefreshRequest? = initialRequest
-        while (request != null) {
-            performRefresh(request)
-            request = consumePendingRefresh()
+        private suspend fun runRefreshLoop(initialRequest: RefreshRequest) {
+            var request: RefreshRequest? = initialRequest
+            while (request != null) {
+                performRefresh(request)
+                request = consumePendingRefresh()
+            }
         }
-    }
 
-    private suspend fun performRefresh(request: RefreshRequest) {
-        updateRefreshUiState(
-            initialLoad = request.initialLoad,
-            userVisible = request.userVisible,
-        )
-
-        runCatching {
-            sessionRepository.refreshFromApi()
-        }.onFailure { error ->
-            handleRefreshFailure(
-                error = error,
+        private suspend fun performRefresh(request: RefreshRequest) {
+            updateRefreshUiState(
                 initialLoad = request.initialLoad,
                 userVisible = request.userVisible,
             )
-        }
 
-        initialRefreshFinished = true
-        publishState(isRefreshing = false)
-    }
+            runCatching {
+                sessionRepository.refreshFromApi()
+            }.onFailure { error ->
+                handleRefreshFailure(
+                    error = error,
+                    initialLoad = request.initialLoad,
+                    userVisible = request.userVisible,
+                )
+            }
+
+            initialRefreshFinished = true
+            publishState(isRefreshing = false)
+        }
 
         private fun queueRefreshIfRunning(userVisible: Boolean): Boolean {
             if (refreshJob?.isActive != true) {
@@ -318,26 +323,26 @@ class HomeViewModel
             _uiState.update { current -> current.copy(error = message) }
         }
 
-    private fun consumePendingRefresh(): RefreshRequest? {
-        val shouldRunPendingRefresh = pendingRefreshRequested
-        val pendingUserVisible = pendingRefreshUserVisible
-        pendingRefreshRequested = false
-        pendingRefreshUserVisible = false
+        private fun consumePendingRefresh(): RefreshRequest? {
+            val shouldRunPendingRefresh = pendingRefreshRequested
+            val pendingUserVisible = pendingRefreshUserVisible
+            pendingRefreshRequested = false
+            pendingRefreshUserVisible = false
 
             if (!shouldRunPendingRefresh) {
                 return null
             }
 
-        return RefreshRequest(
-            initialLoad = false,
-            userVisible = pendingUserVisible,
-        )
-    }
+            return RefreshRequest(
+                initialLoad = false,
+                userVisible = pendingUserVisible,
+            )
+        }
 
-    private data class RefreshRequest(
-        val initialLoad: Boolean,
-        val userVisible: Boolean,
-    )
+        private data class RefreshRequest(
+            val initialLoad: Boolean,
+            val userVisible: Boolean,
+        )
 
         private fun publishState(isRefreshing: Boolean = _uiState.value.isRefreshing) {
             val currentFilter = _uiState.value.filter
