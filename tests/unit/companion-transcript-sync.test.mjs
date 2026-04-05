@@ -106,7 +106,7 @@ test("TranscriptSyncer only imports transcript entries newer than relay last_act
         '{"type":"user","timestamp":"2026-04-04T10:00:05.000Z","message":{"role":"user","content":"old user"}}',
         '{"type":"assistant","timestamp":"2026-04-04T10:00:06.000Z","message":{"role":"assistant","content":[{"type":"text","text":"old answer"}],"usage":{"input_tokens":12,"output_tokens":4}}}',
         '{"type":"user","timestamp":"2026-04-04T10:01:00.000Z","message":{"role":"user","content":"new user"}}',
-        '{"type":"assistant","timestamp":"2026-04-04T10:01:02.000Z","message":{"role":"assistant","model":"glm-5","content":[{"type":"text","text":"new answer"}],"usage":{"input_tokens":42,"output_tokens":9,"cache_read_input_tokens":7}}}'
+        '{"type":"assistant","timestamp":"2026-04-04T10:01:02.000Z","modelUsage":{"glm-5":{"contextWindow":200000}},"message":{"role":"assistant","model":"glm-5","content":[{"type":"text","text":"new answer"}],"usage":{"input_tokens":42,"output_tokens":9,"cache_read_input_tokens":7}}}'
       ].join("\n") + "\n"
     );
 
@@ -140,6 +140,7 @@ test("TranscriptSyncer only imports transcript entries newer than relay last_act
             input_tokens: 42,
             output_tokens: 9,
             cache_read_input_tokens: 7,
+            context_window: 200000,
             model: "glm-5"
           }
         }

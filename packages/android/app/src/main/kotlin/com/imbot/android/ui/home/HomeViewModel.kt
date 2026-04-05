@@ -201,11 +201,19 @@ class HomeViewModel
         private fun observeServerMessages() {
             viewModelScope.launch {
                 relayWsClient.messages.collect { message ->
-                    if (message is ServerMessage.Status) {
-                        sessionRepository.updateSessionStatus(
-                            sessionId = message.sessionId,
-                            status = message.status,
-                        )
+                    when (message) {
+                        is ServerMessage.Status ->
+                            sessionRepository.updateSessionStatus(
+                                sessionId = message.sessionId,
+                                status = message.status,
+                            )
+
+                        is ServerMessage.Event ->
+                            if (shouldApplyRealtimeSummaryEvent(message.eventType)) {
+                                sessionRepository.applyRealtimeSummaryEvent(message)
+                            }
+
+                        else -> Unit
                     }
                 }
             }
@@ -297,3 +305,10 @@ internal fun reconcileSelection(
     val visibleIds = visibleSessions.mapTo(hashSetOf(), SessionEntity::id)
     return selectedSessionIds.filterTo(linkedSetOf()) { sessionId -> sessionId in visibleIds }
 }
+
+internal fun shouldApplyRealtimeSummaryEvent(eventType: String): Boolean =
+    eventType == "user_message" ||
+        eventType == "assistant_message" ||
+        eventType == "session_started" ||
+        eventType == "session_usage" ||
+        eventType == "session_idle"

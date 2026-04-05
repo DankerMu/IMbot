@@ -160,6 +160,9 @@
       "initial_prompt": "帮我看一下这个项目的架构",
       "model": "opus",
       "status": "running",
+      "input_tokens": 120000,
+      "output_tokens": 3400,
+      "context_window": 1000000,
       "local_available": true,
       "created_at": "2026-03-28T13:00:00Z",
       "updated_at": "2026-03-28T13:05:00Z",
@@ -174,7 +177,7 @@
 
 ### GET /v1/sessions/:id
 
-会话详情。返回对象包含 `local_available: boolean`，表示当前 session 是否在 companion 主机上有本地 CLI 持久化数据。
+会话详情。返回对象包含 `local_available: boolean`，表示当前 session 是否在 companion 主机上有本地 CLI 持久化数据；也包含 `input_tokens` / `output_tokens` / `context_window` 三个最新 usage summary 字段，供 Android session list 和 detail 顶栏显示真实上下文占用。
 
 **Response 200**: 单个 session 对象（同上 + `provider_session_id`, `permission_mode`, `error_message`, `error_code`）。
 
@@ -209,6 +212,9 @@
     "initial_prompt": "帮我看一下这个项目的架构",
     "model": "opus",
     "status": "running",
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "context_window": null,
     "local_available": true,
     "created_at": "2026-03-28T13:10:00Z"
   }

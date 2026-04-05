@@ -10,18 +10,15 @@ Android SHALL maintain a `SessionUsageState` model that tracks token usage for t
 - **AND** `totalTokens = 0`, `usagePercent = 0f`
 
 #### Scenario: Usage state with tokens
-- **GIVEN** `SessionUsageState(inputTokens = 12500, outputTokens = 3200, model = "claude-sonnet-4-6")`
+- **GIVEN** `SessionUsageState(inputTokens = 12500, outputTokens = 3200, contextWindow = 200000, model = "claude-sonnet-4-6")`
 - **THEN** `totalTokens = 15700`
 - **AND** `contextWindowSize = 200000`
 - **AND** `usagePercent = 0.0785f`
 
-#### Scenario: Context window for known models
-- **GIVEN** model name contains "opus", "sonnet", or "haiku"
-- **THEN** `contextWindowSize = 200000`
-
-#### Scenario: Context window for unknown models
-- **GIVEN** model name is null or unrecognized
-- **THEN** `contextWindowSize = 200000` (conservative default)
+#### Scenario: Context window is absent
+- **GIVEN** `SessionUsageState(inputTokens = 12500, outputTokens = 3200, contextWindow = 0)`
+- **THEN** `usagePercent = 0f`
+- **AND** Android does not infer a total window from the model name alone
 
 ### Requirement: EventProcessor handles session_usage events
 
@@ -31,8 +28,8 @@ Android SHALL maintain a `SessionUsageState` model that tracks token usage for t
 - **AND** usage data is extracted and made available to ViewModel
 
 #### Scenario: session_usage payload extraction
-- **WHEN** event payload contains `{ input_tokens: 12500, output_tokens: 3200, model: "claude-sonnet-4-6" }`
-- **THEN** EventProcessor produces `SessionUsageState(12500, 3200, 0, "claude-sonnet-4-6")`
+- **WHEN** event payload contains `{ input_tokens: 12500, output_tokens: 3200, context_window: 200000, model: "claude-sonnet-4-6" }`
+- **THEN** EventProcessor produces a `SessionUsageState` carrying those exact values
 
 #### Scenario: Consecutive session_usage events
 - **WHEN** two `session_usage` events arrive
@@ -82,7 +79,7 @@ Android SHALL maintain a `SessionUsageState` model that tracks token usage for t
 
 #### Scenario: Token count display format
 - **GIVEN** `totalTokens = 12500` and `contextWindowSize = 200000`
-- **THEN** displays `"12.5k / 200.0k"`
+- **THEN** displays `"12.5k / 200k"`
 
 #### Scenario: Progress bar color — normal
 - **GIVEN** `usagePercent <= 0.80f`
@@ -111,7 +108,7 @@ Android SHALL maintain a `SessionUsageState` model that tracks token usage for t
 
 #### Scenario: Format tokens = 1000 exactly
 - **GIVEN** count = 1000
-- **THEN** returns `"1.0k"`
+- **THEN** returns `"1k"`
 
 #### Scenario: Format tokens in millions
 - **GIVEN** count = 1500000
@@ -131,3 +128,16 @@ Android SHALL maintain a `SessionUsageState` model that tracks token usage for t
 - **WHEN** app is in dark theme
 - **THEN** UsageIndicator colors adapt (green/orange/red on dark surface)
 - **AND** progress bar track uses `MaterialTheme.colorScheme.surfaceVariant`
+
+### Requirement: Session list shows persisted usage summary
+
+#### Scenario: Session card renders real model and usage pills
+- **GIVEN** relay session summary contains `model = "glm-5"`, `input_tokens = 42000`, `output_tokens = 9000`, `context_window = 200000`
+- **WHEN** SessionCard renders
+- **THEN** it shows a model pill with `glm-5`
+- **AND** it shows a usage pill with `51k/200k`
+
+#### Scenario: Session card hides usage pill without a real context window
+- **GIVEN** relay session summary contains tokens but `context_window = 0`
+- **WHEN** SessionCard renders
+- **THEN** it does not show a `[used/total]` pill derived from hardcoded model knowledge

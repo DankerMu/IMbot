@@ -36,11 +36,14 @@ class DetailUtilsTest {
     }
 
     @Test
-    fun `modelContextWindow falls back to default known window`() {
-        assertEquals(200_000, modelContextWindow("claude-sonnet-4-6"))
-        assertEquals(200_000, modelContextWindow("claude-opus-4-6[1m]"))
-        assertEquals(200_000, modelContextWindow("sonnet"))
-        assertEquals(200_000, modelContextWindow(null))
+    fun `SessionUsageState keeps usage percent at zero without a real context window`() {
+        val usage =
+            SessionUsageState(
+                inputTokens = 12_500,
+                outputTokens = 3_200,
+            )
+
+        assertEquals(0f, usage.usagePercent, 0.0001f)
     }
 
     @Test
@@ -58,6 +61,11 @@ class DetailUtilsTest {
     @Test
     fun `formatTokenCount formats thousands`() {
         assertEquals("12.5k", formatTokenCount(12_500))
+    }
+
+    @Test
+    fun `formatTokenCount trims trailing zero for exact thousands`() {
+        assertEquals("200k", formatTokenCount(200_000))
     }
 
     @Test

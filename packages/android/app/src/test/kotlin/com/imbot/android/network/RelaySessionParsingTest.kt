@@ -62,6 +62,34 @@ class RelaySessionParsingTest {
     }
 
     @Test
+    fun `parses usage summary fields from relay payload`() {
+        val session =
+            JSONObject(
+                """
+                {
+                  "id": "sess-usage",
+                  "provider": "book",
+                  "host_id": "macbook-1",
+                  "workspace_cwd": "/tmp/demo",
+                  "model": "glm-5",
+                  "status": "completed",
+                  "input_tokens": 42000,
+                  "output_tokens": 9000,
+                  "context_window": 200000,
+                  "created_at": "2026-04-04T10:00:00Z",
+                  "updated_at": "2026-04-04T10:05:00Z",
+                  "last_active_at": "2026-04-04T10:05:00Z"
+                }
+                """.trimIndent(),
+            ).toRelaySession()
+
+        assertEquals("glm-5", session.model)
+        assertEquals(42_000, session.inputTokens)
+        assertEquals(9_000, session.outputTokens)
+        assertEquals(200_000, session.contextWindow)
+    }
+
+    @Test
     fun `parses json null optional session fields as null`() {
         val session =
             JSONObject(

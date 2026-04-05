@@ -17,7 +17,7 @@
 
 ### 1.2 新增 Usage Payload 类型（文档用途）
 - [ ] `packages/wire/src/models.ts` — 新增 `SessionUsagePayload` 接口
-- [ ] 字段：`input_tokens: number`, `output_tokens: number`, `cache_creation_input_tokens?: number`, `cache_read_input_tokens?: number`, `model?: string`
+- [ ] 字段：`input_tokens: number`, `output_tokens: number`, `cache_creation_input_tokens?: number`, `cache_read_input_tokens?: number`, `context_window?: number`, `model?: string`
 
 ## 2. Companion
 
@@ -49,10 +49,10 @@
 - [ ] 确认 wire 的 `EVENT_TYPES` 校验通过
 - [ ] 确认 WS 广播正确发送 `session_usage` 事件给所有订阅该 session 的客户端
 
-### 3.2 事件持久化决策
-- [ ] `session_usage` 事件 **不持久化** 到 events 表（它是高频临时数据）
-- [ ] 检查 `insertAndBroadcastEvent()` 是否总是持久化——如果是，需要新增一个 `broadcastOnly` 路径或在事件类型上做分支
-- [ ] 或者：简单地允许持久化（事件数量不多，每 turn 最多 1 条）—— 设计决策取决于性能考量
+### 3.2 会话 summary 持久化
+- [ ] `packages/relay/src/db/init.ts` — `sessions` 表增加 `input_tokens`, `output_tokens`, `context_window`
+- [ ] `packages/relay/src/session/orchestrator.ts` — 在 `session_usage` 到达时更新 `sessions` 行上的最新 usage snapshot
+- [ ] session list / detail fallback 读取 `sessions` summary，而不是按模型名硬编码 context window
 
 ## 4. Android 数据层
 
@@ -67,7 +67,7 @@
   )
   ```
 - [ ] 新增计算属性: `totalTokens`, `contextWindowSize`, `usagePercent`
-- [ ] 新增 `modelContextWindow(model: String?): Int` 函数，返回已知模型的 context window 大小
+- [ ] `contextWindowSize` 优先来自 `session_usage.context_window` 或 relay session summary；拿不到时保持 `0`，不做模型名硬编码推断
 
 ### 4.2 `DetailUiState` 扩展
 - [ ] `packages/android/app/src/main/kotlin/com/imbot/android/ui/detail/DetailViewModel.kt` — `DetailUiState` 增加 `usage: SessionUsageState = SessionUsageState()`
@@ -112,9 +112,14 @@
 - [ ] 确保不与现有 provider badge / status badge 冲突
 - [ ] 深色/浅色主题适配
 
-### 5.4 Token 格式化工具函数
+### 5.4 SessionCard summary pills
+- [ ] `packages/android/app/src/main/kotlin/com/imbot/android/ui/home/SessionCard.kt` — 使用 relay 返回的 `model`, `input_tokens`, `output_tokens`, `context_window`
+- [ ] 显示规则：有 model 显示 `[Opus]` / `[glm-5]`；有真实总量时显示 `[55k/200k]`
+- [ ] 不允许按模型名硬编码 context window 作为 session list 的总量来源
+
+### 5.5 Token 格式化工具函数
 - [ ] `packages/android/app/src/main/kotlin/com/imbot/android/ui/detail/DetailUtils.kt` — 新增 `formatTokenCount(count: Int): String`
-- [ ] ≥1,000,000 → "1.0M"
+- [ ] ≥1,000,000 → "1M" / "1.5M"（去除无意义 `.0`）
 - [ ] ≥1,000 → "12.5k"
 - [ ] <1,000 → "123"
 
@@ -131,17 +136,16 @@
 ### 6.2 Unit Tests — Android SessionUsageState
 
 - [ ] `SessionUsageState(inputTokens = 12500, outputTokens = 3200)` → totalTokens = 15700
-- [ ] `SessionUsageState(model = "claude-sonnet-4-6")` → contextWindowSize = 200000
-- [ ] `SessionUsageState(model = null)` → contextWindowSize = 200000（默认）
+- [ ] `SessionUsageState(model = "claude-sonnet-4-6")` 且无真实 `context_window` → usagePercent = 0f
 - [ ] `usagePercent` 计算：15700 / 200000 = 0.0785
 - [ ] `usagePercent` 上界: totalTokens > contextWindowSize → coerce to 1.0
 
 ### 6.3 Unit Tests — formatTokenCount
 
 - [ ] formatTokenCount(500) → "500"
-- [ ] formatTokenCount(1000) → "1.0k"
+- [ ] formatTokenCount(1000) → "1k"
 - [ ] formatTokenCount(12500) → "12.5k"
-- [ ] formatTokenCount(200000) → "200.0k"
+- [ ] formatTokenCount(200000) → "200k"
 - [ ] formatTokenCount(1500000) → "1.5M"
 - [ ] formatTokenCount(0) → "0"
 

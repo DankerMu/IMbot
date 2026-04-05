@@ -303,7 +303,11 @@ function extractUsagePayload(record: Record<string, unknown>): SessionUsagePaylo
   }
 
   const inputTokens = getNumber(usage.input_tokens) ?? 0;
-  const model = getString(message?.model) ?? undefined;
+  const [modelName, modelUsageEntry] = firstRecordEntry(
+    asRecord(record.modelUsage) ?? asRecord(message?.modelUsage)
+  );
+  const modelUsage = asRecord(modelUsageEntry);
+  const model = modelName ?? getString(message?.model) ?? undefined;
   return {
     input_tokens: inputTokens,
     output_tokens: outputTokens,
@@ -313,8 +317,20 @@ function extractUsagePayload(record: Record<string, unknown>): SessionUsagePaylo
     ...(hasNumber(usage.cache_read_input_tokens)
       ? { cache_read_input_tokens: getNumber(usage.cache_read_input_tokens) }
       : {}),
+    ...(hasNumber(modelUsage?.contextWindow) ? { context_window: getNumber(modelUsage?.contextWindow) } : {}),
     ...(model ? { model } : {})
   };
+}
+
+function firstRecordEntry(
+  value: Record<string, unknown> | null
+): [string | undefined, unknown] {
+  if (!value) {
+    return [undefined, undefined];
+  }
+
+  const [key, entry] = Object.entries(value)[0] ?? [];
+  return [key, entry];
 }
 
 function extractTranscriptText(record: Record<string, unknown>): string | null {

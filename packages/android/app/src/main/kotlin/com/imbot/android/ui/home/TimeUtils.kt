@@ -1,9 +1,11 @@
 package com.imbot.android.ui.home
 
+import com.imbot.android.ui.detail.formatTokenCount
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import java.util.Locale
 
 fun formatRelativeTime(isoString: String): String = formatRelativeTime(isoString, Instant.now())
 
@@ -61,6 +63,33 @@ internal fun summarizePrompt(
     }
 }
 
+internal fun sessionModelDisplayName(model: String?): String? {
+    val normalizedModel = model.orEmpty().trim().substringBefore("[")
+    if (normalizedModel.isBlank()) {
+        return null
+    }
+
+    return when {
+        normalizedModel.contains("opus", ignoreCase = true) -> "Opus"
+        normalizedModel.contains("sonnet", ignoreCase = true) -> "Sonnet"
+        normalizedModel.contains("haiku", ignoreCase = true) -> "Haiku"
+        else -> normalizedModel
+    }
+}
+
+internal fun sessionUsageSummaryLabel(
+    inputTokens: Int,
+    outputTokens: Int,
+    contextWindow: Int,
+): String? {
+    val totalTokens = inputTokens + outputTokens
+    if (totalTokens <= 0 || contextWindow <= 0) {
+        return null
+    }
+
+    return "${formatTokenCount(totalTokens)}/${formatTokenCount(contextWindow)}"
+}
+
 internal fun isLiveStatus(status: String): Boolean = status == "queued" || status == "running" || status == "idle"
 
-internal fun isRunningStatus(status: String): Boolean = status == "running" || status == "idle"
+internal fun isRunningStatus(status: String): Boolean = status == "running"

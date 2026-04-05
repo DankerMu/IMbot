@@ -9,7 +9,9 @@ import com.imbot.android.data.local.escapeSqlLikePattern
 import com.imbot.android.data.relayValidationError
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelaySession
+import com.imbot.android.network.ServerMessage
 import kotlinx.coroutines.flow.Flow
+import org.json.JSONObject
 import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -89,6 +91,54 @@ class SessionRepository
             )
         }
 
+        suspend fun upsertSessionSnapshot(session: RelaySession) {
+            sessionDao.insertAll(listOf(session.toEntity()))
+        }
+
+        suspend fun applyRealtimeSummaryEvent(event: ServerMessage.Event) {
+            val existing = sessionDao.getById(event.sessionId) ?: return
+            val timestamp = event.timestamp.takeIf(String::isNotBlank) ?: Instant.now().toString()
+            val updated =
+                when (event.eventType) {
+                    "user_message",
+                    "assistant_message",
+                    ->
+                        existing.copy(
+                            updatedAt = timestamp,
+                            lastActiveAt = timestamp,
+                        )
+
+                    "session_started" ->
+                        existing.copy(
+                            model = event.payload.stringValue("model") ?: existing.model,
+                            status = "running",
+                            updatedAt = timestamp,
+                            lastActiveAt = timestamp,
+                        )
+
+                    "session_usage" ->
+                        existing.copy(
+                            model = event.payload.stringValue("model") ?: existing.model,
+                            inputTokens = event.payload.intValue("input_tokens") ?: existing.inputTokens,
+                            outputTokens = event.payload.intValue("output_tokens") ?: existing.outputTokens,
+                            contextWindow = event.payload.intValue("context_window") ?: existing.contextWindow,
+                            updatedAt = timestamp,
+                            lastActiveAt = timestamp,
+                        )
+
+                    "session_idle" ->
+                        existing.copy(
+                            status = "idle",
+                            updatedAt = timestamp,
+                            lastActiveAt = timestamp,
+                        )
+
+                    else -> null
+                } ?: return
+
+            sessionDao.insertAll(listOf(updated))
+        }
+
         suspend fun deleteSession(sessionId: String) {
             val settings = settingsRepository.load()
             val relayValidationError = settings.relayValidationError()
@@ -150,10 +200,42 @@ private fun RelaySession.toEntity() =
         model = model,
         status = status,
         errorMessage = errorMessage,
+        inputTokens = inputTokens,
+        outputTokens = outputTokens,
+        contextWindow = contextWindow,
         createdAt = createdAt,
         updatedAt = updatedAt,
         lastActiveAt = lastActiveAt,
     )
+
+private fun JSONObject?.stringValue(key: String): String? {
+    val payload = this ?: return null
+    val value = payload.opt(key)
+    return when (value) {
+        null,
+        JSONObject.NULL,
+        -> null
+
+        is String -> value.ifBlank { null }
+        else -> value.toString().ifBlank { null }
+    }
+}
+
+private fun JSONObject?.intValue(key: String): Int? {
+    val payload = this ?: return null
+    val value = payload.opt(key)
+    return when (value) {
+        null,
+        JSONObject.NULL,
+        -> null
+
+        is Int -> value
+        is Long -> value.toInt()
+        is Number -> value.toInt()
+        is String -> value.toIntOrNull()
+        else -> null
+    }
+}
 
 private const val DEFAULT_SESSION_PAGE_LIMIT = 200
 private const val STATUS_QUEUED = "queued"

@@ -629,7 +629,7 @@ private fun JSONObject?.toSessionUsageState(): SessionUsageState? =
             cacheCreationTokens = payload.intValue("cache_creation_input_tokens") ?: 0,
             cacheReadTokens = payload.intValue("cache_read_input_tokens") ?: 0,
             totalCostUsd = payload.doubleValue("total_cost_usd") ?: 0.0,
-            contextWindow = payload.intValue("context_window") ?: modelContextWindow(model),
+            contextWindow = payload.intValue("context_window") ?: 0,
             model = model,
         )
     }

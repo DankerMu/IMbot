@@ -200,6 +200,127 @@ test("initializeDatabase migrates existing sessions tables so idle becomes a val
   }
 });
 
+test("initializeDatabase backfills session summary columns from latest session_usage events", () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-summary-backfill-"));
+  const dbPath = path.join(tempDir, "imbot.db");
+  const db = initializeDatabase(dbPath);
+  const now = new Date().toISOString();
+
+  try {
+    insertHost(db);
+    db.prepare(
+      `
+      INSERT INTO sessions (
+        id,
+        provider,
+        provider_session_id,
+        host_id,
+        workspace_root,
+        workspace_cwd,
+        initial_prompt,
+        model,
+        permission_mode,
+        status,
+        error_message,
+        error_code,
+        input_tokens,
+        output_tokens,
+        context_window,
+        local_available,
+        created_at,
+        updated_at,
+        last_active_at
+      ) VALUES (
+        'sess-summary-backfill',
+        'book',
+        'provider-session-backfill',
+        'macbook-1',
+        NULL,
+        '/tmp/project',
+        'hello',
+        'sonnet',
+        'bypassPermissions',
+        'idle',
+        NULL,
+        NULL,
+        0,
+        0,
+        NULL,
+        1,
+        ?,
+        ?,
+        ?
+      )
+      `
+    ).run(now, now, now);
+    db.prepare(
+      `
+      INSERT INTO session_events (id, session_id, seq, type, payload, created_at)
+      VALUES (?, 'sess-summary-backfill', ?, ?, ?, ?)
+      `
+    ).run(
+      "event-started-backfill",
+      1,
+      "session_started",
+      JSON.stringify({ provider_session_id: "provider-session-backfill", model: "sonnet" }),
+      now
+    );
+    db.prepare(
+      `
+      INSERT INTO session_events (id, session_id, seq, type, payload, created_at)
+      VALUES (?, 'sess-summary-backfill', ?, ?, ?, ?)
+      `
+    ).run(
+      "event-usage-backfill",
+      2,
+      "session_usage",
+      JSON.stringify({
+        input_tokens: 25187,
+        output_tokens: 136,
+        context_window: 200000,
+        model: "glm-5"
+      }),
+      now
+    );
+    db.prepare(
+      `
+      INSERT INTO session_events (id, session_id, seq, type, payload, created_at)
+      VALUES (?, 'sess-summary-backfill', ?, ?, ?, ?)
+      `
+    ).run(
+      "event-usage-backfill-latest-partial",
+      3,
+      "session_usage",
+      JSON.stringify({
+        input_tokens: 25187,
+        output_tokens: 136,
+        model: "glm-5"
+      }),
+      now
+    );
+  } finally {
+    db.close();
+  }
+
+  const reopenedDb = initializeDatabase(dbPath);
+
+  try {
+    const row = reopenedDb
+      .prepare("SELECT model, input_tokens, output_tokens, context_window FROM sessions WHERE id = ?")
+      .get("sess-summary-backfill");
+
+    assert.deepEqual(row, {
+      model: "glm-5",
+      input_tokens: 25187,
+      output_tokens: 136,
+      context_window: 200000
+    });
+  } finally {
+    reopenedDb.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("relay lifecycle transitions match the expected state machine table", () => {
   assert.deepEqual(TRANSITIONS.queued, ["running", "idle", "failed"]);
   assert.deepEqual(TRANSITIONS.running, ["idle", "completed", "failed", "cancelled"]);
@@ -520,20 +641,33 @@ test("orchestrator.delete auto-cancels idle interactive sessions before deleting
   assert.equal(sentCommands[0].session_id, "sess-idle-delete");
 });
 
-test("fresh database includes local_available in the sessions table schema", (t) => {
+test("fresh database includes local_available and usage summary columns in the sessions table schema", (t) => {
   const { db, cleanup } = createTestDatabase("imbot-relay-local-available-schema-");
   t.after(cleanup);
 
   const columns = db.pragma("table_info(sessions)");
   const localAvailableColumn = columns.find((column) => column.name === "local_available");
+  const inputTokensColumn = columns.find((column) => column.name === "input_tokens");
+  const outputTokensColumn = columns.find((column) => column.name === "output_tokens");
+  const contextWindowColumn = columns.find((column) => column.name === "context_window");
 
   assert.ok(localAvailableColumn);
   assert.equal(localAvailableColumn.type, "INTEGER");
   assert.equal(localAvailableColumn.notnull, 1);
   assert.equal(localAvailableColumn.dflt_value, "0");
+  assert.ok(inputTokensColumn);
+  assert.equal(inputTokensColumn.type, "INTEGER");
+  assert.equal(inputTokensColumn.notnull, 1);
+  assert.equal(inputTokensColumn.dflt_value, "0");
+  assert.ok(outputTokensColumn);
+  assert.equal(outputTokensColumn.type, "INTEGER");
+  assert.equal(outputTokensColumn.notnull, 1);
+  assert.equal(outputTokensColumn.dflt_value, "0");
+  assert.ok(contextWindowColumn);
+  assert.equal(contextWindowColumn.type, "INTEGER");
 });
 
-test("local_available defaults to 0 for manual session inserts that omit the column", (t) => {
+test("session summary columns default when manual inserts omit them", (t) => {
   const { db, cleanup } = createTestDatabase("imbot-relay-local-available-default-");
   t.after(cleanup);
 
@@ -561,15 +695,18 @@ test("local_available defaults to 0 for manual session inserts that omit the col
   ).run("sess-default-local-available", "/srv/project", "hello", now, now, now);
 
   const storedSession = db
-    .prepare("SELECT local_available FROM sessions WHERE id = ?")
+    .prepare("SELECT local_available, input_tokens, output_tokens, context_window FROM sessions WHERE id = ?")
     .get("sess-default-local-available");
 
   assert.deepEqual(storedSession, {
-    local_available: 0
+    local_available: 0,
+    input_tokens: 0,
+    output_tokens: 0,
+    context_window: null
   });
 });
 
-test("initializeDatabase migrates an existing idle-capable sessions table to add local_available", () => {
+test("initializeDatabase migrates an existing idle-capable sessions table to add summary columns", () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-relay-local-available-migration-"));
   const dbPath = path.join(tempDir, "imbot.db");
   const legacyDb = new Database(dbPath);
@@ -644,13 +781,18 @@ test("initializeDatabase migrates an existing idle-capable sessions table to add
 
   try {
     const migratedSession = migratedDb
-      .prepare("SELECT provider, provider_session_id, local_available FROM sessions WHERE id = ?")
+      .prepare(
+        "SELECT provider, provider_session_id, local_available, input_tokens, output_tokens, context_window FROM sessions WHERE id = ?"
+      )
       .get("sess-local-migration");
 
     assert.deepEqual(migratedSession, {
       provider: "claude",
       provider_session_id: "provider-session-legacy",
-      local_available: 1
+      local_available: 1,
+      input_tokens: 0,
+      output_tokens: 0,
+      context_window: null
     });
   } finally {
     migratedDb.close();
@@ -1013,7 +1155,9 @@ test("handleEvent accepts transcript_sync message events after a session reaches
       event_type: "session_usage",
       payload: {
         input_tokens: 1,
-        output_tokens: 2
+        output_tokens: 2,
+        context_window: 200000,
+        model: "glm-5"
       },
       source: "transcript_sync"
     });
@@ -1027,10 +1171,14 @@ test("handleEvent accepts transcript_sync message events after a session reaches
     assert.deepEqual(eventTypes, ["assistant_message", "session_usage"]);
 
     const row = runtime.db
-      .prepare("SELECT status FROM sessions WHERE id = ?")
+      .prepare("SELECT status, input_tokens, output_tokens, context_window, model FROM sessions WHERE id = ?")
       .get(`sess-sync-${status}`);
     assert.deepEqual(row, {
-      status
+      status,
+      input_tokens: 1,
+      output_tokens: 2,
+      context_window: 200000,
+      model: "glm-5"
     });
   }
 });
@@ -1077,6 +1225,46 @@ test("handleEvent drops transcript_sync duplicates for the synthetic initial use
   assert.equal(userMessages.length, 1);
   assert.deepEqual(JSON.parse(userMessages[0].payload), {
     text: "chapter opening prompt"
+  });
+});
+
+test("handleEvent drops transcript_sync duplicates for regular runtime user messages", async (t) => {
+  const { tempDir, runtime } = await createRelayRuntime("imbot-relay-dedupe-runtime-user-message-");
+
+  t.after(async () => {
+    await runtime.close();
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  insertHost(runtime.db);
+  insertSession(runtime.db, "sess-runtime-dedupe", "running");
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-runtime-dedupe",
+    event_type: "user_message",
+    payload: {
+      text: "high"
+    }
+  });
+
+  await runtime.orchestrator.handleEvent({
+    type: "event",
+    session_id: "sess-runtime-dedupe",
+    event_type: "user_message",
+    payload: {
+      text: "high"
+    },
+    source: "transcript_sync"
+  });
+
+  const userMessages = runtime.db
+    .prepare("SELECT type, payload FROM session_events WHERE session_id = ? AND type = 'user_message' ORDER BY seq ASC")
+    .all("sess-runtime-dedupe");
+
+  assert.equal(userMessages.length, 1);
+  assert.deepEqual(JSON.parse(userMessages[0].payload), {
+    text: "high"
   });
 });
 

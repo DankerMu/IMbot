@@ -12,6 +12,7 @@
 │                   /path/to/project           │
 │                                              │
 │  "帮我看一下这个项目的架构..."     [Status●]  │
+│  [Opus] [120k/1000k]                         │
 └─────────────────────────────────────────────┘
 ```
 
@@ -34,11 +35,17 @@ data class SessionSummary(
     val provider: Provider,      // CLAUDE, BOOK, OPENCLAW
     val workspaceCwd: String,
     val initialPrompt: String?,
+    val model: String?,
     val status: SessionStatus,
+    val inputTokens: Int,
+    val outputTokens: Int,
+    val contextWindow: Int,
     val createdAt: Instant,
     val lastActiveAt: Instant
 )
 ```
+
+当 `inputTokens + outputTokens > 0` 且 `contextWindow > 0` 时，SessionCard 额外显示 `[used/total]` metadata pill；上下文总量必须来自 relay 返回的真实 `context_window`，不做模型名硬编码推断。
 
 ### 视觉状态
 

@@ -69,23 +69,23 @@ class HomeViewModelUtilsTest {
     }
 
     @Test
-    fun `sorts idle sessions alongside running sessions ahead of completed`() {
+    fun `only prioritizes truly running sessions over idle and completed ones`() {
         val sessions =
             listOf(
                 session(
-                    id = "idle-newest",
+                    id = "idle-older",
                     provider = "claude",
                     status = "idle",
-                    lastActiveAt = "2026-03-30T11:30:00Z",
+                    lastActiveAt = "2026-03-30T09:30:00Z",
                 ),
                 session(
-                    id = "running-older",
+                    id = "running-oldest",
                     provider = "book",
                     status = "running",
-                    lastActiveAt = "2026-03-30T10:00:00Z",
+                    lastActiveAt = "2026-03-30T08:00:00Z",
                 ),
                 session(
-                    id = "completed-middle",
+                    id = "completed-newest",
                     provider = "claude",
                     status = "completed",
                     lastActiveAt = "2026-03-30T11:00:00Z",
@@ -95,7 +95,7 @@ class HomeViewModelUtilsTest {
         val result = applyFilterAndSort(sessions, null).map(SessionEntity::id)
 
         assertEquals(
-            listOf("idle-newest", "running-older", "completed-middle"),
+            listOf("running-oldest", "completed-newest", "idle-older"),
             result,
         )
     }
@@ -163,6 +163,16 @@ class HomeViewModelUtilsTest {
 
         assertFalse(partial.allVisibleSelected)
         assertTrue(complete.allVisibleSelected)
+    }
+
+    @Test
+    fun `realtime summary events include usage and message events`() {
+        assertTrue(shouldApplyRealtimeSummaryEvent("user_message"))
+        assertTrue(shouldApplyRealtimeSummaryEvent("assistant_message"))
+        assertTrue(shouldApplyRealtimeSummaryEvent("session_started"))
+        assertTrue(shouldApplyRealtimeSummaryEvent("session_usage"))
+        assertTrue(shouldApplyRealtimeSummaryEvent("session_idle"))
+        assertFalse(shouldApplyRealtimeSummaryEvent("assistant_delta"))
     }
 
     private fun session(

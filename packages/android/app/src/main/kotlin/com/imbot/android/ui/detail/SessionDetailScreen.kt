@@ -798,25 +798,29 @@ private fun DetailTopBarInfo(
     showUsageIndicator: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    if (subtitle == null && (!showUsageIndicator || usage.totalTokens <= 0)) {
+    val showUsage = showUsageIndicator && usage.totalTokens > 0 && usage.contextWindow > 0
+    if (subtitle == null && !showUsage) {
         return
     }
 
-    Column(
+    Row(
         modifier = modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
     ) {
         subtitle?.let { subtitleText ->
             TopBarMetaPill(
                 text = subtitleText,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.weight(1f),
                 maxLines = 2,
             )
         }
-        UsageIndicator(
-            usage = usage,
-            isActive = showUsageIndicator,
-        )
+        if (showUsage) {
+            UsageIndicator(
+                usage = usage,
+                isActive = true,
+            )
+        }
     }
 }
 
@@ -841,7 +845,7 @@ private fun TopBarMetaPill(
                 ),
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = maxLines,
-            overflow = TextOverflow.Ellipsis,
+            overflow = TextOverflow.Clip,
         )
     }
 }

@@ -19,6 +19,12 @@ data class SessionEntity(
     val status: String,
     @ColumnInfo(name = "error_message")
     val errorMessage: String?,
+    @ColumnInfo(name = "input_tokens")
+    val inputTokens: Int = 0,
+    @ColumnInfo(name = "output_tokens")
+    val outputTokens: Int = 0,
+    @ColumnInfo(name = "context_window")
+    val contextWindow: Int = 0,
     @ColumnInfo(name = "created_at")
     val createdAt: String,
     @ColumnInfo(name = "updated_at")

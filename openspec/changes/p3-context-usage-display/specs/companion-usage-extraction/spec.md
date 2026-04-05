@@ -14,6 +14,7 @@
   - `output_tokens: number`
   - `cache_creation_input_tokens?: number`
   - `cache_read_input_tokens?: number`
+  - `context_window?: number`
   - `model?: string`
 
 ### Requirement: Companion extracts usage from stream-json result events
@@ -63,18 +64,23 @@ Companion SHALL extract token usage data from the Claude CLI `type: "result"` st
 - **THEN** payload includes `model` field from command.model or system message
 - **AND** relay broadcasts it to subscribers
 
-### Requirement: Relay broadcasts session_usage events
+### Requirement: Relay broadcasts session_usage events and persists latest usage summary
 
 #### Scenario: session_usage event forwarded to subscribers
 - **WHEN** companion sends `session_usage` event to relay
 - **THEN** relay broadcasts it to all WS clients subscribed to that session
 - **AND** the event passes through the standard event broadcast pipeline
 
-#### Scenario: session_usage event persistence policy
+#### Scenario: session_usage updates the session summary row
 - **WHEN** `session_usage` event arrives at relay
-- **THEN** relay MAY persist it to the events table (low frequency, one per turn)
-- **OR** relay broadcasts only without persistence (design decision)
-- **AND** either choice has no functional impact on the Android display
+- **THEN** relay updates `sessions.input_tokens`, `sessions.output_tokens`, and `sessions.context_window`
+- **AND** if payload carries `model`, relay also refreshes `sessions.model`
+
+#### Scenario: session list reads the latest persisted usage snapshot
+- **GIVEN** a completed or idle session with persisted `input_tokens = 55000`, `output_tokens = 1200`, `context_window = 200000`
+- **WHEN** Android requests `GET /v1/sessions`
+- **THEN** the session summary includes those fields
+- **AND** Android can render `56.2k/200k` without hardcoded model windows
 
 ### Requirement: Multiple turns accumulate usage
 

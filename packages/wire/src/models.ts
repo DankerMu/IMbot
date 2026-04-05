@@ -16,6 +16,9 @@ export interface Session {
   status: SessionStatus;
   error_message: string | null;
   error_code: string | null;
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  context_window?: number | null;
   local_available: boolean;
   created_at: string;
   updated_at: string;

@@ -1,3 +1,3 @@
 # p3-context-usage-display
 
-Session 上下文用量实时展示：companion 提取 usage → wire 新事件 → Android 顶部 token 计数 + 进度条
+Session 上下文用量展示：companion 提取 usage/contextWindow → relay 持久化最新 session summary → Android session list 与 detail 统一显示真实 token / context 占用
