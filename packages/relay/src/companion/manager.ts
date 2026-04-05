@@ -451,12 +451,16 @@ export class CompanionManager {
           : null;
       const cwd = "cwd" in entry && typeof entry.cwd === "string" ? entry.cwd : null;
       const createdAt = "created_at" in entry && typeof entry.created_at === "string" ? entry.created_at : null;
+      const lastActiveAt =
+        "last_active_at" in entry && typeof entry.last_active_at === "string"
+          ? entry.last_active_at
+          : createdAt;
       const status =
         "status" in entry && (entry.status === "completed" || entry.status === "unknown")
           ? entry.status
           : null;
 
-      if (!providerSessionId || !cwd || !createdAt || !status) {
+      if (!providerSessionId || !cwd || !createdAt || !lastActiveAt || !status) {
         return [];
       }
 
@@ -465,6 +469,7 @@ export class CompanionManager {
           provider_session_id: providerSessionId,
           cwd,
           created_at: createdAt,
+          last_active_at: lastActiveAt,
           status
         }
       ];

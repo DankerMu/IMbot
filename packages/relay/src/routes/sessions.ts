@@ -149,7 +149,7 @@ export function registerSessionRoutes(
         SELECT *
         FROM sessions
         ${whereClause}
-        ORDER BY created_at DESC
+        ORDER BY last_active_at DESC, created_at DESC
         LIMIT ? OFFSET ?
         `
       )

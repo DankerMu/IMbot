@@ -11,8 +11,10 @@ export interface SessionIndexEntry {
   readonly cwd: string;
   readonly provider: InteractiveProvider;
   readonly created_at: string;
+  readonly last_observed_at?: string;
   readonly source?: "remote" | "local";
   readonly initial_prompt?: string | null;
+  readonly initial_transcript_sync_pending?: boolean;
 }
 
 export interface SessionIndexRecord extends SessionIndexEntry {
@@ -147,8 +149,12 @@ function normalizeEntry(value: unknown): SessionIndexEntry | null {
   const cwd = typeof record.cwd === "string" ? record.cwd : null;
   const provider = record.provider;
   const createdAt = typeof record.created_at === "string" ? record.created_at : null;
+  const lastObservedAt =
+    typeof record.last_observed_at === "string" ? record.last_observed_at : undefined;
   const source = record.source === "local" ? "local" : "remote";
   const initialPrompt = typeof record.initial_prompt === "string" ? record.initial_prompt : null;
+  const initialTranscriptSyncPending =
+    record.initial_transcript_sync_pending === true ? true : undefined;
 
   if (
     !providerSessionId ||
@@ -164,7 +170,9 @@ function normalizeEntry(value: unknown): SessionIndexEntry | null {
     cwd,
     provider,
     created_at: createdAt,
+    ...(lastObservedAt ? { last_observed_at: lastObservedAt } : {}),
     source,
-    initial_prompt: initialPrompt
+    initial_prompt: initialPrompt,
+    ...(initialTranscriptSyncPending ? { initial_transcript_sync_pending: true } : {})
   };
 }

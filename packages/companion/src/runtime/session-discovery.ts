@@ -100,14 +100,15 @@ export async function discoverSessions(
       discovered.push({
         provider_session_id: providerSessionId,
         cwd: projectCwd,
-        created_at: stat.mtime.toISOString(),
+        created_at: resolveCreatedAt(stat),
+        last_active_at: stat.mtime.toISOString(),
         status
       });
     }
   }
 
   const maxResults = options.limit ?? 200;
-  discovered.sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+  discovered.sort((left, right) => Date.parse(right.last_active_at) - Date.parse(left.last_active_at));
   return discovered.slice(0, maxResults);
 }
 
@@ -224,15 +225,22 @@ export async function discoverAllSessions(
       discovered.push({
         provider_session_id: providerSessionId,
         cwd: projectCwd,
-        created_at: stat.mtime.toISOString(),
+        created_at: resolveCreatedAt(stat),
+        last_active_at: stat.mtime.toISOString(),
         status
       });
     }
   }
 
   const maxResults = options.limit ?? 200;
-  discovered.sort((left, right) => Date.parse(right.created_at) - Date.parse(left.created_at));
+  discovered.sort((left, right) => Date.parse(right.last_active_at) - Date.parse(left.last_active_at));
   return discovered.slice(0, maxResults);
+}
+
+function resolveCreatedAt(stat: Stats): string {
+  const birthtimeMs = Number.isFinite(stat.birthtimeMs) ? stat.birthtimeMs : NaN;
+  const useBirthtime = birthtimeMs > 0 && birthtimeMs <= stat.mtimeMs;
+  return new Date(useBirthtime ? birthtimeMs : stat.mtimeMs).toISOString();
 }
 
 function resolveProjectCwd(projectDirName: string, normalizedCwd: string): string | null {

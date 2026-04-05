@@ -130,5 +130,5 @@ private const val PATH_PREFIX_QUERY =
     SELECT id
     FROM sessions
     WHERE workspace_cwd = ? OR workspace_cwd LIKE ? || '/%' ESCAPE '\'
-    ORDER BY last_active_at DESC
+    ORDER BY last_active_at DESC, created_at DESC
     """

@@ -329,6 +329,7 @@ open class RelayWsClient
                         message.hostId,
                         message.status == STATUS_ONLINE,
                     )
+                is ServerMessage.SessionsChanged -> Unit
                 is ServerMessage.Status -> {
                     if (message.status != STATUS_FAILED) {
                         errorStateManager.clearSessionError(message.sessionId)

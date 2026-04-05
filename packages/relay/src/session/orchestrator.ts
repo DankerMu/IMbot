@@ -68,6 +68,20 @@ type RelaySessionRecord = Session & {
   local_available: boolean | number;
 };
 
+type LocalSessionSyncResult = {
+  created: number;
+  updated: number;
+  skipped: number;
+  sessions: Array<{
+    relay_session_id: string;
+    provider_session_id: string;
+    created_at: string;
+    last_active_at: string;
+    initial_prompt: string | null;
+    has_transcript_events: boolean;
+  }>;
+};
+
 function toBooleanFields(session: RelaySessionRecord): RelaySessionRecord {
   return {
     ...session,
@@ -532,13 +546,18 @@ export class SessionOrchestrator {
   async handleReportLocalSessions(
     message: CompanionReportLocalSessionsMessage,
     authenticatedHostId: string
-  ): Promise<void> {
+  ): Promise<LocalSessionSyncResult> {
     const host = this.db.prepare("SELECT id FROM hosts WHERE id = ?").get(authenticatedHostId) as
       | { id: string }
       | undefined;
     if (!host) {
       this.logger.warn(`Dropping report_local_sessions for unknown host ${authenticatedHostId}`);
-      return;
+      return {
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        sessions: []
+      };
     }
 
     if (message.host_id !== authenticatedHostId) {
@@ -549,7 +568,12 @@ export class SessionOrchestrator {
 
     if (!Array.isArray(message.sessions)) {
       this.logger.warn("report_local_sessions: sessions is not an array");
-      return;
+      return {
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        sessions: []
+      };
     }
 
     const sessions = message.sessions.slice(0, MAX_REPORT_LOCAL_SESSIONS_BATCH_SIZE);
@@ -579,8 +603,17 @@ export class SessionOrchestrator {
     `);
     const updateStmt = this.db.prepare(`
       UPDATE sessions
-      SET local_available = 1
-      WHERE provider_session_id = ? AND local_available = 0
+      SET local_available = 1,
+          updated_at = CASE
+            WHEN local_available = 0 OR last_active_at < ? THEN ?
+            ELSE updated_at
+          END,
+          last_active_at = CASE
+            WHEN last_active_at < ? THEN ?
+            ELSE last_active_at
+          END
+      WHERE provider_session_id = ?
+        AND (local_available = 0 OR last_active_at < ?)
     `);
 
     const transaction = this.db.transaction((): { created: number; updated: number; skipped: number } => {
@@ -595,15 +628,18 @@ export class SessionOrchestrator {
           continue;
         }
 
+        const createdAt = normalizeIsoTimestamp(session.created_at, now);
+        const lastActiveAt = normalizeIsoTimestamp(session.last_active_at, createdAt);
+
         const result = insertStmt.run(
           randomUUID(),
           session.provider,
           session.provider_session_id,
           authenticatedHostId,
           session.cwd,
-          session.created_at || now,
+          createdAt,
           now,
-          now,
+          lastActiveAt,
           session.provider_session_id
         );
 
@@ -612,7 +648,14 @@ export class SessionOrchestrator {
           continue;
         }
 
-        const updateResult = updateStmt.run(session.provider_session_id);
+        const updateResult = updateStmt.run(
+          lastActiveAt,
+          now,
+          lastActiveAt,
+          lastActiveAt,
+          session.provider_session_id,
+          lastActiveAt
+        );
         if (updateResult.changes > 0) {
           updated += 1;
         } else {
@@ -624,12 +667,68 @@ export class SessionOrchestrator {
     });
 
     const stats = transaction();
+    const providerSessionIds = sessions
+      .map((session) => session.provider_session_id?.trim())
+      .filter((value): value is string => Boolean(value));
+    const syncedSessions =
+      providerSessionIds.length === 0
+        ? []
+        : (
+            this.db
+              .prepare(
+                `
+                SELECT
+                  id,
+                  provider_session_id,
+                  created_at,
+                  last_active_at,
+                  initial_prompt,
+                  EXISTS (
+                    SELECT 1
+                    FROM session_events
+                    WHERE session_id = sessions.id
+                      AND type IN ('user_message', 'assistant_message', 'session_usage')
+                    LIMIT 1
+                  ) AS has_transcript_events
+                FROM sessions
+                WHERE host_id = ?
+                  AND provider_session_id IN (${providerSessionIds.map(() => "?").join(", ")})
+                ORDER BY last_active_at DESC, created_at DESC
+                `
+              )
+              .all(authenticatedHostId, ...providerSessionIds) as Array<{
+              id: string;
+              provider_session_id: string;
+              created_at: string;
+              last_active_at: string;
+              initial_prompt: string | null;
+              has_transcript_events: number;
+            }>
+          ).map((session) => ({
+            relay_session_id: session.id,
+            provider_session_id: session.provider_session_id,
+            created_at: session.created_at,
+            last_active_at: session.last_active_at,
+            initial_prompt: session.initial_prompt,
+            has_transcript_events: session.has_transcript_events === 1
+          }));
+
     if (stats.created > 0 || stats.updated > 0) {
       this.auditLogger.write("session.local_sync", {
         host_id: authenticatedHostId,
         detail: stats
       });
+      this.hub.broadcastAll({
+        type: "sessions_changed",
+        reason: "local_sync",
+        host_id: authenticatedHostId
+      });
     }
+
+    return {
+      ...stats,
+      sessions: syncedSessions
+    };
   }
 
   async handleHostDisconnected(hostId: string): Promise<void> {
@@ -1267,4 +1366,13 @@ export class SessionOrchestrator {
       throw error;
     }
   }
+}
+
+function normalizeIsoTimestamp(value: string | null | undefined, fallback: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
+    return fallback;
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? fallback : parsed.toISOString();
 }

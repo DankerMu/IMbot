@@ -24,6 +24,11 @@ sealed interface ServerMessage {
         val status: String,
     ) : ServerMessage
 
+    data class SessionsChanged(
+        val reason: String,
+        val hostId: String?,
+    ) : ServerMessage
+
     data class Error(
         val code: String,
         val message: String,
@@ -57,6 +62,12 @@ fun parseServerMessage(json: String): ServerMessage? =
                 ServerMessage.HostStatus(
                     hostId = root.optString("host_id"),
                     status = root.optString("status"),
+                )
+
+            "sessions_changed" ->
+                ServerMessage.SessionsChanged(
+                    reason = root.optString("reason"),
+                    hostId = root.optString("host_id").ifBlank { null },
                 )
 
             "error" ->

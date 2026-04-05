@@ -20,6 +20,7 @@ export interface CompanionConfig {
   readonly providers: Readonly<Partial<Record<InteractiveProvider, CompanionProviderConfig>>>;
   readonly sessionIndexPath: string;
   readonly idleTimeoutMs: number;
+  readonly localSessionSyncLimit: number;
 }
 
 type RawCompanionConfig = {
@@ -28,6 +29,7 @@ type RawCompanionConfig = {
   readonly host_id?: unknown;
   readonly providers?: unknown;
   readonly idle_timeout_ms?: unknown;
+  readonly local_session_sync_limit?: unknown;
 };
 
 const INTERACTIVE_PROVIDERS = ["claude", "book"] as const satisfies readonly InteractiveProvider[];
@@ -78,6 +80,12 @@ export function loadCompanionConfig(env: NodeJS.ProcessEnv = process.env): Compa
     1800000,
     "idle_timeout_ms"
   );
+  const localSessionSyncLimit = parseOptionalPositiveInt(
+    rawConfig.local_session_sync_limit,
+    env.COMPANION_LOCAL_SESSION_SYNC_LIMIT,
+    10,
+    "local_session_sync_limit"
+  );
 
   if (getConfiguredProviders({ providers }).length === 0) {
     throw new CompanionError(
@@ -93,7 +101,8 @@ export function loadCompanionConfig(env: NodeJS.ProcessEnv = process.env): Compa
     hostId,
     providers,
     sessionIndexPath,
-    idleTimeoutMs
+    idleTimeoutMs,
+    localSessionSyncLimit
   };
 }
 

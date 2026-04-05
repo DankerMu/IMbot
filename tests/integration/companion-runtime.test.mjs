@@ -33,6 +33,19 @@ function delay(ms) {
   });
 }
 
+async function waitFor(condition, timeoutMs = 1000) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (condition()) {
+      return;
+    }
+
+    await delay(10);
+  }
+
+  throw new Error("Timed out waiting for condition");
+}
+
 function waitForListening(server, timeoutMs = 5000) {
   return new Promise((resolve, reject) => {
     if (server.address()) {
@@ -450,6 +463,7 @@ test("companion runs a persistent multi-turn stream-json session and completes i
     cwd: tempDir,
     provider: "claude",
     created_at: sessionIndex["relay-session-1"].created_at,
+    last_observed_at: sessionIndex["relay-session-1"].last_observed_at,
     source: "remote",
     initial_prompt: "hello"
   });
@@ -528,25 +542,55 @@ test("companion triggers session reconciliation on connect and reconnect", async
     "first local session report"
   );
 
-  assert.deepEqual(firstReport, {
-    type: "report_local_sessions",
-    host_id: "macbook-1",
-    sessions: [
-      {
-        provider_session_id: "provider-local-1",
-        provider: "claude",
-        cwd: workspaceRoot,
-        created_at: "2026-01-02T00:00:00.000Z"
-      }
-    ]
-  });
-  assert.deepEqual(runtime.sessionIndex.get("local:provider-local-1"), {
+  assert.equal(typeof firstReport.req_id, "string");
+  assert.deepEqual(
+    {
+      ...firstReport,
+      req_id: "<req_id>"
+    },
+    {
+      type: "report_local_sessions",
+      req_id: "<req_id>",
+      host_id: "macbook-1",
+      sessions: [
+        {
+          provider_session_id: "provider-local-1",
+          provider: "claude",
+          cwd: workspaceRoot,
+          created_at: "2026-01-02T00:00:00.000Z",
+          last_active_at: "2026-01-02T00:00:00.000Z"
+        }
+      ]
+    }
+  );
+  firstSocket.send(JSON.stringify({
+    type: "ack",
+    req_id: firstReport.req_id,
+    status: "ok",
+    data: {
+      sessions: [
+        {
+          relay_session_id: "relay-local-1",
+          provider_session_id: "provider-local-1",
+          created_at: "2026-01-02T00:00:00.000Z",
+          last_active_at: "2026-01-02T00:00:00.000Z",
+          initial_prompt: null
+        }
+      ]
+    }
+  }));
+  await waitFor(() => runtime.sessionIndex.get("relay-local-1") != null, 1000);
+
+  assert.deepEqual(runtime.sessionIndex.get("relay-local-1"), {
     provider_session_id: "provider-local-1",
     cwd: workspaceRoot,
     provider: "claude",
     created_at: "2026-01-02T00:00:00.000Z",
-    source: "local"
+    last_observed_at: "2026-01-02T00:00:00.000Z",
+    source: "remote",
+    initial_prompt: null
   });
+  assert.equal(runtime.sessionIndex.get("local:provider-local-1"), null);
 
   createDiscoveredSessionFile(projectsDir, workspaceRoot, "provider-local-2", "2026-01-03T00:00:00.000Z");
   const secondConnectionPromise = waitForConnection(server);
@@ -561,17 +605,53 @@ test("companion triggers session reconciliation on connect and reconnect", async
     "second local session report"
   );
 
-  assert.deepEqual(secondReport, {
-    type: "report_local_sessions",
-    host_id: "macbook-1",
-    sessions: [
-      {
-        provider_session_id: "provider-local-2",
-        provider: "claude",
-        cwd: workspaceRoot,
-        created_at: "2026-01-03T00:00:00.000Z"
-      }
-    ]
+  assert.equal(typeof secondReport.req_id, "string");
+  assert.deepEqual(
+    {
+      ...secondReport,
+      req_id: "<req_id>"
+    },
+    {
+      type: "report_local_sessions",
+      req_id: "<req_id>",
+      host_id: "macbook-1",
+      sessions: [
+        {
+          provider_session_id: "provider-local-2",
+          provider: "claude",
+          cwd: workspaceRoot,
+          created_at: "2026-01-03T00:00:00.000Z",
+          last_active_at: "2026-01-03T00:00:00.000Z"
+        }
+      ]
+    }
+  );
+  secondSocket.send(JSON.stringify({
+    type: "ack",
+    req_id: secondReport.req_id,
+    status: "ok",
+    data: {
+      sessions: [
+        {
+          relay_session_id: "relay-local-2",
+          provider_session_id: "provider-local-2",
+          created_at: "2026-01-03T00:00:00.000Z",
+          last_active_at: "2026-01-03T00:00:00.000Z",
+          initial_prompt: null
+        }
+      ]
+    }
+  }));
+  await waitFor(() => runtime.sessionIndex.get("relay-local-2") != null, 1000);
+
+  assert.deepEqual(runtime.sessionIndex.get("relay-local-2"), {
+    provider_session_id: "provider-local-2",
+    cwd: workspaceRoot,
+    provider: "claude",
+    created_at: "2026-01-03T00:00:00.000Z",
+    last_observed_at: "2026-01-03T00:00:00.000Z",
+    source: "remote",
+    initial_prompt: null
   });
 });
 

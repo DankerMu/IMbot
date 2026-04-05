@@ -148,6 +148,8 @@
 - `limit`: 默认 50，最大 200。
 - `offset`: 默认 0。
 
+返回顺序固定为 `last_active_at DESC, created_at DESC`，与 Android 首页“最近活跃优先”一致。
+
 **Response 200**:
 ```json
 {
@@ -350,6 +352,7 @@ type ServerMessage =
   | { type: 'event'; session_id: string; seq: number; event_type: EventType; payload: any; timestamp: string }
   | { type: 'status'; session_id: string; status: SessionStatus }
   | { type: 'host_status'; host_id: string; status: 'online' | 'offline' }
+  | { type: 'sessions_changed'; reason: 'local_sync'; host_id?: string }
   | { type: 'error'; code: string; message: string }
   | { type: 'pong' };
 ```

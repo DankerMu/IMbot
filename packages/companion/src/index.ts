@@ -43,6 +43,7 @@ export async function createCompanionRuntime(options?: {
   readonly config?: CompanionConfig;
   readonly logger?: LoggerLike;
   readonly heartbeatIntervalMs?: number;
+  readonly sessionSyncIntervalMs?: number;
   readonly reconnectBackoff?: RelayClientBackoffOptions;
   readonly reconnectDelaysMs?: readonly number[];
   readonly killGraceMs?: number;
@@ -98,9 +99,22 @@ export async function createCompanionRuntime(options?: {
     configManager,
     providers: config.providers,
     hostId: config.hostId,
+    maxReportedSessions: config.localSessionSyncLimit,
     logger,
-    sendMessage: (message) => {
-      relayClient.send(message);
+    sendMessage: async (message) => {
+      if (!message.req_id) {
+        relayClient.send(message);
+        return;
+      }
+
+      const ack = await relayClient.request(
+        message as typeof message & { req_id: string }
+      );
+      if (ack.type !== "ack" || ack.status !== "ok") {
+        return;
+      }
+
+      return (ack.data as Record<string, unknown> | undefined) ?? undefined;
     }
   });
   const transcriptSyncer = new TranscriptSyncer({
@@ -173,9 +187,33 @@ export async function createCompanionRuntime(options?: {
   relayClient.on("message", (message) => {
     void dispatcher.dispatch(message);
   });
+  const sessionSyncIntervalMs = options?.sessionSyncIntervalMs ?? 15000;
+  let sessionSyncHandle: NodeJS.Timeout | null = null;
+  const runSessionSync = () => {
+    void reconciler.reconcile().catch((error) => {
+      logger.error?.("Session reconciliation failed", error);
+    });
+  };
+  const startSessionSync = () => {
+    if (sessionSyncHandle) {
+      return;
+    }
+
+    sessionSyncHandle = setInterval(runSessionSync, sessionSyncIntervalMs);
+    sessionSyncHandle.unref?.();
+  };
+  const stopSessionSync = () => {
+    if (!sessionSyncHandle) {
+      return;
+    }
+
+    clearInterval(sessionSyncHandle);
+    sessionSyncHandle = null;
+  };
   relayClient.on("connected", () => {
     heartbeat.start();
     transcriptSyncer.start();
+    startSessionSync();
 
     for (const session of adapter.getActiveSessions()) {
       relayClient.send({
@@ -189,9 +227,7 @@ export async function createCompanionRuntime(options?: {
       });
     }
 
-    void reconciler.reconcile().catch((error) => {
-      logger.error?.("Session reconciliation failed", error);
-    });
+    runSessionSync();
     void transcriptSyncer.syncNow().catch((error) => {
       logger.error?.("Transcript sync failed", error);
     });
@@ -199,6 +235,7 @@ export async function createCompanionRuntime(options?: {
   relayClient.on("disconnected", () => {
     heartbeat.stop();
     transcriptSyncer.stop();
+    stopSessionSync();
     adapter.rejectAllPendingControlResponses("Relay disconnected");
   });
   relayClient.on("error", () => {
@@ -220,6 +257,7 @@ export async function createCompanionRuntime(options?: {
     close: async () => {
       heartbeat.stop();
       transcriptSyncer.stop();
+      stopSessionSync();
       await adapter.shutdown();
       relayClient.close();
     }

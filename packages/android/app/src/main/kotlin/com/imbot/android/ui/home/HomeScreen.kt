@@ -61,6 +61,7 @@ import com.imbot.android.ui.theme.LocalUseDarkTheme
 import com.imbot.android.ui.theme.appleChrome
 import com.imbot.android.ui.theme.appleShadow
 import com.imbot.android.ui.theme.spacing
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterialApi::class)
 @Composable
@@ -91,6 +92,17 @@ fun HomeScreen(
     LaunchedEffect(uiState.isSelectionMode) {
         if (!uiState.isSelectionMode) {
             showBulkDeleteDialog = false
+        }
+    }
+
+    LaunchedEffect(uiState.isConnected) {
+        if (!uiState.isConnected) {
+            return@LaunchedEffect
+        }
+
+        while (true) {
+            delay(HOME_AUTO_REFRESH_INTERVAL_MS)
+            viewModel.refreshSilently()
         }
     }
 
@@ -224,6 +236,8 @@ fun HomeScreen(
         }
     }
 }
+
+private const val HOME_AUTO_REFRESH_INTERVAL_MS = 10_000L
 
 @Composable
 private fun SessionListContent(

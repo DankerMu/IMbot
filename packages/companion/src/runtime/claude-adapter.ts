@@ -804,6 +804,7 @@ export class ClaudeRuntimeAdapter {
         cwd: session.cwd,
         provider: session.provider,
         created_at: session.createdAt,
+        last_observed_at: session.createdAt,
         source: "remote",
         initial_prompt: session.initialPrompt ?? null
       }

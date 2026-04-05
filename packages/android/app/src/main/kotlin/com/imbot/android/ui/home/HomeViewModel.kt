@@ -57,12 +57,14 @@ class HomeViewModel
         private var allSessions: List<SessionEntity> = emptyList()
         private var initialRefreshFinished = false
         private var refreshJob: Job? = null
+        private var pendingRefreshRequested = false
+        private var pendingRefreshUserVisible = false
 
         init {
             observeSessions()
             observeConnectionState()
             observeServerMessages()
-            refresh(initialLoad = true)
+            refresh(initialLoad = true, userVisible = false)
         }
 
         fun applyFilter(provider: String?) {
@@ -80,7 +82,11 @@ class HomeViewModel
         }
 
         fun refresh() {
-            refresh(initialLoad = false)
+            refresh(initialLoad = false, userVisible = true)
+        }
+
+        fun refreshSilently() {
+            refresh(initialLoad = false, userVisible = false)
         }
 
         fun enterSelectionMode(sessionId: String) {
@@ -210,44 +216,133 @@ class HomeViewModel
                                 sessionRepository.applyRealtimeSummaryEvent(message)
                             }
 
+                        is ServerMessage.SessionsChanged -> refreshSilently()
+
                         else -> Unit
                     }
                 }
             }
         }
 
-        private fun refresh(initialLoad: Boolean) {
-            if (refreshJob?.isActive == true) {
+        private fun refresh(
+            initialLoad: Boolean,
+            userVisible: Boolean,
+        ) {
+            if (queueRefreshIfRunning(userVisible)) {
                 return
             }
 
-            refreshJob =
-                viewModelScope.launch {
-                    _uiState.update { current ->
-                        current.copy(
-                            isRefreshing = !initialLoad,
-                            error = if (initialLoad) current.error else null,
-                        )
-                    }
-
-                    runCatching {
-                        sessionRepository.refreshFromApi()
-                    }.onFailure { error ->
-                        if (!initialLoad) {
-                            _uiState.update { current ->
-                                current.copy(error = error.message ?: "刷新失败，请检查网络")
-                            }
-                        } else if (allSessions.isEmpty()) {
-                            _uiState.update { current ->
-                                current.copy(error = error.message ?: "加载失败，请检查网络")
-                            }
-                        }
-                    }
-
-                    initialRefreshFinished = true
-                    publishState(isRefreshing = false)
-                }
+            refreshJob = launchRefreshJob(initialLoad, userVisible)
         }
+
+        private fun launchRefreshJob(
+            initialLoad: Boolean,
+            userVisible: Boolean,
+        ): Job =
+            viewModelScope.launch {
+                try {
+                    runRefreshLoop(
+                        RefreshRequest(
+                            initialLoad = initialLoad,
+                            userVisible = userVisible,
+                        ),
+                    )
+                } finally {
+                    refreshJob = null
+                }
+            }
+
+        private suspend fun runRefreshLoop(initialRequest: RefreshRequest) {
+            var request: RefreshRequest? = initialRequest
+            while (request != null) {
+                performRefresh(request)
+                request = consumePendingRefresh()
+            }
+        }
+
+        private suspend fun performRefresh(request: RefreshRequest) {
+            updateRefreshUiState(
+                initialLoad = request.initialLoad,
+                userVisible = request.userVisible,
+            )
+
+            runCatching {
+                sessionRepository.refreshFromApi()
+            }.onFailure { error ->
+                handleRefreshFailure(
+                    error = error,
+                    initialLoad = request.initialLoad,
+                    userVisible = request.userVisible,
+                )
+            }
+
+            initialRefreshFinished = true
+            publishState(isRefreshing = false)
+        }
+
+        private fun queueRefreshIfRunning(userVisible: Boolean): Boolean {
+            if (refreshJob?.isActive != true) {
+                return false
+            }
+
+            pendingRefreshRequested = true
+            pendingRefreshUserVisible = pendingRefreshUserVisible || userVisible
+            return true
+        }
+
+        private fun updateRefreshUiState(
+            initialLoad: Boolean,
+            userVisible: Boolean,
+        ) {
+            _uiState.update { current ->
+                current.copy(
+                    isRefreshing = userVisible && !initialLoad,
+                    error =
+                        when {
+                            initialLoad -> current.error
+                            userVisible -> null
+                            else -> current.error
+                        },
+                )
+            }
+        }
+
+        private fun handleRefreshFailure(
+            error: Throwable,
+            initialLoad: Boolean,
+            userVisible: Boolean,
+        ) {
+            val message =
+                when {
+                    !initialLoad && userVisible -> error.message ?: "刷新失败，请检查网络"
+                    initialLoad && allSessions.isEmpty() -> error.message ?: "加载失败，请检查网络"
+                    else -> null
+                }
+
+            message ?: return
+            _uiState.update { current -> current.copy(error = message) }
+        }
+
+        private fun consumePendingRefresh(): RefreshRequest? {
+            val shouldRunPendingRefresh = pendingRefreshRequested
+            val pendingUserVisible = pendingRefreshUserVisible
+            pendingRefreshRequested = false
+            pendingRefreshUserVisible = false
+
+            if (!shouldRunPendingRefresh) {
+                return null
+            }
+
+            return RefreshRequest(
+                initialLoad = false,
+                userVisible = pendingUserVisible,
+            )
+        }
+
+        private data class RefreshRequest(
+            val initialLoad: Boolean,
+            val userVisible: Boolean,
+        )
 
         private fun publishState(isRefreshing: Boolean = _uiState.value.isRefreshing) {
             val currentFilter = _uiState.value.filter

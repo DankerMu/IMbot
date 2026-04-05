@@ -20,13 +20,22 @@ export interface RelayClientOptions {
   readonly logger?: LoggerLike;
   readonly backoff?: RelayClientBackoffOptions;
   readonly createWebSocket?: (url: string) => WebSocket;
+  readonly requestTimeoutMs?: number;
 }
+
+type PendingRequest = {
+  readonly resolve: (message: CompanionMessage) => void;
+  readonly reject: (error: unknown) => void;
+  readonly timeout: NodeJS.Timeout;
+};
 
 export class RelayClient extends EventEmitter {
   private readonly logger: LoggerLike;
   private readonly backoff: ExponentialBackoff;
   private readonly createWebSocket: (url: string) => WebSocket;
+  private readonly requestTimeoutMs: number;
   private readonly eventBuffer: EventBuffer;
+  private readonly pendingRequests = new Map<string, PendingRequest>();
   private ws: WebSocket | null = null;
   private reconnectTimer: NodeJS.Timeout | null = null;
   private closedByUser = false;
@@ -35,6 +44,7 @@ export class RelayClient extends EventEmitter {
     super();
     this.logger = options.logger ?? console;
     this.createWebSocket = options.createWebSocket ?? ((url) => new WebSocket(url));
+    this.requestTimeoutMs = options.requestTimeoutMs ?? 30000;
     this.backoff = new ExponentialBackoff(
       options.backoff?.baseMs ?? 1000,
       options.backoff?.maxMs ?? 30000,
@@ -52,6 +62,7 @@ export class RelayClient extends EventEmitter {
     this.closedByUser = true;
     this.clearReconnectTimer();
     this.eventBuffer.clear();
+    this.rejectPendingRequests(new Error("relay client closed"));
 
     const current = this.ws;
     this.ws = null;
@@ -69,6 +80,32 @@ export class RelayClient extends EventEmitter {
     if (!this.sendNow(message)) {
       this.eventBuffer.push(message);
     }
+  }
+
+  request(message: CompanionMessage & { req_id: string }): Promise<CompanionMessage> {
+    if (!message.req_id || message.req_id.trim() === "") {
+      throw new Error("relay request requires a non-empty req_id");
+    }
+
+    if (this.pendingRequests.has(message.req_id)) {
+      throw new Error(`duplicate pending relay request: ${message.req_id}`);
+    }
+
+    return new Promise<CompanionMessage>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        this.pendingRequests.delete(message.req_id);
+        reject(new Error(`relay request timed out (${message.req_id})`));
+      }, this.requestTimeoutMs);
+      timeout.unref?.();
+
+      this.pendingRequests.set(message.req_id, {
+        resolve,
+        reject,
+        timeout
+      });
+
+      this.send(message);
+    });
   }
 
   private sendNow(message: CompanionMessage): boolean {
@@ -138,6 +175,20 @@ export class RelayClient extends EventEmitter {
         return;
       }
 
+      if (isAckMessage(parsed)) {
+        const pending = this.pendingRequests.get(parsed.req_id);
+        if (pending) {
+          clearTimeout(pending.timeout);
+          this.pendingRequests.delete(parsed.req_id);
+          if (parsed.status === "error") {
+            pending.reject(new Error(parsed.message));
+          } else {
+            pending.resolve(parsed);
+          }
+          return;
+        }
+      }
+
       this.emit("message", parsed);
     });
 
@@ -158,6 +209,7 @@ export class RelayClient extends EventEmitter {
       const reason = reasonBuffer.toString();
       this.emit("disconnected", code, reason);
       this.logger.warn?.(`relay websocket closed code=${code} reason=${reason || "none"}`);
+      this.rejectPendingRequests(new Error(`relay websocket closed (${code})`));
 
       if (!this.closedByUser) {
         this.scheduleReconnect();
@@ -189,6 +241,14 @@ export class RelayClient extends EventEmitter {
     clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
   }
+
+  private rejectPendingRequests(error: unknown): void {
+    for (const [reqId, pending] of this.pendingRequests.entries()) {
+      clearTimeout(pending.timeout);
+      pending.reject(error);
+      this.pendingRequests.delete(reqId);
+    }
+  }
 }
 
 function buildSocketUrl(relayUrl: string, token: string, hostId: string): string {
@@ -209,4 +269,19 @@ function safeParseJson(raw: RawData, logger: LoggerLike): unknown | null {
     );
     return null;
   }
+}
+
+function isAckMessage(
+  value: unknown,
+): value is CompanionMessage & { type: "ack"; req_id: string; status: "ok" | "error"; message?: string } {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return (
+    record.type === "ack" &&
+    typeof record.req_id === "string" &&
+    (record.status === "ok" || record.status === "error")
+  );
 }
