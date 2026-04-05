@@ -163,6 +163,7 @@ export class TranscriptSyncer {
     cursor.trailingFragment = hasTrailingNewline ? "" : (lines.pop() ?? "");
     let cutoffSatisfied = cutoffMs == null || (!scanningFromStart && cursor.pendingBeforeCutoff.length === 0);
     const pendingBeforeCutoff = cursor.pendingBeforeCutoff;
+    let bufferedRowsOriginatedBeforeThisScan = pendingBeforeCutoff.length > 0;
 
     const emitMapping = async (mapping: TranscriptLineMapping): Promise<void> => {
       const shouldSuppressRuntimeMirror =
@@ -207,13 +208,14 @@ export class TranscriptSyncer {
         }
 
         if (mapping.timestampMs <= cutoffMs) {
+          bufferedRowsOriginatedBeforeThisScan = false;
           pendingBeforeCutoff.length = 0;
           continue;
         }
 
         cutoffSatisfied = true;
         const crossingIntoAssistantReply = mapping.events.some((event) => event.eventType === "assistant_message");
-        if (crossingIntoAssistantReply) {
+        if (bufferedRowsOriginatedBeforeThisScan || crossingIntoAssistantReply) {
           for (const buffered of takeTrailingBufferedUserMappings(pendingBeforeCutoff)) {
             await emitMapping(buffered);
           }

@@ -264,6 +264,56 @@ test("TranscriptSyncer buffers undecidable untimestamped rows until a later line
   }
 });
 
+test("TranscriptSyncer replays a buffered untimestamped user when the next scan crosses the cutoff with a user row", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-cross-scan-user-boundary-"));
+
+  try {
+    const { cwd, projectsDir, sentEvents, syncer } = createRuntimeHarness(tempDir, {
+      lastActiveAt: "2026-04-04T10:00:30.000Z"
+    });
+    const transcriptPath = createTranscriptFile(
+      projectsDir,
+      cwd,
+      "provider-session-1",
+      '{"type":"user","message":{"role":"user","content":"buffered untimestamped user"}}\n'
+    );
+
+    await syncer.syncNow();
+    assert.deepEqual(sentEvents, []);
+
+    appendFileSync(
+      transcriptPath,
+      '{"type":"user","timestamp":"2026-04-04T10:01:00.000Z","message":{"role":"user","content":"timestamped user"}}\n',
+      "utf8"
+    );
+
+    await syncer.syncNow();
+
+    assert.deepEqual(
+      sentEvents.map((event) => ({
+        type: event.event_type,
+        payload: event.payload
+      })),
+      [
+        {
+          type: "user_message",
+          payload: {
+            text: "buffered untimestamped user"
+          }
+        },
+        {
+          type: "user_message",
+          payload: {
+            text: "timestamped user"
+          }
+        }
+      ]
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("TranscriptSyncer replays same-scan untimestamped rows once a later timestamped line crosses the cutoff", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-same-scan-untimestamped-boundary-"));
 
