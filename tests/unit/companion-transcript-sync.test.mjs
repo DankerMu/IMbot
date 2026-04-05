@@ -264,6 +264,45 @@ test("TranscriptSyncer buffers undecidable untimestamped rows until a later line
   }
 });
 
+test("TranscriptSyncer does not replay a stale untimestamped startup row once an old timestamped separator is observed", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-stale-untimestamped-startup-"));
+
+  try {
+    const { cwd, projectsDir, sentEvents, syncer } = createRuntimeHarness(tempDir, {
+      lastActiveAt: "2026-04-04T10:00:30.000Z"
+    });
+    createTranscriptFile(
+      projectsDir,
+      cwd,
+      "provider-session-1",
+      [
+        '{"type":"user","message":{"role":"user","content":"stale untimestamped user"}}',
+        '{"type":"assistant","timestamp":"2026-04-04T10:00:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"old answer"}],"usage":{"input_tokens":12,"output_tokens":4}}}',
+        '{"type":"user","timestamp":"2026-04-04T10:01:00.000Z","message":{"role":"user","content":"new user"}}'
+      ].join("\n") + "\n"
+    );
+
+    await syncer.syncNow();
+
+    assert.deepEqual(
+      sentEvents.map((event) => ({
+        type: event.event_type,
+        payload: event.payload
+      })),
+      [
+        {
+          type: "user_message",
+          payload: {
+            text: "new user"
+          }
+        }
+      ]
+    );
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("TranscriptSyncer suppresses transcript user rows that mirror runtime-emitted user messages", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-runtime-mirror-"));
 

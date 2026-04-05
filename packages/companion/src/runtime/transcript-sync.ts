@@ -163,7 +163,7 @@ export class TranscriptSyncer {
     cursor.trailingFragment = hasTrailingNewline ? "" : (lines.pop() ?? "");
     let cutoffSatisfied = cutoffMs == null || (!scanningFromStart && cursor.pendingBeforeCutoff.length === 0);
     const pendingBeforeCutoff = cursor.pendingBeforeCutoff;
-    const preexistingPendingCount = pendingBeforeCutoff.length;
+    let bufferedRowsOriginatedBeforeThisScan = pendingBeforeCutoff.length > 0;
 
     const emitMapping = async (mapping: TranscriptLineMapping): Promise<void> => {
       const shouldSuppressRuntimeMirror =
@@ -196,7 +196,7 @@ export class TranscriptSyncer {
     };
 
     for (const line of lines) {
-      const mapping = mapTranscriptLine(line, cutoffMs);
+      const mapping = mapTranscriptLine(line);
       if (mapping.events.length === 0) {
         continue;
       }
@@ -208,24 +208,21 @@ export class TranscriptSyncer {
         }
 
         if (mapping.timestampMs <= cutoffMs) {
+          bufferedRowsOriginatedBeforeThisScan = false;
+          pendingBeforeCutoff.length = 0;
           continue;
         }
 
         cutoffSatisfied = true;
-        const shouldReplayBufferedBeforeCutoff =
-          preexistingPendingCount > 0 ||
-          pendingBeforeCutoff.length === 1 ||
-          !scanningFromStart;
-        if (shouldReplayBufferedBeforeCutoff) {
+        if (bufferedRowsOriginatedBeforeThisScan) {
           while (pendingBeforeCutoff.length > 0) {
             const buffered = pendingBeforeCutoff.shift();
             if (buffered) {
               await emitMapping(buffered);
             }
           }
-        } else {
-          pendingBeforeCutoff.length = 0;
         }
+        pendingBeforeCutoff.length = 0;
       }
 
       await emitMapping(mapping);
@@ -302,7 +299,7 @@ async function readUtf8Delta(transcriptPath: string, fromOffset: number, toOffse
   }
 }
 
-function mapTranscriptLine(line: string, cutoffMs: number | null): TranscriptLineMapping {
+function mapTranscriptLine(line: string): TranscriptLineMapping {
   const trimmed = line.trim();
   if (trimmed === "") {
     return { events: [], timestampMs: null };
@@ -321,9 +318,6 @@ function mapTranscriptLine(line: string, cutoffMs: number | null): TranscriptLin
   }
 
   const timestampMs = parseTimestampMs(getString(record.timestamp));
-  if (timestampMs != null && cutoffMs != null && timestampMs <= cutoffMs) {
-    return { events: [], timestampMs };
-  }
 
   const type = getString(record.type);
   if (type === "user") {
