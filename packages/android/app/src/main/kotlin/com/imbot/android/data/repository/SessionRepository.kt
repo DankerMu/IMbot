@@ -62,17 +62,7 @@ class SessionRepository
                             offset = page.offset,
                             limit = page.limit,
                         )
-                    val localSessionsById = localPage.associateBy(SessionEntity::id)
-                    val sessions =
-                        page.sessions.map { session ->
-                            mergeSessionSnapshot(
-                                existing = localSessionsById[session.id],
-                                incoming =
-                                    session.toEntity(
-                                        summarySeq = localSessionsById[session.id]?.summarySeq ?: 0,
-                                    ),
-                            )
-                        }
+                    val sessions = buildMergedSessionSnapshots(sessionDao, page.sessions)
 
                     sessionDao.insertAll(sessions)
                     val staleIds =
@@ -185,6 +175,35 @@ internal fun computeStaleSessionIds(
         .filterNot { session -> session.status == STATUS_RUNNING || session.status == STATUS_QUEUED }
         .map(SessionEntity::id)
         .toList()
+
+internal suspend fun buildMergedSessionSnapshots(
+    sessionDao: SessionDao,
+    remoteSessions: List<RelaySession>,
+): List<SessionEntity> {
+    val existingSessionsById =
+        mutableMapOf<String, SessionEntity>().apply {
+            remoteSessions
+                .asSequence()
+                .map(RelaySession::id)
+                .distinct()
+                .forEach { sessionId ->
+                    sessionDao.getById(sessionId)?.let { session ->
+                        put(sessionId, session)
+                    }
+                }
+        }
+
+    return remoteSessions.map { session ->
+        val existing = existingSessionsById[session.id]
+        mergeSessionSnapshot(
+            existing = existing,
+            incoming =
+                session.toEntity(
+                    summarySeq = existing?.summarySeq ?: 0,
+                ),
+        )
+    }
+}
 
 private fun RelaySession.toEntity(summarySeq: Int = 0) =
     SessionEntity(

@@ -13,8 +13,8 @@ import com.imbot.android.data.local.SessionEntity
 import com.imbot.android.data.repository.SessionRepository
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelaySessionPage
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient

@@ -153,15 +153,87 @@ class SessionRepositoryRealtimeTest {
             assertEquals("2026-04-04T10:03:00Z", stored?.lastActiveAt)
         }
 
-    private fun createRepository(sessionDao: InMemorySessionDao): SessionRepository =
+    @Test
+    fun `refresh merge preserves summary seq when a session moves into the fetched page`() =
+        runTest {
+            val sessionDao = InMemorySessionDao()
+            val repository = createRepository(sessionDao)
+            sessionDao.insertAll(
+                listOf(
+                    testSession(
+                        id = "sess-2",
+                        status = "idle",
+                        model = "glm-5",
+                        createdAt = "2026-04-04T10:10:00Z",
+                        updatedAt = "2026-04-04T10:10:00Z",
+                        lastActiveAt = "2026-04-04T10:10:00Z",
+                    ),
+                    testSession(
+                        id = "sess-1",
+                        status = "running",
+                        model = "claude-opus-4-6",
+                        inputTokens = 55_000,
+                        outputTokens = 8_000,
+                        contextWindow = 200_000,
+                        summarySeq = 11,
+                        updatedAt = "2026-04-04T10:03:00Z",
+                        lastActiveAt = "2026-04-04T10:03:00Z",
+                    ),
+                ),
+            )
+
+            val merged =
+                buildMergedSessionSnapshots(
+                    sessionDao = sessionDao,
+                    remoteSessions =
+                        listOf(
+                            relaySession(
+                                id = "sess-1",
+                                status = "running",
+                                model = "glm-5",
+                                updatedAt = "2026-04-04T10:05:00Z",
+                                lastActiveAt = "2026-04-04T10:05:00Z",
+                            ),
+                        ),
+                )
+            sessionDao.insertAll(merged)
+            repository.applyRealtimeSummaryEvent(
+                ServerMessage.Event(
+                    sessionId = "sess-1",
+                    seq = 9,
+                    eventType = "session_usage",
+                    payload =
+                        JSONObject()
+                            .put("input_tokens", 42_000)
+                            .put("output_tokens", 9_000)
+                            .put("context_window", 120_000)
+                            .put("model", "claude-sonnet-4-5"),
+                    timestamp = "2026-04-04T10:06:00Z",
+                ),
+            )
+
+            val stored = sessionDao.getById("sess-1")
+            assertNotNull(stored)
+            assertEquals(11, stored?.summarySeq)
+            assertEquals("glm-5", stored?.model)
+            assertEquals(55_000, stored?.inputTokens)
+            assertEquals(8_000, stored?.outputTokens)
+            assertEquals(200_000, stored?.contextWindow)
+        }
+
+    private fun createRepository(
+        sessionDao: InMemorySessionDao,
+        relayHttpClient: RelayHttpClient = RelayHttpClient(okhttp3.OkHttpClient()),
+    ): SessionRepository =
         SessionRepository(
             database = FakeAppDatabase(sessionDao),
             sessionDao = sessionDao,
-            relayHttpClient = RelayHttpClient(okhttp3.OkHttpClient()),
+            relayHttpClient = relayHttpClient,
             settingsRepository = FakeSettingsRepository(),
         )
 
     private fun testSession(
+        id: String = "sess-1",
         status: String = "running",
         model: String? = "sonnet",
         errorMessage: String? = null,
@@ -173,7 +245,7 @@ class SessionRepositoryRealtimeTest {
         updatedAt: String = "2026-04-04T10:00:00Z",
         lastActiveAt: String = "2026-04-04T10:00:00Z",
     ) = SessionEntity(
-        id = "sess-1",
+        id = id,
         provider = "claude",
         hostId = "macbook-1",
         workspaceCwd = "/tmp/project",
@@ -191,13 +263,14 @@ class SessionRepositoryRealtimeTest {
     )
 
     private fun relaySession(
+        id: String = "sess-1",
         status: String,
         model: String?,
         errorMessage: String? = null,
         updatedAt: String,
         lastActiveAt: String,
     ) = RelaySession(
-        id = "sess-1",
+        id = id,
         provider = "claude",
         hostId = "macbook-1",
         workspaceCwd = "/tmp/project",

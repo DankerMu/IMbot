@@ -1,6 +1,6 @@
 const DEFAULT_MAX_PENDING_AGE_MS = 5 * 60 * 1000;
 const MAX_MIRROR_TIMESTAMP_SKEW_MS = 15 * 1000;
-const MAX_UNTIMESTAMPED_MIRROR_AGE_MS = 2 * 60 * 1000;
+const MAX_TIMESTAMPED_MIRROR_LAG_MS = 2 * 60 * 1000;
 
 type PendingRuntimeUserMessage = {
   text: string;
@@ -40,16 +40,16 @@ export class RuntimeUserMessageMirrorTracker {
     }
 
     const pending = this.prune(providerSessionId);
-    const candidate = pending[0];
-    if (!candidate || candidate.text != normalizedText) {
+    const candidateIndex = pending.findIndex(
+      (candidate) =>
+        candidate.text === normalizedText &&
+        this.isTimestampCompatible(candidate, transcriptTimestampMs),
+    );
+    if (candidateIndex === -1) {
       return false;
     }
 
-    if (!this.isTimestampCompatible(candidate, transcriptTimestampMs)) {
-      return false;
-    }
-
-    pending.shift();
+    pending.splice(candidateIndex, 1);
     if (pending.length === 0) {
       this.pendingByProviderSessionId.delete(providerSessionId);
     } else {
@@ -75,6 +75,10 @@ export class RuntimeUserMessageMirrorTracker {
       return [];
     }
 
+    if (fresh.length !== pending.length) {
+      this.pendingByProviderSessionId.set(providerSessionId, fresh);
+    }
+
     return fresh;
   }
 
@@ -83,11 +87,11 @@ export class RuntimeUserMessageMirrorTracker {
     transcriptTimestampMs: number | null,
   ): boolean {
     if (transcriptTimestampMs == null) {
-      return this.now() - candidate.recordedAtMs <= MAX_UNTIMESTAMPED_MIRROR_AGE_MS;
+      return this.now() - candidate.recordedAtMs <= this.maxPendingAgeMs;
     }
 
     const earliestAcceptedTimestamp = candidate.recordedAtMs - MAX_MIRROR_TIMESTAMP_SKEW_MS;
-    const latestAcceptedTimestamp = candidate.recordedAtMs + MAX_UNTIMESTAMPED_MIRROR_AGE_MS;
+    const latestAcceptedTimestamp = candidate.recordedAtMs + MAX_TIMESTAMPED_MIRROR_LAG_MS;
     return transcriptTimestampMs >= earliestAcceptedTimestamp && transcriptTimestampMs <= latestAcceptedTimestamp;
   }
 }

@@ -313,6 +313,66 @@ test("TranscriptSyncer does not suppress earlier same-text transcript rows befor
   }
 });
 
+test("TranscriptSyncer suppresses a later mirrored user row even when an older pending mirror remains queued", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-queued-mirror-order-"));
+
+  try {
+    let nowMs = Date.parse("2026-04-04T10:01:00.000Z");
+    const tracker = new RuntimeUserMessageMirrorTracker(5 * 60 * 1000, () => nowMs);
+    tracker.record("provider-session-1", "repeat after me");
+    nowMs = Date.parse("2026-04-04T10:05:00.000Z");
+    tracker.record("provider-session-1", "repeat after me");
+
+    const { cwd, projectsDir, sentEvents, syncer } = createRuntimeHarness(tempDir, {
+      lastActiveAt: "2026-04-04T09:00:00.000Z",
+      consumeRuntimeUserMessageMirror: (providerSessionId, text, timestampMs) =>
+        tracker.consume(providerSessionId, text, timestampMs)
+    });
+    createTranscriptFile(
+      projectsDir,
+      cwd,
+      "provider-session-1",
+      '{"type":"user","timestamp":"2026-04-04T10:05:01.000Z","message":{"role":"user","content":"repeat after me"}}\n'
+    );
+
+    await syncer.syncNow();
+
+    assert.deepEqual(sentEvents, []);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("TranscriptSyncer still suppresses delayed untimestamped mirrored user rows within pending retention", async () => {
+  const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-delayed-untimestamped-mirror-"));
+
+  try {
+    let nowMs = Date.parse("2026-04-04T10:01:00.000Z");
+    const tracker = new RuntimeUserMessageMirrorTracker(5 * 60 * 1000, () => nowMs);
+    tracker.record("provider-session-1", "repeat after me");
+
+    const { cwd, projectsDir, sentEvents, syncer } = createRuntimeHarness(tempDir, {
+      lastActiveAt: "2026-04-04T09:00:00.000Z",
+      active: false,
+      consumeRuntimeUserMessageMirror: (providerSessionId, text, timestampMs) =>
+        tracker.consume(providerSessionId, text, timestampMs)
+    });
+    createTranscriptFile(
+      projectsDir,
+      cwd,
+      "provider-session-1",
+      '{"type":"user","message":{"role":"user","content":"repeat after me"}}\n'
+    );
+
+    nowMs += 3 * 60 * 1000;
+    await syncer.syncNow();
+
+    assert.deepEqual(sentEvents, []);
+  } finally {
+    rmSync(tempDir, { recursive: true, force: true });
+  }
+});
+
 test("TranscriptSyncer only imports appended transcript lines after the initial scan", async () => {
   const tempDir = mkdtempSync(path.join(os.tmpdir(), "imbot-transcript-sync-append-"));
 
