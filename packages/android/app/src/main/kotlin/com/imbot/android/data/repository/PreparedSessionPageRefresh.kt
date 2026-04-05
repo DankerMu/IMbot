@@ -3,6 +3,7 @@ package com.imbot.android.data.repository
 import com.imbot.android.data.local.SessionDao
 import com.imbot.android.data.local.SessionEntity
 import com.imbot.android.network.RelaySession
+import com.imbot.android.network.RelaySessionPage
 
 internal data class PreparedSessionPageRefresh(
     val sessions: List<SessionEntity>,
@@ -52,19 +53,26 @@ internal suspend fun buildMergedSessionSnapshots(
 internal suspend fun prepareSessionPageRefresh(
     sessionDao: SessionDao,
     localPage: List<SessionEntity>,
-    remoteSessions: List<RelaySession>,
+    remotePage: RelaySessionPage,
 ): PreparedSessionPageRefresh {
-    val sessions = buildMergedSessionSnapshots(sessionDao, remoteSessions)
+    val sessions = buildMergedSessionSnapshots(sessionDao, remotePage.sessions)
     val staleIds =
-        computeStaleSessionIds(
-            localPage = localPage,
-            remoteSessionIds = sessions.map(SessionEntity::id).toSet(),
-        )
+        if (shouldDeleteMissingSessionsFromPage(remotePage)) {
+            computeStaleSessionIds(
+                localPage = localPage,
+                remoteSessionIds = sessions.map(SessionEntity::id).toSet(),
+            )
+        } else {
+            emptyList()
+        }
     return PreparedSessionPageRefresh(
         sessions = sessions,
         staleIds = staleIds,
     )
 }
+
+internal fun shouldDeleteMissingSessionsFromPage(remotePage: RelaySessionPage): Boolean =
+    remotePage.offset + remotePage.sessions.size >= remotePage.total
 
 private const val STATUS_QUEUED = "queued"
 private const val STATUS_RUNNING = "running"

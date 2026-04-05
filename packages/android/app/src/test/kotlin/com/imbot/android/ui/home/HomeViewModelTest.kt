@@ -118,7 +118,11 @@ private class InMemorySessionDao : SessionDao {
     override suspend fun getPage(
         offset: Int,
         limit: Int,
-    ): List<SessionEntity> = flow.value.drop(offset).take(limit)
+    ): List<SessionEntity> =
+        flow.value
+            .sortedByDescending(SessionEntity::createdAt)
+            .drop(offset)
+            .take(limit)
 
     override fun getByPathPrefix(
         prefix: String,

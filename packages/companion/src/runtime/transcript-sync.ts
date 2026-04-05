@@ -12,6 +12,7 @@ const DEFAULT_POLL_INTERVAL_MS = 1500;
 type TranscriptCursor = {
   cutoffMs: number | null;
   offset: number;
+  pendingBeforeCutoff: TranscriptLineMapping[];
   trailingFragment: string;
 };
 
@@ -139,6 +140,7 @@ export class TranscriptSyncer {
 
     if (stat.size < cursor.offset) {
       cursor.offset = 0;
+      cursor.pendingBeforeCutoff = [];
       cursor.trailingFragment = "";
       cursor.cutoffMs = await this.loadCutoffMs(entry.relay_session_id);
     }
@@ -159,26 +161,11 @@ export class TranscriptSyncer {
     const hasTrailingNewline = merged.endsWith("\n") || merged.endsWith("\r");
     const lines = merged.split(/\r?\n/);
     cursor.trailingFragment = hasTrailingNewline ? "" : (lines.pop() ?? "");
-    let cutoffSatisfied = cutoffMs == null || !scanningFromStart;
+    let cutoffSatisfied = cutoffMs == null || (!scanningFromStart && cursor.pendingBeforeCutoff.length === 0);
+    const pendingBeforeCutoff = cursor.pendingBeforeCutoff;
+    const preexistingPendingCount = pendingBeforeCutoff.length;
 
-    for (const line of lines) {
-      const mapping = mapTranscriptLine(line, cutoffMs);
-      if (mapping.events.length === 0) {
-        continue;
-      }
-
-      if (!cutoffSatisfied && cutoffMs != null) {
-        if (mapping.timestampMs == null) {
-          continue;
-        }
-
-        if (mapping.timestampMs <= cutoffMs) {
-          continue;
-        }
-
-        cutoffSatisfied = true;
-      }
-
+    const emitMapping = async (mapping: TranscriptLineMapping): Promise<void> => {
       const shouldSuppressRuntimeMirror =
         mapping.events.length === 1 &&
         mapping.events[0].eventType === "user_message" &&
@@ -192,7 +179,7 @@ export class TranscriptSyncer {
           mapping.timestampMs,
         ) === true;
       if (shouldSuppressRuntimeMirror) {
-        continue;
+        return;
       }
 
       for (const event of mapping.events) {
@@ -206,9 +193,51 @@ export class TranscriptSyncer {
           })
         );
       }
+    };
+
+    for (const line of lines) {
+      const mapping = mapTranscriptLine(line, cutoffMs);
+      if (mapping.events.length === 0) {
+        continue;
+      }
+
+      if (!cutoffSatisfied && cutoffMs != null) {
+        if (mapping.timestampMs == null) {
+          pendingBeforeCutoff.push(mapping);
+          continue;
+        }
+
+        if (mapping.timestampMs <= cutoffMs) {
+          continue;
+        }
+
+        cutoffSatisfied = true;
+        const shouldReplayBufferedBeforeCutoff =
+          preexistingPendingCount > 0 ||
+          pendingBeforeCutoff.length === 1 ||
+          !scanningFromStart;
+        if (shouldReplayBufferedBeforeCutoff) {
+          while (pendingBeforeCutoff.length > 0) {
+            const buffered = pendingBeforeCutoff.shift();
+            if (buffered) {
+              await emitMapping(buffered);
+            }
+          }
+        } else {
+          pendingBeforeCutoff.length = 0;
+        }
+      }
+
+      await emitMapping(mapping);
     }
 
-    if (!providerSessionIsActive) {
+    if (!cutoffSatisfied && cutoffMs != null) {
+      cursor.pendingBeforeCutoff = pendingBeforeCutoff;
+    } else {
+      cursor.pendingBeforeCutoff = [];
+    }
+
+    if (!providerSessionIsActive && cursor.pendingBeforeCutoff.length === 0) {
       cursor.cutoffMs = null;
     }
   }
@@ -222,6 +251,7 @@ export class TranscriptSyncer {
     const cursor: TranscriptCursor = {
       cutoffMs: await this.loadCutoffMs(entry.relay_session_id),
       offset: 0,
+      pendingBeforeCutoff: [],
       trailingFragment: ""
     };
     this.cursors.set(entry.relay_session_id, cursor);
