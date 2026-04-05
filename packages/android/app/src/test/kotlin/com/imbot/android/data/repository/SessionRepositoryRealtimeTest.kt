@@ -156,7 +156,7 @@ class SessionRepositoryRealtimeTest {
         }
 
     @Test
-    fun `refresh merge preserves summary seq when a session moves into the fetched page`() =
+    fun `refresh page preparation preserves summary seq while pruning stale local rows`() =
         runTest {
             val sessionDao = InMemorySessionDao()
             val repository = createRepository(sessionDao)
@@ -184,9 +184,11 @@ class SessionRepositoryRealtimeTest {
                 ),
             )
 
-            val merged =
-                buildMergedSessionSnapshots(
+            val localPage = sessionDao.getPage(offset = 0, limit = 1)
+            val refresh =
+                prepareSessionPageRefresh(
                     sessionDao = sessionDao,
+                    localPage = localPage,
                     remoteSessions =
                         listOf(
                             relaySession(
@@ -198,7 +200,8 @@ class SessionRepositoryRealtimeTest {
                             ),
                         ),
                 )
-            sessionDao.insertAll(merged)
+            sessionDao.insertAll(refresh.sessions)
+            sessionDao.deleteByIds(refresh.staleIds)
             repository.applyRealtimeSummaryEvent(
                 ServerMessage.Event(
                     sessionId = "sess-1",
@@ -221,6 +224,7 @@ class SessionRepositoryRealtimeTest {
             assertEquals(55_000, stored?.inputTokens)
             assertEquals(8_000, stored?.outputTokens)
             assertEquals(200_000, stored?.contextWindow)
+            assertEquals(null, sessionDao.getById("sess-2"))
         }
 
     private fun createRepository(

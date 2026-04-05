@@ -1,8 +1,15 @@
+@file:Suppress("MatchingDeclarationName")
+
 package com.imbot.android.data.repository
 
 import com.imbot.android.data.local.SessionDao
 import com.imbot.android.data.local.SessionEntity
 import com.imbot.android.network.RelaySession
+
+internal data class PreparedSessionPageRefresh(
+    val sessions: List<SessionEntity>,
+    val staleIds: List<String>,
+)
 
 internal fun computeStaleSessionIds(
     localPage: List<SessionEntity>,
@@ -42,6 +49,23 @@ internal suspend fun buildMergedSessionSnapshots(
                 ),
         )
     }
+}
+
+internal suspend fun prepareSessionPageRefresh(
+    sessionDao: SessionDao,
+    localPage: List<SessionEntity>,
+    remoteSessions: List<RelaySession>,
+): PreparedSessionPageRefresh {
+    val sessions = buildMergedSessionSnapshots(sessionDao, remoteSessions)
+    val staleIds =
+        computeStaleSessionIds(
+            localPage = localPage,
+            remoteSessionIds = sessions.map(SessionEntity::id).toSet(),
+        )
+    return PreparedSessionPageRefresh(
+        sessions = sessions,
+        staleIds = staleIds,
+    )
 }
 
 private const val STATUS_QUEUED = "queued"

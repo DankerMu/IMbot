@@ -64,16 +64,16 @@ class SessionRepository
                             offset = page.offset,
                             limit = page.limit,
                         )
-                    val sessions = buildMergedSessionSnapshots(sessionDao, page.sessions)
-
-                    sessionDao.insertAll(sessions)
-                    val staleIds =
-                        computeStaleSessionIds(
+                    val refresh =
+                        prepareSessionPageRefresh(
+                            sessionDao = sessionDao,
                             localPage = localPage,
-                            remoteSessionIds = sessions.map(SessionEntity::id).toSet(),
+                            remoteSessions = page.sessions,
                         )
-                    if (staleIds.isNotEmpty()) {
-                        sessionDao.deleteByIds(staleIds)
+
+                    sessionDao.insertAll(refresh.sessions)
+                    if (refresh.staleIds.isNotEmpty()) {
+                        sessionDao.deleteByIds(refresh.staleIds)
                     }
                 }
             }
