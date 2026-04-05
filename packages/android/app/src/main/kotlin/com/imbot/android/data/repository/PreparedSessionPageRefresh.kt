@@ -1,5 +1,3 @@
-@file:Suppress("MatchingDeclarationName")
-
 package com.imbot.android.data.repository
 
 import com.imbot.android.data.local.SessionDao
