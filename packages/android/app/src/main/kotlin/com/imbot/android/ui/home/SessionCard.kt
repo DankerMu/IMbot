@@ -66,6 +66,15 @@ fun SessionCard(
     val componentShapes = LocalIMbotComponentShapes.current
     val isDarkTheme = LocalUseDarkTheme.current
     val shadowTokens = MaterialTheme.appleShadow
+    val metadataLabels =
+        listOfNotNull(
+            sessionModelDisplayName(session.model),
+            sessionUsageSummaryLabel(
+                inputTokens = session.inputTokens,
+                outputTokens = session.outputTokens,
+                contextWindow = session.contextWindow,
+            ),
+        )
     val dismissState =
         rememberSwipeToDismissBoxState(
             confirmValueChange = { value ->
@@ -216,17 +225,16 @@ fun SessionCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-
-                Text(
-                    text = session.workspaceCwd,
-                    style =
-                        MaterialTheme.typography.bodySmall.copy(
-                            fontFamily = CodeFontFamily,
-                        ),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                if (metadataLabels.isNotEmpty()) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        metadataLabels.forEach { label ->
+                            SessionMetaPill(label = label)
+                        }
+                    }
+                }
             }
         }
     }
@@ -263,6 +271,24 @@ private fun TimePill(label: String) {
             modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun SessionMetaPill(label: String) {
+    Surface(
+        shape = MaterialTheme.shapes.extraLarge,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)),
+    ) {
+        Text(
+            text = label,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

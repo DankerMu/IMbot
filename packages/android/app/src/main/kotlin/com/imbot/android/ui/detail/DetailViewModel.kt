@@ -603,6 +603,7 @@ class DetailViewModel
         internal suspend fun handleSessionEvent(
             event: ServerMessage.Event,
             allowAutoScroll: Boolean = true,
+            surfaceTransientErrors: Boolean = true,
         ) {
             if (event.eventType == "user_message") {
                 removeOptimisticMessage(event.payload.stringValue("text").orEmpty())
@@ -610,7 +611,8 @@ class DetailViewModel
 
             val processingResult = eventProcessor.processWithMetadata(event)
             applyUsageUpdate(event, processingResult.usageUpdate)
-            applyEventToSession(event)
+            applyEventToSession(event, surfaceTransientErrors)
+            persistCurrentSessionSnapshot(event.timestamp)
             publishMessages(
                 newMessages = combinedMessages(),
                 allowAutoScroll = allowAutoScroll,
@@ -766,7 +768,11 @@ class DetailViewModel
                     messages = newMessages,
                     usage = usageStateForSession(current.usage, session),
                     canSend = canInputToSession(effectiveStatus) && !current.isSending,
+                    error = current.error.takeIf { session.status == "failed" },
                 )
+            }
+            viewModelScope.launch {
+                sessionRepository.upsertSessionSnapshot(session)
             }
         }
 
@@ -782,7 +788,9 @@ class DetailViewModel
                     if (payload?.has("context_window") == true) {
                         update.contextWindow
                     } else {
-                        current.usage.contextWindow.takeIf { it > 0 } ?: modelContextWindow(resolvedModel)
+                        current.usage.contextWindow.takeIf { it > 0 }
+                            ?: current.session?.contextWindow?.takeIf { it > 0 }
+                            ?: 0
                     }
                 current.copy(
                     usage =
@@ -808,21 +816,53 @@ class DetailViewModel
             usage: SessionUsageState,
             session: RelaySession,
         ): SessionUsageState {
+            val inputTokens = usage.inputTokens.takeIf { it > 0 } ?: session.inputTokens.takeIf { it > 0 } ?: 0
+            val outputTokens = usage.outputTokens.takeIf { it > 0 } ?: session.outputTokens.takeIf { it > 0 } ?: 0
             val model = usage.model ?: session.model?.takeIf(String::isNotBlank)
             val contextWindow =
                 usage.contextWindow.takeIf { it > 0 }
-                    ?: modelContextWindow(model)
-            return if (model == usage.model && contextWindow == usage.contextWindow) {
-                usage
-            } else {
+                    ?: session.contextWindow.takeIf { it > 0 }
+                    ?: 0
+            val resolvedUsage =
                 usage.copy(
+                    inputTokens = inputTokens,
+                    outputTokens = outputTokens,
                     model = model,
                     contextWindow = contextWindow,
                 )
+            return if (resolvedUsage == usage) {
+                usage
+            } else {
+                resolvedUsage
             }
         }
 
-        private fun applyEventToSession(event: ServerMessage.Event) {
+        private fun persistCurrentSessionSnapshot(timestamp: String?) {
+            val state = _uiState.value
+            val session = state.session ?: return
+            val usage = state.usage
+            val normalizedTimestamp = timestamp?.takeIf(String::isNotBlank)
+            val hasRealtimeTokenSummary = usage.inputTokens > 0 || usage.outputTokens > 0
+
+            val snapshot =
+                session.copy(
+                    model = usage.model ?: session.model,
+                    inputTokens = if (hasRealtimeTokenSummary) usage.inputTokens else session.inputTokens,
+                    outputTokens = if (hasRealtimeTokenSummary) usage.outputTokens else session.outputTokens,
+                    contextWindow = usage.contextWindow.takeIf { it > 0 } ?: session.contextWindow,
+                    updatedAt = normalizedTimestamp ?: session.updatedAt,
+                    lastActiveAt = normalizedTimestamp ?: session.lastActiveAt,
+                )
+
+            viewModelScope.launch {
+                sessionRepository.upsertSessionSnapshot(snapshot)
+            }
+        }
+
+        private fun applyEventToSession(
+            event: ServerMessage.Event,
+            surfaceTransientErrors: Boolean,
+        ) {
             val currentSession = _uiState.value.session ?: return
 
             when (event.eventType) {
@@ -832,7 +872,7 @@ class DetailViewModel
                         currentSession.copy(
                             model = model,
                             status = "running",
-                            errorMessage = currentSession.errorMessage,
+                            errorMessage = null,
                         ),
                     )
                 }
@@ -841,7 +881,7 @@ class DetailViewModel
                     publishSession(
                         currentSession.copy(
                             status = "idle",
-                            errorMessage = currentSession.errorMessage,
+                            errorMessage = null,
                         ),
                     )
                 }
@@ -852,7 +892,7 @@ class DetailViewModel
                         publishSession(
                             currentSession.copy(
                                 status = status,
-                                errorMessage = currentSession.errorMessage,
+                                errorMessage = currentSession.errorMessage.takeIf { status == "failed" },
                             ),
                         )
                     }
@@ -867,7 +907,7 @@ class DetailViewModel
                             errorMessage = message,
                         ),
                     )
-                    if (errorCode != "provider_unreachable") {
+                    if (surfaceTransientErrors && errorCode != "provider_unreachable") {
                         _uiState.update { current ->
                             current.copy(
                                 error = message ?: current.error,
@@ -925,6 +965,7 @@ class DetailViewModel
                         handleSessionEvent(
                             event = event,
                             allowAutoScroll = allowAutoScroll,
+                            surfaceTransientErrors = false,
                         )
                     }
                     cursor = maxOf(cursor, sortedEvents.maxOfOrNull(ServerMessage.Event::seq) ?: cursor)

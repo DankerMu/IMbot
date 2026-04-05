@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS sessions (
     CHECK (status IN ('queued', 'running', 'idle', 'completed', 'failed', 'cancelled')),
   error_message TEXT,
   error_code TEXT,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  context_window INTEGER,
   local_available INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL DEFAULT (datetime('now')),
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -164,6 +167,9 @@ function migrateSchema(db: RelayDatabase): void {
           CHECK (status IN ('queued', 'running', 'idle', 'completed', 'failed', 'cancelled')),
         error_message TEXT,
         error_code TEXT,
+        input_tokens INTEGER NOT NULL DEFAULT 0,
+        output_tokens INTEGER NOT NULL DEFAULT 0,
+        context_window INTEGER,
         local_available INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -183,6 +189,9 @@ function migrateSchema(db: RelayDatabase): void {
         status,
         error_message,
         error_code,
+        input_tokens,
+        output_tokens,
+        context_window,
         local_available,
         created_at,
         updated_at,
@@ -201,6 +210,9 @@ function migrateSchema(db: RelayDatabase): void {
         status,
         error_message,
         error_code,
+        0,
+        0,
+        NULL,
         CASE
           WHEN provider IN ('claude', 'book') AND provider_session_id IS NOT NULL THEN 1
           ELSE 0
@@ -246,6 +258,30 @@ function migrateLocalAvailable(db: RelayDatabase): void {
   `);
 }
 
+function migrateSessionUsageSummaryColumns(db: RelayDatabase): void {
+  const columns = db.pragma("table_info(sessions)") as Array<{ name: string }>;
+  const hasInputTokens = columns.some((column) => column.name === "input_tokens");
+  const hasOutputTokens = columns.some((column) => column.name === "output_tokens");
+  const hasContextWindow = columns.some((column) => column.name === "context_window");
+
+  const statements: string[] = [];
+  if (!hasInputTokens) {
+    statements.push("ALTER TABLE sessions ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!hasOutputTokens) {
+    statements.push("ALTER TABLE sessions ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!hasContextWindow) {
+    statements.push("ALTER TABLE sessions ADD COLUMN context_window INTEGER");
+  }
+
+  if (statements.length == 0) {
+    return;
+  }
+
+  db.exec(`${statements.join(";\n")};`);
+}
+
 function hasTable(db: RelayDatabase, tableName: string): boolean {
   const row = db
     .prepare(
@@ -285,6 +321,132 @@ function migrateProviderSessionIdIndex(db: RelayDatabase): void {
   }
 }
 
+function backfillSessionSummariesFromEvents(db: RelayDatabase): void {
+  if (!hasTable(db, "sessions") || !hasTable(db, "session_events")) {
+    return;
+  }
+
+  type UsageSummaryBackfillRow = {
+    session_id: string;
+    input_tokens: number | null;
+    output_tokens: number | null;
+    context_window: number | null;
+    model: string | null;
+  };
+
+  const usageEvents = db
+    .prepare(
+      `
+      SELECT
+        events.session_id AS session_id,
+        events.seq AS seq,
+        CAST(json_extract(events.payload, '$.input_tokens') AS INTEGER) AS input_tokens,
+        CAST(json_extract(events.payload, '$.output_tokens') AS INTEGER) AS output_tokens,
+        CAST(json_extract(events.payload, '$.context_window') AS INTEGER) AS context_window,
+        NULLIF(TRIM(COALESCE(json_extract(events.payload, '$.model'), '')), '') AS model
+      FROM session_events AS events
+      WHERE type = 'session_usage'
+      ORDER BY events.session_id ASC, events.seq DESC
+      `
+    )
+    .all() as Array<{
+      session_id: string;
+      seq: number;
+      input_tokens: number | null;
+      output_tokens: number | null;
+      context_window: number | null;
+      model: string | null;
+    }>;
+
+  const latestUsageRows = new Map<string, UsageSummaryBackfillRow>();
+
+  for (const event of usageEvents) {
+    const summary = latestUsageRows.get(event.session_id) ?? {
+      session_id: event.session_id,
+      input_tokens: null,
+      output_tokens: null,
+      context_window: null,
+      model: null
+    };
+
+    if (summary.input_tokens === null && event.input_tokens !== null) {
+      summary.input_tokens = event.input_tokens;
+    }
+    if (summary.output_tokens === null && event.output_tokens !== null) {
+      summary.output_tokens = event.output_tokens;
+    }
+    if (summary.context_window === null && event.context_window !== null) {
+      summary.context_window = event.context_window;
+    }
+    if (summary.model === null && event.model !== null) {
+      summary.model = event.model;
+    }
+
+    latestUsageRows.set(event.session_id, summary);
+  }
+
+  const applyUsageSummary = db.prepare(
+    `
+    UPDATE sessions
+    SET
+      input_tokens = COALESCE(?, input_tokens),
+      output_tokens = COALESCE(?, output_tokens),
+      context_window = COALESCE(?, context_window),
+      model = COALESCE(?, model)
+    WHERE id = ?
+    `
+  );
+
+  db.transaction((rows: UsageSummaryBackfillRow[]) => {
+    for (const row of rows) {
+      applyUsageSummary.run(
+        row.input_tokens,
+        row.output_tokens,
+        row.context_window,
+        row.model,
+        row.session_id
+      );
+    }
+  })(Array.from(latestUsageRows.values()));
+
+  const latestStartedRows = db
+    .prepare(
+      `
+      SELECT
+        events.session_id AS session_id,
+        NULLIF(TRIM(COALESCE(json_extract(events.payload, '$.model'), '')), '') AS model
+      FROM session_events AS events
+      INNER JOIN (
+        SELECT session_id, MAX(seq) AS max_seq
+        FROM session_events
+        WHERE type = 'session_started'
+        GROUP BY session_id
+      ) AS latest
+        ON latest.session_id = events.session_id
+       AND latest.max_seq = events.seq
+      WHERE NULLIF(TRIM(COALESCE(json_extract(events.payload, '$.model'), '')), '') IS NOT NULL
+      `
+    )
+    .all() as Array<{
+      session_id: string;
+      model: string;
+    }>;
+
+  const applyStartedModel = db.prepare(
+    `
+    UPDATE sessions
+    SET model = ?
+    WHERE id = ? AND (model IS NULL OR TRIM(model) = '')
+    `
+  );
+
+  db.transaction((rows: typeof latestStartedRows) => {
+    for (const row of rows) {
+      applyStartedModel.run(row.model, row.session_id);
+    }
+  })(latestStartedRows);
+}
+
 export function initializeDatabase(dbPath: string): RelayDatabase {
   const parentDir = path.dirname(dbPath);
   fs.mkdirSync(parentDir, { recursive: true });
@@ -296,7 +458,9 @@ export function initializeDatabase(dbPath: string): RelayDatabase {
   db.exec(SCHEMA_SQL);
   migrateSchema(db);
   migrateLocalAvailable(db);
+  migrateSessionUsageSummaryColumns(db);
   migrateProviderSessionIdIndex(db);
+  backfillSessionSummariesFromEvents(db);
   db
     .prepare(
       `

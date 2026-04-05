@@ -323,7 +323,7 @@ class DetailViewModelTest {
         }
 
     @Test
-    fun `session_usage without context window falls back from model`() =
+    fun `session_usage without context window keeps total window unknown`() =
         runTest(mainDispatcherRule.dispatcher) {
             val ws = FakeRelayWsClient()
             val viewModel = createViewModel(ws = ws)
@@ -347,7 +347,7 @@ class DetailViewModelTest {
                 SessionUsageState(
                     inputTokens = 12,
                     outputTokens = 34,
-                    contextWindow = 200_000,
+                    contextWindow = 0,
                     model = "claude-sonnet-4-6",
                 ),
                 viewModel.uiState.value.usage,
@@ -355,10 +355,27 @@ class DetailViewModelTest {
         }
 
     @Test
-    fun `loadSession resets usage to default values`() =
+    fun `session_usage event also persists updated session summary into local cache`() =
         runTest(mainDispatcherRule.dispatcher) {
+            val relay = FakeRelayHttpClient()
             val ws = FakeRelayWsClient()
-            val viewModel = createViewModel(ws = ws)
+            val sessionDao = FakeSessionDao()
+            val settingsRepository = FakeSettingsRepository()
+            val sessionRepository =
+                SessionRepository(
+                    database = FakeAppDatabase(sessionDao),
+                    sessionDao = sessionDao,
+                    relayHttpClient = relay,
+                    settingsRepository = settingsRepository,
+                )
+            val viewModel =
+                DetailViewModel(
+                    relayHttpClient = relay,
+                    sessionRepository = sessionRepository,
+                    relayWsClient = ws,
+                    settingsRepository = settingsRepository,
+                    savedStateHandle = SavedStateHandle(mapOf("sessionId" to TEST_SESSION.id)),
+                )
             advanceUntilIdle()
 
             ws.emitEvent(
@@ -367,21 +384,92 @@ class DetailViewModelTest {
                     eventType = "session_usage",
                     payload =
                         payload(
-                            "input_tokens" to 12,
-                            "output_tokens" to 34,
+                            "input_tokens" to 42_000,
+                            "output_tokens" to 9_000,
                             "context_window" to 200_000,
+                            "model" to "glm-5",
                         ),
+                    timestamp = "2026-04-04T10:02:00Z",
                 ),
             )
             advanceUntilIdle()
 
-            viewModel.loadSession()
+            val cached = sessionDao.storedSession(TEST_SESSION.id)
+            assertNotNull(cached)
+            assertEquals("glm-5", cached?.model)
+            assertEquals(42_000, cached?.inputTokens)
+            assertEquals(9_000, cached?.outputTokens)
+            assertEquals(200_000, cached?.contextWindow)
+            assertEquals("2026-04-04T10:02:00Z", cached?.lastActiveAt)
+        }
+
+    @Test
+    fun `loadSession restores persisted usage summary and keeps tokens across non usage events`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult =
+                        Result.success(
+                            TEST_SESSION.copy(
+                                model = "glm-5",
+                                inputTokens = 42_000,
+                                outputTokens = 9_000,
+                                contextWindow = 200_000,
+                            ),
+                        )
+                }
+            val ws = FakeRelayWsClient()
+            val sessionDao = FakeSessionDao()
+            val settingsRepository = FakeSettingsRepository()
+            val sessionRepository =
+                SessionRepository(
+                    database = FakeAppDatabase(sessionDao),
+                    sessionDao = sessionDao,
+                    relayHttpClient = relay,
+                    settingsRepository = settingsRepository,
+                )
+            val viewModel =
+                DetailViewModel(
+                    relayHttpClient = relay,
+                    sessionRepository = sessionRepository,
+                    relayWsClient = ws,
+                    settingsRepository = settingsRepository,
+                    savedStateHandle = SavedStateHandle(mapOf("sessionId" to TEST_SESSION.id)),
+                )
             advanceUntilIdle()
 
             assertEquals(
                 SessionUsageState(
+                    inputTokens = 42_000,
+                    outputTokens = 9_000,
                     contextWindow = 200_000,
-                    model = TEST_SESSION.model,
+                    model = "glm-5",
+                ),
+                viewModel.uiState.value.usage,
+            )
+
+            ws.emitEvent(
+                event(
+                    seq = 1,
+                    eventType = "session_idle",
+                    timestamp = "2026-04-04T10:03:00Z",
+                ),
+            )
+            advanceUntilIdle()
+
+            val cached = sessionDao.storedSession(TEST_SESSION.id)
+            assertNotNull(cached)
+            assertEquals(42_000, cached?.inputTokens)
+            assertEquals(9_000, cached?.outputTokens)
+            assertEquals(200_000, cached?.contextWindow)
+            assertEquals("glm-5", cached?.model)
+
+            assertEquals(
+                SessionUsageState(
+                    inputTokens = 42_000,
+                    outputTokens = 9_000,
+                    contextWindow = 200_000,
+                    model = "glm-5",
                 ),
                 viewModel.uiState.value.usage,
             )
@@ -1123,6 +1211,61 @@ class DetailViewModelTest {
         }
 
     @Test
+    fun `historical recovered session error does not resurface as current error`() =
+        runTest(mainDispatcherRule.dispatcher) {
+            val relay =
+                FakeRelayHttpClient().apply {
+                    getSessionResult = Result.success(TEST_SESSION.copy(status = "idle", errorMessage = null, initialPrompt = null))
+                    getSessionEventsResult =
+                        Result.success(
+                            RelayEventPage(
+                                events =
+                                    listOf(
+                                        event(
+                                            seq = 1,
+                                            eventType = "session_error",
+                                            payload =
+                                                payload(
+                                                    "message" to "Companion shutting down; session process will be lost",
+                                                    "error_code" to "companion_restart",
+                                                ),
+                                        ),
+                                        event(
+                                            seq = 2,
+                                            eventType = "session_started",
+                                            payload = payload("provider_session_id" to "provider-1", "model" to "sonnet"),
+                                        ),
+                                        event(
+                                            seq = 3,
+                                            eventType = "session_status_changed",
+                                            payload = payload("status" to "running"),
+                                        ),
+                                        event(
+                                            seq = 4,
+                                            eventType = "session_idle",
+                                            payload = payload("result" to JSONObject.NULL),
+                                        ),
+                                        event(
+                                            seq = 5,
+                                            eventType = "session_status_changed",
+                                            payload = payload("status" to "idle"),
+                                        ),
+                                    ),
+                                hasMore = false,
+                            ),
+                        )
+                }
+
+            val viewModel = createViewModel(relay = relay, ws = FakeRelayWsClient())
+            advanceUntilIdle()
+
+            assertEquals("idle", viewModel.uiState.value.session?.status)
+            assertNull(viewModel.uiState.value.session?.errorMessage)
+            assertNull(viewModel.uiState.value.error)
+            assertTrue(viewModel.uiState.value.canSend)
+        }
+
+    @Test
     fun `loadSession failure sets error and retry succeeds`() =
         runTest(mainDispatcherRule.dispatcher) {
             val relay =
@@ -1736,29 +1879,55 @@ private class FakeAppDatabase(
 }
 
 private class FakeSessionDao : SessionDao {
-    override suspend fun insertAll(sessions: List<SessionEntity>) = Unit
+    private val sessions = linkedMapOf<String, SessionEntity>()
+    private val allSessionsFlow = MutableStateFlow(emptyList<SessionEntity>())
 
-    override fun getAll() = MutableStateFlow(emptyList<SessionEntity>())
+    override suspend fun insertAll(sessions: List<SessionEntity>) {
+        sessions.forEach { session ->
+            this.sessions[session.id] = session
+        }
+        publish()
+    }
+
+    override fun getAll() = allSessionsFlow
 
     override suspend fun getPage(
         offset: Int,
         limit: Int,
-    ): List<SessionEntity> = emptyList()
+    ): List<SessionEntity> = allSessionsFlow.value.drop(offset).take(limit)
 
     override fun getByPathPrefix(
         prefix: String,
         escapedPrefix: String,
-    ) = MutableStateFlow(emptyList<SessionEntity>())
+    ) = MutableStateFlow(allSessionsFlow.value.filter { it.workspaceCwd == prefix || it.workspaceCwd.startsWith("$prefix/") })
 
-    override suspend fun getById(id: String): SessionEntity? = null
+    override suspend fun getById(id: String): SessionEntity? = sessions[id]
 
-    override suspend fun deleteById(id: String) = Unit
+    override suspend fun deleteById(id: String) {
+        sessions.remove(id)
+        publish()
+    }
 
-    override suspend fun deleteNotIn(ids: List<String>) = Unit
+    override suspend fun deleteNotIn(ids: List<String>) {
+        sessions.keys.retainAll(ids.toSet())
+        publish()
+    }
 
-    override suspend fun deleteByIds(ids: List<String>) = Unit
+    override suspend fun deleteByIds(ids: List<String>) {
+        ids.forEach(sessions::remove)
+        publish()
+    }
 
-    override suspend fun deleteAll() = Unit
+    override suspend fun deleteAll() {
+        sessions.clear()
+        publish()
+    }
+
+    fun storedSession(id: String): SessionEntity? = sessions[id]
+
+    private fun publish() {
+        allSessionsFlow.value = sessions.values.toList()
+    }
 }
 
 private class FakeSharedPreferences : SharedPreferences {

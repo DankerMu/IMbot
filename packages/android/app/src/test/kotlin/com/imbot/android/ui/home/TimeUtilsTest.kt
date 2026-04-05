@@ -66,8 +66,16 @@ class TimeUtilsTest {
     }
 
     @Test
-    fun `idle status is treated as live and sorted with running sessions`() {
+    fun `formats session metadata labels`() {
+        assertEquals("Sonnet", sessionModelDisplayName("sonnet"))
+        assertEquals("Opus", sessionModelDisplayName("claude-opus-4-6[1m]"))
+        assertEquals("glm-5", sessionModelDisplayName("glm-5"))
+        assertEquals("51/200k", sessionUsageSummaryLabel(42, 9, 200_000))
+    }
+
+    @Test
+    fun `idle status remains live but is not counted as running`() {
         assertEquals(true, isLiveStatus("idle"))
-        assertEquals(true, isRunningStatus("idle"))
+        assertEquals(false, isRunningStatus("idle"))
     }
 }

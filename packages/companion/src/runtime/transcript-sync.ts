@@ -12,12 +12,18 @@ const DEFAULT_POLL_INTERVAL_MS = 1500;
 type TranscriptCursor = {
   cutoffMs: number | null;
   offset: number;
+  pendingBeforeCutoff: TranscriptLineMapping[];
   trailingFragment: string;
 };
 
 type TranscriptMappedEvent = {
   eventType: CompanionEventMessage["event_type"];
   payload: unknown;
+};
+
+type TranscriptLineMapping = {
+  events: TranscriptMappedEvent[];
+  timestampMs: number | null;
 };
 
 type RelaySessionMetadata = {
@@ -30,6 +36,11 @@ export interface TranscriptSyncerOptions {
   readonly relayUrl: string;
   readonly token: string;
   readonly sendEvent: (message: CompanionEventMessage) => Promise<void> | void;
+  readonly consumeRuntimeUserMessageMirror?: (
+    providerSessionId: string,
+    text: string,
+    timestampMs: number | null,
+  ) => boolean;
   readonly isProviderSessionActive?: (providerSessionId: string) => boolean;
   readonly logger?: LoggerLike;
   readonly pollIntervalMs?: number;
@@ -129,6 +140,7 @@ export class TranscriptSyncer {
 
     if (stat.size < cursor.offset) {
       cursor.offset = 0;
+      cursor.pendingBeforeCutoff = [];
       cursor.trailingFragment = "";
       cursor.cutoffMs = await this.loadCutoffMs(entry.relay_session_id);
     }
@@ -141,6 +153,7 @@ export class TranscriptSyncer {
     // import turns appended by an external native CLI without duplicating turns already relayed
     // by the companion-managed runtime path.
     const cutoffMs = providerSessionIsActive ? await this.loadCutoffMs(entry.relay_session_id) : cursor.cutoffMs;
+    const scanningFromStart = cursor.offset === 0 && cursor.trailingFragment === "";
     const { text: nextChunk, bytesRead } = await readUtf8Delta(transcriptPath, cursor.offset, stat.size);
     cursor.offset += bytesRead;
 
@@ -148,14 +161,28 @@ export class TranscriptSyncer {
     const hasTrailingNewline = merged.endsWith("\n") || merged.endsWith("\r");
     const lines = merged.split(/\r?\n/);
     cursor.trailingFragment = hasTrailingNewline ? "" : (lines.pop() ?? "");
+    let cutoffSatisfied = cutoffMs == null || (!scanningFromStart && cursor.pendingBeforeCutoff.length === 0);
+    const pendingBeforeCutoff = cursor.pendingBeforeCutoff;
+    let bufferedRowsOriginatedBeforeThisScan = pendingBeforeCutoff.length > 0;
 
-    for (const line of lines) {
-      const events = mapTranscriptLine(line, cutoffMs);
-      if (events.length === 0) {
-        continue;
+    const emitMapping = async (mapping: TranscriptLineMapping): Promise<void> => {
+      const shouldSuppressRuntimeMirror =
+        mapping.events.length === 1 &&
+        mapping.events[0].eventType === "user_message" &&
+        typeof mapping.events[0].payload === "object" &&
+        mapping.events[0].payload !== null &&
+        "text" in mapping.events[0].payload &&
+        typeof mapping.events[0].payload.text === "string" &&
+        this.options.consumeRuntimeUserMessageMirror?.(
+          entry.provider_session_id,
+          mapping.events[0].payload.text,
+          mapping.timestampMs,
+        ) === true;
+      if (shouldSuppressRuntimeMirror) {
+        return;
       }
 
-      for (const event of events) {
+      for (const event of mapping.events) {
         await Promise.resolve(
           this.options.sendEvent({
             type: "event",
@@ -166,9 +193,46 @@ export class TranscriptSyncer {
           })
         );
       }
+    };
+
+    for (const line of lines) {
+      const mapping = mapTranscriptLine(line);
+      if (mapping.events.length === 0) {
+        continue;
+      }
+
+      if (!cutoffSatisfied && cutoffMs != null) {
+        if (mapping.timestampMs == null) {
+          pendingBeforeCutoff.push(mapping);
+          continue;
+        }
+
+        if (mapping.timestampMs <= cutoffMs) {
+          bufferedRowsOriginatedBeforeThisScan = false;
+          pendingBeforeCutoff.length = 0;
+          continue;
+        }
+
+        cutoffSatisfied = true;
+        const crossingIntoAssistantReply = mapping.events.some((event) => event.eventType === "assistant_message");
+        if (bufferedRowsOriginatedBeforeThisScan || crossingIntoAssistantReply) {
+          for (const buffered of takeTrailingBufferedUserMappings(pendingBeforeCutoff)) {
+            await emitMapping(buffered);
+          }
+        }
+        pendingBeforeCutoff.length = 0;
+      }
+
+      await emitMapping(mapping);
     }
 
-    if (!providerSessionIsActive) {
+    if (!cutoffSatisfied && cutoffMs != null) {
+      cursor.pendingBeforeCutoff = pendingBeforeCutoff;
+    } else {
+      cursor.pendingBeforeCutoff = [];
+    }
+
+    if (!providerSessionIsActive && cursor.pendingBeforeCutoff.length === 0) {
       cursor.cutoffMs = null;
     }
   }
@@ -182,6 +246,7 @@ export class TranscriptSyncer {
     const cursor: TranscriptCursor = {
       cutoffMs: await this.loadCutoffMs(entry.relay_session_id),
       offset: 0,
+      pendingBeforeCutoff: [],
       trailingFragment: ""
     };
     this.cursors.set(entry.relay_session_id, cursor);
@@ -232,39 +297,39 @@ async function readUtf8Delta(transcriptPath: string, fromOffset: number, toOffse
   }
 }
 
-function mapTranscriptLine(line: string, cutoffMs: number | null): TranscriptMappedEvent[] {
+function mapTranscriptLine(line: string): TranscriptLineMapping {
   const trimmed = line.trim();
   if (trimmed === "") {
-    return [];
+    return { events: [], timestampMs: null };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(trimmed) as unknown;
   } catch {
-    return [];
+    return { events: [], timestampMs: null };
   }
 
   const record = asRecord(parsed);
   if (!record) {
-    return [];
+    return { events: [], timestampMs: null };
   }
 
   const timestampMs = parseTimestampMs(getString(record.timestamp));
-  if (timestampMs != null && cutoffMs != null && timestampMs <= cutoffMs) {
-    return [];
-  }
 
   const type = getString(record.type);
   if (type === "user") {
     const text = extractTranscriptText(record);
-    return text ? [{ eventType: "user_message", payload: { text } }] : [];
+    return {
+      events: text ? [{ eventType: "user_message", payload: { text } }] : [],
+      timestampMs
+    };
   }
 
   if (type === "assistant") {
     const text = extractTranscriptText(record);
     if (!text) {
-      return [];
+      return { events: [], timestampMs };
     }
 
     const events: TranscriptMappedEvent[] = [
@@ -284,10 +349,24 @@ function mapTranscriptLine(line: string, cutoffMs: number | null): TranscriptMap
       });
     }
 
-    return events;
+    return { events, timestampMs };
   }
 
-  return [];
+  return { events: [], timestampMs };
+}
+
+function takeTrailingBufferedUserMappings(
+  pendingBeforeCutoff: readonly TranscriptLineMapping[],
+): TranscriptLineMapping[] {
+  const replayable: TranscriptLineMapping[] = [];
+  for (let index = pendingBeforeCutoff.length - 1; index >= 0; index -= 1) {
+    const mapping = pendingBeforeCutoff[index];
+    if (!(mapping.events.length === 1 && mapping.events[0].eventType === "user_message")) {
+      break;
+    }
+    replayable.unshift(mapping);
+  }
+  return replayable;
 }
 
 function extractUsagePayload(record: Record<string, unknown>): SessionUsagePayload | null {
@@ -303,7 +382,11 @@ function extractUsagePayload(record: Record<string, unknown>): SessionUsagePaylo
   }
 
   const inputTokens = getNumber(usage.input_tokens) ?? 0;
-  const model = getString(message?.model) ?? undefined;
+  const [modelName, modelUsageEntry] = firstRecordEntry(
+    asRecord(record.modelUsage) ?? asRecord(message?.modelUsage)
+  );
+  const modelUsage = asRecord(modelUsageEntry);
+  const model = modelName ?? getString(message?.model) ?? undefined;
   return {
     input_tokens: inputTokens,
     output_tokens: outputTokens,
@@ -313,8 +396,20 @@ function extractUsagePayload(record: Record<string, unknown>): SessionUsagePaylo
     ...(hasNumber(usage.cache_read_input_tokens)
       ? { cache_read_input_tokens: getNumber(usage.cache_read_input_tokens) }
       : {}),
+    ...(hasNumber(modelUsage?.contextWindow) ? { context_window: getNumber(modelUsage?.contextWindow) } : {}),
     ...(model ? { model } : {})
   };
+}
+
+function firstRecordEntry(
+  value: Record<string, unknown> | null
+): [string | undefined, unknown] {
+  if (!value) {
+    return [undefined, undefined];
+  }
+
+  const [key, entry] = Object.entries(value)[0] ?? [];
+  return [key, entry];
 }
 
 function extractTranscriptText(record: Record<string, unknown>): string | null {

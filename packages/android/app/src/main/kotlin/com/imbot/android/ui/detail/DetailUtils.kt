@@ -28,7 +28,6 @@ internal val MESSAGE_HORIZONTAL_PADDING = 16.dp
 internal val MESSAGE_VERTICAL_PADDING = 24.dp
 private const val MAX_ASK_USER_QUESTIONS = 5
 private const val TOOL_CALL_COPY_SUMMARY_LIMIT = 200
-private const val DEFAULT_CONTEXT_WINDOW = 200_000
 
 private val DefaultDetailStatusColors =
     StatusColors(
@@ -60,21 +59,6 @@ internal data class SessionUsageState(
 
     val usagePercent: Float
         get() = if (contextWindow > 0) (totalTokens.toFloat() / contextWindow).coerceIn(0f, 1f) else 0f
-}
-
-internal fun modelContextWindow(model: String?): Int {
-    val normalized = model.orEmpty().trim().lowercase(Locale.US).substringBefore("[")
-    if (normalized.isBlank()) {
-        return DEFAULT_CONTEXT_WINDOW
-    }
-
-    return when {
-        normalized.contains("opus") -> DEFAULT_CONTEXT_WINDOW
-        normalized.contains("sonnet") -> DEFAULT_CONTEXT_WINDOW
-        normalized.contains("haiku") -> DEFAULT_CONTEXT_WINDOW
-        normalized.contains("claude") -> DEFAULT_CONTEXT_WINDOW
-        else -> DEFAULT_CONTEXT_WINDOW
-    }
 }
 
 internal data class ScrollMutation(
@@ -239,10 +223,15 @@ internal fun statusBubbleDotColor(status: String): Color =
 
 internal fun formatTokenCount(count: Int): String =
     when {
-        count >= 1_000_000 -> String.format(Locale.US, "%.1fM", count / 1_000_000f)
-        count >= 1_000 -> String.format(Locale.US, "%.1fk", count / 1_000f)
+        count >= 1_000_000 -> formatCompactTokenCount(count / 1_000_000f, "M")
+        count >= 1_000 -> formatCompactTokenCount(count / 1_000f, "k")
         else -> count.toString()
     }
+
+private fun formatCompactTokenCount(
+    value: Float,
+    suffix: String,
+): String = "${String.format(Locale.US, "%.1f", value).removeSuffix(".0")}$suffix"
 
 internal fun usageColor(percent: Float): Color =
     when {

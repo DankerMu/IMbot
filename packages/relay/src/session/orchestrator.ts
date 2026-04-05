@@ -54,7 +54,21 @@ type SessionStartMetadata = {
   readonly model: string | null;
 };
 
-function toBooleanFields(session: Session): Session {
+type SessionUsageSummary = {
+  readonly inputTokens: number;
+  readonly outputTokens: number;
+  readonly contextWindow: number | null;
+  readonly model: string | null;
+};
+
+type RelaySessionRecord = Session & {
+  input_tokens: number | null;
+  output_tokens: number | null;
+  context_window: number | null;
+  local_available: boolean | number;
+};
+
+function toBooleanFields(session: RelaySessionRecord): RelaySessionRecord {
   return {
     ...session,
     local_available: Boolean(session.local_available)
@@ -101,7 +115,7 @@ export class SessionOrchestrator {
     const hasPrompt = !!input.prompt?.trim();
     const now = new Date().toISOString();
     const sessionId = randomUUID();
-    const session: Session = {
+    const session: RelaySessionRecord = {
       id: sessionId,
       provider,
       provider_session_id: null,
@@ -116,6 +130,9 @@ export class SessionOrchestrator {
       status: "queued",
       error_message: null,
       error_code: null,
+      input_tokens: 0,
+      output_tokens: 0,
+      context_window: null,
       local_available: false,
       created_at: now,
       updated_at: now,
@@ -138,11 +155,14 @@ export class SessionOrchestrator {
           status,
           error_message,
           error_code,
+          input_tokens,
+          output_tokens,
+          context_window,
           local_available,
           created_at,
           updated_at,
           last_active_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `
       )
       .run(
@@ -158,6 +178,9 @@ export class SessionOrchestrator {
         session.status,
         session.error_message,
         session.error_code,
+        session.input_tokens ?? 0,
+        session.output_tokens ?? 0,
+        session.context_window ?? null,
         session.local_available ? 1 : 0,
         session.created_at,
         session.updated_at,
@@ -479,7 +502,7 @@ export class SessionOrchestrator {
       return;
     }
 
-    if (this.shouldDropDuplicateSyntheticInitialUserMessage(session, message, payload)) {
+    if (this.shouldDropDuplicateTranscriptUserMessage(session, message, payload)) {
       return;
     }
 
@@ -619,7 +642,7 @@ export class SessionOrchestrator {
         ORDER BY created_at ASC
         `
       )
-      .all(hostId) as Session[];
+      .all(hostId) as RelaySessionRecord[];
 
     for (const session of sessions.map(toBooleanFields)) {
       const context = {
@@ -694,14 +717,15 @@ export class SessionOrchestrator {
     }
   }
 
-  private getSession(sessionId: string): Session | null {
+  private getSession(sessionId: string): RelaySessionRecord | null {
     const session =
-      (this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as Session | undefined) ?? null;
+      (this.db.prepare("SELECT * FROM sessions WHERE id = ?").get(sessionId) as RelaySessionRecord | undefined) ??
+      null;
 
     return session ? toBooleanFields(session) : null;
   }
 
-  private requireSession(sessionId: string): Session {
+  private requireSession(sessionId: string): RelaySessionRecord {
     const session = this.getSession(sessionId);
     if (!session) {
       throw new RelayError("not_found", `Session ${sessionId} does not exist`);
@@ -713,6 +737,7 @@ export class SessionOrchestrator {
   private insertEvent(sessionId: string, eventType: EventType, payload: unknown) {
     const seq = allocateSeq(this.db, sessionId, this.logger);
     const createdAt = new Date().toISOString();
+    this.persistSessionSummary(sessionId, eventType, payload, createdAt);
     const event = {
       id: randomUUID(),
       session_id: sessionId,
@@ -751,6 +776,78 @@ export class SessionOrchestrator {
     return storedEvent;
   }
 
+  private persistSessionSummary(sessionId: string, eventType: EventType, payload: unknown, updatedAt: string): void {
+    const currentSession = this.getSession(sessionId);
+    if (!currentSession) {
+      return;
+    }
+
+    const usageSummary =
+      eventType === "session_usage" ? this.extractSessionUsageSummary(payload, currentSession) : null;
+    const payloadModel =
+      payload && typeof payload === "object" && "model" in payload && typeof payload.model === "string"
+        ? payload.model.trim()
+        : "";
+    const nextModel = usageSummary?.model ?? (payloadModel !== "" ? payloadModel : (currentSession.model ?? null));
+    const nextInputTokens = usageSummary?.inputTokens ?? currentSession.input_tokens ?? 0;
+    const nextOutputTokens = usageSummary?.outputTokens ?? currentSession.output_tokens ?? 0;
+    const nextContextWindow = usageSummary?.contextWindow ?? currentSession.context_window ?? null;
+
+    const changed =
+      nextModel !== (currentSession.model ?? null) ||
+      nextInputTokens !== (currentSession.input_tokens ?? 0) ||
+      nextOutputTokens !== (currentSession.output_tokens ?? 0) ||
+      nextContextWindow !== (currentSession.context_window ?? null);
+
+    if (!changed) {
+      return;
+    }
+
+    this.db
+      .prepare(
+        `
+        UPDATE sessions
+        SET model = ?,
+            input_tokens = ?,
+            output_tokens = ?,
+            context_window = ?,
+            updated_at = ?
+        WHERE id = ?
+        `
+      )
+      .run(nextModel, nextInputTokens, nextOutputTokens, nextContextWindow, updatedAt, sessionId);
+  }
+
+  private extractSessionUsageSummary(payload: unknown, currentSession: Session): SessionUsageSummary | null {
+    if (!payload || typeof payload !== "object") {
+      return null;
+    }
+
+    const inputTokens =
+      "input_tokens" in payload && typeof payload.input_tokens === "number" && payload.input_tokens >= 0
+        ? payload.input_tokens
+        : currentSession.input_tokens ?? 0;
+    const outputTokens =
+      "output_tokens" in payload && typeof payload.output_tokens === "number" && payload.output_tokens >= 0
+        ? payload.output_tokens
+        : currentSession.output_tokens ?? 0;
+    const contextWindow =
+      "context_window" in payload && typeof payload.context_window === "number" && payload.context_window > 0
+        ? payload.context_window
+        : currentSession.context_window ?? null;
+    const model =
+      "model" in payload && typeof payload.model === "string" && payload.model.trim() !== ""
+        ? payload.model.trim()
+        : currentSession.model ?? null;
+
+    return {
+      inputTokens,
+      outputTokens,
+      contextWindow,
+      model
+    };
+  }
+
   private emitSyntheticInitialUserMessage(
     sessionId: string,
     provider: Session["provider"],
@@ -770,7 +867,7 @@ export class SessionOrchestrator {
     });
   }
 
-  private shouldDropDuplicateSyntheticInitialUserMessage(
+  private shouldDropDuplicateTranscriptUserMessage(
     session: Session,
     message: CompanionEventMessage,
     payload: unknown
@@ -779,16 +876,24 @@ export class SessionOrchestrator {
       return false;
     }
 
-    const initialPrompt = session.initial_prompt?.trim();
-    if (!initialPrompt) {
-      return false;
-    }
-
     const incomingText =
       payload && typeof payload === "object" && "text" in payload && typeof payload.text === "string"
         ? payload.text.trim()
         : "";
-    if (!incomingText || incomingText !== initialPrompt) {
+    if (!incomingText) {
+      return false;
+    }
+
+    if (this.isDuplicateSyntheticInitialUserMessage(session, incomingText)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  private isDuplicateSyntheticInitialUserMessage(session: Session, incomingText: string): boolean {
+    const initialPrompt = session.initial_prompt?.trim();
+    if (!initialPrompt || incomingText !== initialPrompt) {
       return false;
     }
 

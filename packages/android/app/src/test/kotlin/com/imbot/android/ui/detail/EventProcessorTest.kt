@@ -70,7 +70,7 @@ class EventProcessorTest {
     }
 
     @Test
-    fun `session_usage without context window falls back from model`() {
+    fun `session_usage without context window keeps context window at zero even when model is present`() {
         val result =
             processor.processWithMetadata(
                 event(
@@ -89,7 +89,6 @@ class EventProcessorTest {
             SessionUsageState(
                 inputTokens = 12,
                 outputTokens = 34,
-                contextWindow = 200_000,
                 model = "claude-sonnet-4-6",
             ),
             result.usageUpdate,

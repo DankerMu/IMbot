@@ -1,7 +1,10 @@
 package com.imbot.android.data.repository
 
 import com.imbot.android.data.local.SessionEntity
+import com.imbot.android.network.RelaySessionPage
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class StaleSessionSyncTest {
@@ -69,6 +72,34 @@ class StaleSessionSyncTest {
             )
 
         assertEquals(listOf("B"), staleIds)
+    }
+
+    @Test
+    fun `partial remote pages do not delete missing local sessions`() {
+        assertFalse(
+            shouldDeleteMissingSessionsFromPage(
+                RelaySessionPage(
+                    sessions = emptyList(),
+                    total = 10,
+                    limit = 5,
+                    offset = 0,
+                ),
+            ),
+        )
+    }
+
+    @Test
+    fun `last remote page may delete missing local sessions`() {
+        assertTrue(
+            shouldDeleteMissingSessionsFromPage(
+                RelaySessionPage(
+                    sessions = emptyList(),
+                    total = 5,
+                    limit = 5,
+                    offset = 5,
+                ),
+            ),
+        )
     }
 }
 
