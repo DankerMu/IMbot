@@ -163,7 +163,6 @@ export class TranscriptSyncer {
     cursor.trailingFragment = hasTrailingNewline ? "" : (lines.pop() ?? "");
     let cutoffSatisfied = cutoffMs == null || (!scanningFromStart && cursor.pendingBeforeCutoff.length === 0);
     const pendingBeforeCutoff = cursor.pendingBeforeCutoff;
-    let bufferedRowsOriginatedBeforeThisScan = pendingBeforeCutoff.length > 0;
 
     const emitMapping = async (mapping: TranscriptLineMapping): Promise<void> => {
       const shouldSuppressRuntimeMirror =
@@ -208,19 +207,15 @@ export class TranscriptSyncer {
         }
 
         if (mapping.timestampMs <= cutoffMs) {
-          bufferedRowsOriginatedBeforeThisScan = false;
           pendingBeforeCutoff.length = 0;
           continue;
         }
 
         cutoffSatisfied = true;
         const crossingIntoAssistantReply = mapping.events.some((event) => event.eventType === "assistant_message");
-        if (bufferedRowsOriginatedBeforeThisScan || crossingIntoAssistantReply) {
-          while (pendingBeforeCutoff.length > 0) {
-            const buffered = pendingBeforeCutoff.shift();
-            if (buffered) {
-              await emitMapping(buffered);
-            }
+        if (crossingIntoAssistantReply) {
+          for (const buffered of takeTrailingBufferedUserMappings(pendingBeforeCutoff)) {
+            await emitMapping(buffered);
           }
         }
         pendingBeforeCutoff.length = 0;
@@ -356,6 +351,20 @@ function mapTranscriptLine(line: string): TranscriptLineMapping {
   }
 
   return { events: [], timestampMs };
+}
+
+function takeTrailingBufferedUserMappings(
+  pendingBeforeCutoff: readonly TranscriptLineMapping[],
+): TranscriptLineMapping[] {
+  const replayable: TranscriptLineMapping[] = [];
+  for (let index = pendingBeforeCutoff.length - 1; index >= 0; index -= 1) {
+    const mapping = pendingBeforeCutoff[index];
+    if (!(mapping.events.length === 1 && mapping.events[0].eventType === "user_message")) {
+      break;
+    }
+    replayable.unshift(mapping);
+  }
+  return replayable;
 }
 
 function extractUsagePayload(record: Record<string, unknown>): SessionUsagePayload | null {
