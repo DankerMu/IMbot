@@ -14,6 +14,7 @@ import com.imbot.android.data.local.SessionDao
 import com.imbot.android.data.local.SessionEntity
 import com.imbot.android.network.RelayHttpClient
 import com.imbot.android.network.RelaySession
+import com.imbot.android.network.RelaySessionPage
 import com.imbot.android.network.ServerMessage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runTest
@@ -156,7 +157,51 @@ class SessionRepositoryRealtimeTest {
         }
 
     @Test
-    fun `refresh page preparation preserves summary seq while pruning stale local rows`() =
+    fun `updateSessionStatus does not block later realtime summary events with local clock timestamps`() =
+        runTest {
+            val sessionDao = InMemorySessionDao()
+            val repository = createRepository(sessionDao)
+            sessionDao.insertAll(
+                listOf(
+                    testSession(
+                        status = "queued",
+                        updatedAt = "2026-04-04T10:00:00Z",
+                        lastActiveAt = "2026-04-04T10:00:00Z",
+                    ),
+                ),
+            )
+
+            repository.updateSessionStatus(
+                sessionId = "sess-1",
+                status = "running",
+            )
+            repository.applyRealtimeSummaryEvent(
+                ServerMessage.Event(
+                    sessionId = "sess-1",
+                    seq = 1,
+                    eventType = "session_usage",
+                    payload =
+                        JSONObject()
+                            .put("input_tokens", 42_000)
+                            .put("output_tokens", 9_000)
+                            .put("context_window", 200_000)
+                            .put("model", "glm-5"),
+                    timestamp = "2026-04-04T10:01:00Z",
+                ),
+            )
+
+            val stored = sessionDao.getById("sess-1")
+            assertNotNull(stored)
+            assertEquals("running", stored?.status)
+            assertEquals("glm-5", stored?.model)
+            assertEquals(42_000, stored?.inputTokens)
+            assertEquals(9_000, stored?.outputTokens)
+            assertEquals(200_000, stored?.contextWindow)
+            assertEquals("2026-04-04T10:01:00Z", stored?.lastActiveAt)
+        }
+
+    @Test
+    fun `refresh page preparation preserves summary seq without deleting shifted sessions`() =
         runTest {
             val sessionDao = InMemorySessionDao()
             val repository = createRepository(sessionDao)
@@ -189,15 +234,21 @@ class SessionRepositoryRealtimeTest {
                 prepareSessionPageRefresh(
                     sessionDao = sessionDao,
                     localPage = localPage,
-                    remoteSessions =
-                        listOf(
-                            relaySession(
-                                id = "sess-1",
-                                status = "running",
-                                model = "glm-5",
-                                updatedAt = "2026-04-04T10:05:00Z",
-                                lastActiveAt = "2026-04-04T10:05:00Z",
-                            ),
+                    remotePage =
+                        RelaySessionPage(
+                            sessions =
+                                listOf(
+                                    relaySession(
+                                        id = "sess-1",
+                                        status = "running",
+                                        model = "glm-5",
+                                        updatedAt = "2026-04-04T10:05:00Z",
+                                        lastActiveAt = "2026-04-04T10:05:00Z",
+                                    ),
+                                ),
+                            total = 2,
+                            limit = 1,
+                            offset = 0,
                         ),
                 )
             sessionDao.insertAll(refresh.sessions)
@@ -224,7 +275,55 @@ class SessionRepositoryRealtimeTest {
             assertEquals(55_000, stored?.inputTokens)
             assertEquals(8_000, stored?.outputTokens)
             assertEquals(200_000, stored?.contextWindow)
-            assertEquals(null, sessionDao.getById("sess-2"))
+            assertNotNull(sessionDao.getById("sess-2"))
+        }
+
+    @Test
+    fun `refresh page preparation deletes missing sessions on the final remote page`() =
+        runTest {
+            val sessionDao = InMemorySessionDao()
+            val localPage =
+                listOf(
+                    testSession(
+                        id = "sess-1",
+                        status = "idle",
+                        createdAt = "2026-04-04T10:02:00Z",
+                        updatedAt = "2026-04-04T10:02:00Z",
+                        lastActiveAt = "2026-04-04T10:02:00Z",
+                    ),
+                    testSession(
+                        id = "sess-2",
+                        status = "idle",
+                        createdAt = "2026-04-04T10:01:00Z",
+                        updatedAt = "2026-04-04T10:01:00Z",
+                        lastActiveAt = "2026-04-04T10:01:00Z",
+                    ),
+                )
+            sessionDao.insertAll(localPage)
+
+            val refresh =
+                prepareSessionPageRefresh(
+                    sessionDao = sessionDao,
+                    localPage = localPage,
+                    remotePage =
+                        RelaySessionPage(
+                            sessions =
+                                listOf(
+                                    relaySession(
+                                        id = "sess-1",
+                                        status = "idle",
+                                        model = "glm-5",
+                                        updatedAt = "2026-04-04T10:02:00Z",
+                                        lastActiveAt = "2026-04-04T10:02:00Z",
+                                    ),
+                                ),
+                            total = 1,
+                            limit = 2,
+                            offset = 0,
+                        ),
+                )
+
+            assertEquals(listOf("sess-2"), refresh.staleIds)
         }
 
     private fun createRepository(

@@ -68,7 +68,7 @@ class SessionRepository
                         prepareSessionPageRefresh(
                             sessionDao = sessionDao,
                             localPage = localPage,
-                            remoteSessions = page.sessions,
+                            remotePage = page,
                         )
 
                     sessionDao.insertAll(refresh.sessions)
@@ -88,14 +88,11 @@ class SessionRepository
                 if (existing.status == status) {
                     return
                 }
-                val now = Instant.now().toString()
 
                 sessionDao.insertAll(
                     listOf(
                         existing.copy(
                             status = status,
-                            updatedAt = now,
-                            lastActiveAt = now,
                         ),
                     ),
                 )
