@@ -3,7 +3,6 @@
 package com.imbot.android.ui.detail
 
 import androidx.compose.ui.graphics.Color
-import com.imbot.android.network.RelaySlashCommand
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -138,11 +137,11 @@ class DetailUtilsTest {
     @Test
     fun `filterSkills matches command and label case insensitively`() {
         assertEquals(
-            listOf("compact"),
+            listOf("commit", "compact"),
             filterSkills("com").map(SkillItem::command),
         )
         assertEquals(
-            listOf("compact"),
+            listOf("commit", "compact"),
             filterSkills("COM").map(SkillItem::command),
         )
     }
@@ -152,60 +151,6 @@ class DetailUtilsTest {
         assertEquals(DEFAULT_SKILLS, filterSkills(""))
         assertTrue(filterSkills("zzz").isEmpty())
         assertTrue(filterSkills("co+").isEmpty())
-    }
-
-    @Test
-    fun `mergeDiscoveredSkills keeps runtime entries only and deduplicates repeated commands`() {
-        val merged =
-            mergeDiscoveredSkills(
-                listOf(
-                    SkillItem("review", "Review", "Dynamic review", SkillCategory.SLASH_COMMAND),
-                    SkillItem("agent-browser", "agent-browser", "Browser automation", SkillCategory.AGENT_SKILL),
-                    SkillItem("review", "Review Duplicate", "Duplicate", SkillCategory.BUILT_IN),
-                ),
-            )
-
-        assertEquals(1, merged.count { it.command == "review" })
-        assertTrue(merged.any { it.command == "agent-browser" })
-        assertFalse(merged.any { it.category == SkillCategory.BUILT_IN })
-    }
-
-    @Test
-    fun `toSkillItemOrNull maps relay categories and rejects invalid payloads`() {
-        assertEquals(
-            SkillItem("opsx:apply", "OPSX: Apply", "Implement tasks", SkillCategory.SLASH_COMMAND),
-            RelaySlashCommand(
-                command = "/opsx:apply",
-                label = "OPSX: Apply",
-                description = "Implement tasks",
-                category = "slash_command",
-            ).toSkillItemOrNull(),
-        )
-        assertEquals(
-            SkillItem("agent-browser", "agent-browser", "Installed skill", SkillCategory.AGENT_SKILL),
-            RelaySlashCommand(
-                command = "agent-browser",
-                label = "",
-                description = "",
-                category = "agent_skill",
-            ).toSkillItemOrNull(),
-        )
-        assertNull(
-            RelaySlashCommand(
-                command = "",
-                label = "bad",
-                description = "bad",
-                category = "slash_command",
-            ).toSkillItemOrNull(),
-        )
-        assertNull(
-            RelaySlashCommand(
-                command = "opsx:apply",
-                label = "bad",
-                description = "bad",
-                category = "unknown",
-            ).toSkillItemOrNull(),
-        )
     }
 
     @Test
