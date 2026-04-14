@@ -58,6 +58,7 @@ fun ToolCallCard(
     modifier: Modifier = Modifier,
 ) {
     var expanded by rememberSaveable(item.callId) { mutableStateOf(item.isRunning) }
+    var wasRunning by rememberSaveable(item.callId) { mutableStateOf(item.isRunning) }
     val hapticFeedback = LocalHapticFeedback.current
     val canLongPress = onLongPress != null && hasActions(item)
     val category = classifyTool(item.toolName)
@@ -82,7 +83,10 @@ fun ToolCallCard(
     LaunchedEffect(item.isRunning) {
         if (item.isRunning) {
             expanded = true
+        } else if (wasRunning) {
+            expanded = false
         }
+        wasRunning = item.isRunning
     }
 
     Row(
@@ -254,6 +258,7 @@ private fun ToolCallContent(
         ToolCategory.READ -> ReadToolContent(item)
         ToolCategory.WRITE -> WriteToolContent(item)
         ToolCategory.SEARCH -> SearchToolContent(item)
+        ToolCategory.SKILL -> SkillToolContent(item)
         ToolCategory.OTHER -> GenericToolContent(item)
     }
 }

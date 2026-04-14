@@ -42,6 +42,19 @@ class ToolCallUtilsTest {
     }
 
     @Test
+    fun `extractSkillName parses skill field from JSON args`() {
+        assertEquals("commit", extractSkillName("""{"skill":"commit","args":"-m 'fix'"}"""))
+    }
+
+    @Test
+    fun `extractSkillName returns null for non-JSON or missing skill`() {
+        assertNull(extractSkillName("not json"))
+        assertNull(extractSkillName("""{"other":"value"}"""))
+        assertNull(extractSkillName(null))
+        assertNull(extractSkillName(""))
+    }
+
+    @Test
     fun `extractJsonField returns requested string field`() {
         assertNull(extractJsonField(null, "field"))
         assertEquals("new text", extractJsonField("""{"new_string":"new text"}""", "new_string"))
@@ -76,6 +89,13 @@ class ToolCallUtilsTest {
             buildToolSummary(
                 category = ToolCategory.SEARCH,
                 item = toolCall(toolName = "search", args = """{"pattern":"TODO"}"""),
+            ),
+        )
+        assertEquals(
+            "Skill · /commit",
+            buildToolSummary(
+                category = ToolCategory.SKILL,
+                item = toolCall(toolName = "Skill", args = """{"skill":"commit"}"""),
             ),
         )
     }

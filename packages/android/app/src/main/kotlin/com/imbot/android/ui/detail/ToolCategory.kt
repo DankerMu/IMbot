@@ -4,6 +4,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Description
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Terminal
 import androidx.compose.material3.MaterialTheme
@@ -17,6 +18,7 @@ private val readToolNames = setOf("read", "readfile", "read_file")
 private val writeToolNames = setOf("write", "edit", "multiedit", "notebookedit")
 private val bashToolNames = setOf("bash", "execute", "shell", "command")
 private val searchToolNames = setOf("grep", "glob", "websearch", "webfetch", "search")
+private val skillToolNames = setOf("skill")
 
 internal enum class ToolCategory(
     val icon: ImageVector,
@@ -43,6 +45,11 @@ internal enum class ToolCategory(
         accentColor = { MaterialTheme.colorScheme.primary },
         label = "搜索",
     ),
+    SKILL(
+        icon = Icons.Outlined.Extension,
+        accentColor = { MaterialTheme.colorScheme.tertiary },
+        label = "技能",
+    ),
     OTHER(
         icon = Icons.Outlined.Build,
         accentColor = { MaterialTheme.colorScheme.onSurfaceVariant },
@@ -57,6 +64,7 @@ internal fun classifyTool(toolName: String): ToolCategory {
         name in writeToolNames -> ToolCategory.WRITE
         name in bashToolNames -> ToolCategory.BASH
         name in searchToolNames -> ToolCategory.SEARCH
+        name in skillToolNames -> ToolCategory.SKILL
         else -> ToolCategory.OTHER
     }
 }

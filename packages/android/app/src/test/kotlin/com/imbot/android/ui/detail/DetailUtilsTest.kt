@@ -36,6 +36,34 @@ class DetailUtilsTest {
     }
 
     @Test
+    fun `SessionUsageState totalTokens includes cache tokens`() {
+        val usage =
+            SessionUsageState(
+                inputTokens = 500,
+                outputTokens = 200,
+                cacheCreationTokens = 8_000,
+                cacheReadTokens = 150_000,
+                contextWindow = 1_000_000,
+            )
+
+        assertEquals(158_700, usage.totalTokens)
+    }
+
+    @Test
+    fun `SessionUsageState usagePercent reflects cache tokens`() {
+        val usage =
+            SessionUsageState(
+                inputTokens = 500,
+                outputTokens = 200,
+                cacheCreationTokens = 8_000,
+                cacheReadTokens = 150_000,
+                contextWindow = 1_000_000,
+            )
+
+        assertEquals(0.1587f, usage.usagePercent, 0.001f)
+    }
+
+    @Test
     fun `SessionUsageState keeps usage percent at zero without a real context window`() {
         val usage =
             SessionUsageState(
@@ -44,6 +72,19 @@ class DetailUtilsTest {
             )
 
         assertEquals(0f, usage.usagePercent, 0.0001f)
+    }
+
+    @Test
+    fun `SessionUsageState totalTokens does not overflow with large cache values`() {
+        val usage =
+            SessionUsageState(
+                inputTokens = Int.MAX_VALUE / 2,
+                outputTokens = Int.MAX_VALUE / 2,
+                cacheCreationTokens = 100,
+                cacheReadTokens = 100,
+            )
+
+        assertTrue(usage.totalTokens > 0)
     }
 
     @Test
@@ -738,6 +779,15 @@ class DetailUtilsTest {
         assertEquals(
             "Tool: Read\nInput: file.kt\nOutput: content",
             copyableText(toolCall(args = "file.kt", result = "content")),
+        )
+    }
+
+    @Test
+    fun `copyableText suppresses args for Skill tool and shows skill name`() {
+        val skillArgs = """{"skill":"commit","args":"some long prompt content..."}"""
+        assertEquals(
+            "Tool: Skill\nSkill: /commit\nOutput: done",
+            copyableText(toolCall(toolName = "Skill", args = skillArgs, result = "done")),
         )
     }
 
