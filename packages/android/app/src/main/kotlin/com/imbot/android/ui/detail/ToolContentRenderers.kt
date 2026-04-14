@@ -310,6 +310,8 @@ internal fun SkillToolContent(item: MessageItem.ToolCall) {
                         fontFamily = FontFamily.Monospace,
                     ),
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
 

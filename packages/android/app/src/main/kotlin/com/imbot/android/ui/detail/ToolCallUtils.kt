@@ -64,7 +64,7 @@ internal fun buildToolSummary(
             -> extractFilePath(item.args)
 
             ToolCategory.SEARCH -> extractSearchPattern(item.args)?.take(TOOL_SUMMARY_DETAIL_LIMIT)
-            ToolCategory.SKILL -> extractSkillName(item.args)?.let { "/$it" }
+            ToolCategory.SKILL -> extractSkillName(item.args)?.take(TOOL_SUMMARY_DETAIL_LIMIT)?.let { "/$it" }
             ToolCategory.OTHER -> null
         }
 

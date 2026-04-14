@@ -55,7 +55,10 @@ internal data class SessionUsageState(
     val model: String? = null,
 ) {
     val totalTokens: Int
-        get() = inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens
+        get() =
+            (inputTokens.toLong() + outputTokens + cacheCreationTokens + cacheReadTokens)
+                .coerceAtMost(Int.MAX_VALUE.toLong())
+                .toInt()
 
     val usagePercent: Float
         get() = if (contextWindow > 0) (totalTokens.toFloat() / contextWindow).coerceIn(0f, 1f) else 0f
@@ -629,32 +632,31 @@ internal fun copyableText(item: MessageItem): String? =
         is MessageItem.InteractiveToolCall ->
             item.primaryQuestion.question.takeIf(String::isNotBlank)
         is MessageItem.UserMessage -> item.text.takeIf(String::isNotBlank)
-        is MessageItem.ToolCall ->
-            buildString {
-                item.toolName.takeIf(String::isNotBlank)?.let { toolName ->
-                    append("Tool: ")
-                    append(toolName)
-                }
-                item.args?.takeIf(String::isNotBlank)?.let { args ->
-                    if (isNotEmpty()) {
-                        append("\n")
-                    }
-                    append("Input: ")
-                    append(summarizeToolCallCopyField(args))
-                }
-                item.result?.takeIf(String::isNotBlank)?.let { result ->
-                    if (isNotEmpty()) {
-                        append("\n")
-                    }
-                    append("Output: ")
-                    append(summarizeToolCallCopyField(result))
-                }
-            }.takeIf(String::isNotBlank)
-
+        is MessageItem.ToolCall -> copyableToolCallText(item)
         is MessageItem.StatusChange ->
             item.description?.takeIf(String::isNotBlank)
                 ?: item.message?.takeIf(String::isNotBlank)
     }
+
+private fun copyableToolCallText(item: MessageItem.ToolCall): String? =
+    buildString {
+        item.toolName.takeIf(String::isNotBlank)?.let { append("Tool: ").append(it) }
+        if (classifyTool(item.toolName) == ToolCategory.SKILL) {
+            extractSkillName(item.args)?.let { name ->
+                if (isNotEmpty()) append("\n")
+                append("Skill: /$name")
+            }
+        } else {
+            item.args?.takeIf(String::isNotBlank)?.let { args ->
+                if (isNotEmpty()) append("\n")
+                append("Input: ").append(summarizeToolCallCopyField(args))
+            }
+        }
+        item.result?.takeIf(String::isNotBlank)?.let { result ->
+            if (isNotEmpty()) append("\n")
+            append("Output: ").append(summarizeToolCallCopyField(result))
+        }
+    }.takeIf(String::isNotBlank)
 
 private fun summarizeToolCallCopyField(text: String): String =
     if (text.length > TOOL_CALL_COPY_SUMMARY_LIMIT) {

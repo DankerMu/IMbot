@@ -76,6 +76,19 @@ class DetailUtilsTest {
     }
 
     @Test
+    fun `SessionUsageState totalTokens does not overflow with large cache values`() {
+        val usage =
+            SessionUsageState(
+                inputTokens = Int.MAX_VALUE / 2,
+                outputTokens = Int.MAX_VALUE / 2,
+                cacheCreationTokens = 100,
+                cacheReadTokens = 100,
+            )
+
+        assertTrue(usage.totalTokens > 0)
+    }
+
+    @Test
     fun `SessionUsageState clamps usagePercent at one`() {
         val usage =
             SessionUsageState(
@@ -821,6 +834,15 @@ class DetailUtilsTest {
         assertEquals(
             "Tool: Read\nInput: file.kt\nOutput: content",
             copyableText(toolCall(args = "file.kt", result = "content")),
+        )
+    }
+
+    @Test
+    fun `copyableText suppresses args for Skill tool and shows skill name`() {
+        val skillArgs = """{"skill":"commit","args":"some long prompt content..."}"""
+        assertEquals(
+            "Tool: Skill\nSkill: /commit\nOutput: done",
+            copyableText(toolCall(toolName = "Skill", args = skillArgs, result = "done")),
         )
     }
 
