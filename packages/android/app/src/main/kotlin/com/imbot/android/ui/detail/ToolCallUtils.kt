@@ -31,6 +31,11 @@ internal fun extractSearchPattern(args: String?): String? {
         ?: json?.optNonBlankString("url")
 }
 
+internal fun extractSkillName(args: String?): String? {
+    val json = args?.takeIf(String::isNotBlank)?.let(::parseJsonObject)
+    return json?.optNonBlankString("skill")
+}
+
 internal fun extractJsonField(
     json: String?,
     field: String,
@@ -59,6 +64,7 @@ internal fun buildToolSummary(
             -> extractFilePath(item.args)
 
             ToolCategory.SEARCH -> extractSearchPattern(item.args)?.take(TOOL_SUMMARY_DETAIL_LIMIT)
+            ToolCategory.SKILL -> extractSkillName(item.args)?.let { "/$it" }
             ToolCategory.OTHER -> null
         }
 

@@ -55,7 +55,7 @@ internal data class SessionUsageState(
     val model: String? = null,
 ) {
     val totalTokens: Int
-        get() = inputTokens + outputTokens
+        get() = inputTokens + outputTokens + cacheCreationTokens + cacheReadTokens
 
     val usagePercent: Float
         get() = if (contextWindow > 0) (totalTokens.toFloat() / contextWindow).coerceIn(0f, 1f) else 0f

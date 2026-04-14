@@ -30,6 +30,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.imbot.android.ui.components.CodeBlock
 
+private const val SKILL_RESULT_LIMIT = 200
+
 @Composable
 internal fun BashToolContent(item: MessageItem.ToolCall) {
     val command = extractBashCommand(item.args)
@@ -283,6 +285,43 @@ internal fun GenericToolContent(item: MessageItem.ToolCall) {
             ToolCallSection(
                 title = "结果",
                 content = result,
+            )
+        }
+    }
+}
+
+@Composable
+internal fun SkillToolContent(item: MessageItem.ToolCall) {
+    val skillName = extractSkillName(item.args)
+    val result = item.result?.takeIf(String::isNotBlank)
+
+    Column(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        if (skillName != null) {
+            Text(
+                text = "/$skillName",
+                style =
+                    MaterialTheme.typography.bodyMedium.copy(
+                        fontFamily = FontFamily.Monospace,
+                    ),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        if (result != null) {
+            ToolCallSection(
+                title = "结果",
+                content =
+                    if (result.length > SKILL_RESULT_LIMIT) {
+                        result.take(SKILL_RESULT_LIMIT) + "..."
+                    } else {
+                        result
+                    },
             )
         }
     }

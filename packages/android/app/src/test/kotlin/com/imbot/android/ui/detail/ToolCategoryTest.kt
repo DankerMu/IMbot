@@ -19,4 +19,16 @@ class ToolCategoryTest {
         assertEquals(ToolCategory.OTHER, classifyTool("Agent"))
         assertEquals(ToolCategory.OTHER, classifyTool(""))
     }
+
+    @Test
+    fun `classifyTool identifies Skill tool`() {
+        assertEquals(ToolCategory.SKILL, classifyTool("Skill"))
+        assertEquals(ToolCategory.SKILL, classifyTool("skill"))
+        assertEquals(ToolCategory.SKILL, classifyTool("SKILL"))
+    }
+
+    @Test
+    fun `classifyTool does not classify ToolSearch as SKILL`() {
+        assertEquals(ToolCategory.OTHER, classifyTool("ToolSearch"))
+    }
 }

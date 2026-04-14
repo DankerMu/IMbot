@@ -82,6 +82,8 @@ fun ToolCallCard(
     LaunchedEffect(item.isRunning) {
         if (item.isRunning) {
             expanded = true
+        } else {
+            expanded = false
         }
     }
 
@@ -254,6 +256,7 @@ private fun ToolCallContent(
         ToolCategory.READ -> ReadToolContent(item)
         ToolCategory.WRITE -> WriteToolContent(item)
         ToolCategory.SEARCH -> SearchToolContent(item)
+        ToolCategory.SKILL -> SkillToolContent(item)
         ToolCategory.OTHER -> GenericToolContent(item)
     }
 }
