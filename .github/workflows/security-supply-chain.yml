@@ -80,7 +80,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Dependency review
-        uses: actions/dependency-review-action@v4
+        uses: actions/dependency-review-action@v5
         with:
           # GHSA-vpq2-c234-7xj6: low-severity @tootallnate/once in firebase-admin
           # transitive chain (6 levels deep, no upstream fix available)
